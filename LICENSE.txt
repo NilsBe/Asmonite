@@ -1,0 +1,106 @@
+﻿Asmonite - Lizenz / License
+===========================
+
+Copyright © 2026 Nils Belde. Alle Rechte vorbehalten. All rights reserved.
+
+The English translation follows the German text.
+
+
+DEUTSCH (maßgebliche Fassung)
+------------------------------
+
+"Die Software" sind Asmonite.exe, Dismonite.exe, asmoc.exe, conwatch.exe,
+dbgload.com und alle Dateien, die mit ihnen ausgeliefert werden.
+
+1. Nutzung
+   Die Software ist kostenlos (Freeware). Jede Person und jedes Unternehmen
+   darf sie für private und gewerbliche Zwecke auf beliebig vielen Rechnern
+   nutzen.
+
+2. Ihre Programme gehören Ihnen
+   Was Sie mit der Software erstellen - zum Beispiel assemblierte Programme,
+   Quelltexte oder aus Dismonite exportierte .asm-Dateien -, gehört Ihnen.
+   Sie dürfen es ohne Einschränkung nutzen, weitergeben und verkaufen; diese
+   Lizenz stellt daran keine Bedingungen. Rechte Dritter an Programmen, die Sie
+   mit der Software untersuchen, bleiben davon unberührt.
+
+3. Weitergabe
+   Sie dürfen die Software weitergeben und zum Beispiel auf Download-Seiten
+   anbieten, wenn sie unverändert und vollständig, zusammen mit dieser Lizenz,
+   weitergegeben wird und für die Software selbst kein Entgelt verlangt wird.
+
+4. Nicht erlaubt
+   - veränderte Fassungen der Software weiterzugeben oder zu veröffentlichen,
+   - die Software zu verkaufen oder zu vermieten,
+   - Urheberrechtsvermerke zu entfernen oder zu ändern.
+
+5. Untersuchung fremder Programme
+   Wer mit Dismonite oder dem Debugger Programme Dritter untersucht, ist
+   selbst dafür verantwortlich, dass er dazu berechtigt ist (in Deutschland
+   unter anderem nach §§ 69d und 69e UrhG).
+
+6. Gewährleistung und Haftung
+   Die Software wird unentgeltlich und ohne Gewähr überlassen. Der Urheber
+   haftet nur für Vorsatz und grobe Fahrlässigkeit; für Mängel nur, wenn er
+   sie arglistig verschwiegen hat. Die Haftung nach dem Produkthaftungsgesetz
+   und für die Verletzung von Leben, Körper oder Gesundheit bleibt unberührt.
+   Bitte sichern Sie Ihre Daten und Quelltexte regelmäßig.
+
+7. Fremde Software
+   Die Software enthält keine Bestandteile Dritter, die eine eigene Lizenz
+   haben. Für das Debuggen von DOS-Programmen kann sie QEMU und FreeDOS
+   verwenden; diese werden nicht mitgeliefert und stehen unter ihren eigenen
+   Lizenzen.
+
+8. Recht
+   Es gilt das Recht der Bundesrepublik Deutschland. Weichen die deutsche und
+   die englische Fassung voneinander ab, gilt die deutsche.
+
+
+ENGLISH (translation)
+---------------------
+
+"The software" means Asmonite.exe, Dismonite.exe, asmoc.exe, conwatch.exe,
+dbgload.com and all files delivered with them.
+
+1. Use
+   The software is free of charge (freeware). Any person and any company may
+   use it for private and commercial purposes on any number of computers.
+
+2. Your programs are yours
+   What you create with the software - for example assembled programs, source
+   code or .asm files exported from Dismonite - belongs to you. You may use,
+   distribute and sell it without restriction; this license sets no conditions
+   on it. The rights of third parties in programs you examine with the software
+   are not affected.
+
+3. Redistribution
+   You may pass the software on and offer it, for example, on download sites,
+   if it is passed on unchanged and complete, together with this license, and
+   no fee is charged for the software itself.
+
+4. Not permitted
+   - to distribute or publish modified versions of the software,
+   - to sell or rent the software,
+   - to remove or change copyright notices.
+
+5. Examining programs of others
+   Whoever examines programs of third parties with Dismonite or the debugger
+   is responsible for being entitled to do so (in Germany, among others, under
+   §§ 69d and 69e of the Copyright Act, UrhG).
+
+6. Warranty and liability
+   The software is provided free of charge and without warranty. The author is
+   liable only for intent and gross negligence; for defects only if he
+   fraudulently concealed them. Liability under the German Product Liability
+   Act and for injury to life, body or health remains unaffected. Please back
+   up your data and source code regularly.
+
+7. Software of others
+   The software contains no parts of third parties that have a license of
+   their own. For debugging DOS programs it can use QEMU and FreeDOS; these are
+   not included and are under their own licenses.
+
+8. Law
+   The law of the Federal Republic of Germany applies. If the German and the
+   English version differ, the German version prevails.
