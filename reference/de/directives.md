@@ -142,6 +142,64 @@ geschrieben; der Name hat keinen Ordneranteil. Asmonite startet und debuggt die 
 
 Verwandt: `.format`
 
+## .target – das Gerät
+
+Sagt, für welches Gerät das Programm ist. Die Ausgabe ist dann eine reine Binärdatei (wie `.format binary`,
+das deshalb wegfallen kann), und nach dem Assemblieren prüft Asmonite das Programm für dieses Gerät: Was nicht
+passt, ist ein Fehler mit der Zeile, bevor etwas auf das Gerät geschrieben wird. Beim Debuggen prüft
+Asmonite außerdem, ob das angeschlossene Gerät das richtige ist (die Chip-ID), bevor es etwas schreibt.
+
+**Syntax:** `.target pico2` (der Raspberry Pi Pico 2; `rp2350` geht auch) oder `.target pico` (der Raspberry Pi
+Pico; `rp2040` geht auch)
+
+Was `.target pico2` prüft:
+- `.arch riscv32` (die RISC-V-Kerne) oder `.arch thumb` (die Arm-Kerne)
+- `.imagebase` im RAM (`0x20000000`, 520 KB) oder im Flash (`0x10000000`, 4 MB), und das Programm passt hinein
+- ein Programm für den Flash hat in seinen ersten 4 KB einen IMAGE_DEF-Block, dessen IMAGE_TYPE zu `.arch`
+  passt: `0x1101` für RISC-V, `0x1021` für Arm (sonst startet das Boot-ROM es nicht oder startet die anderen Kerne)
+- ein Arm-Programm für den Flash beginnt mit seiner Vektortabelle: Stackzeiger im RAM, dann die Startadresse
+  mit gesetztem Bit 0 (`dd _start + 1`)
+
+Was `.target pico` prüft:
+- `.arch thumb`, und nur die Befehle des Cortex-M0+ (ARMv6-M): von den 32-Bit-Befehlen nur `bl`, `msr`, `mrs`,
+  `dmb`, `dsb`, `isb`; kein `movw`/`movt`, keine `.w`-Formen, kein `cbz`, `cbnz`, `it`
+- `.imagebase` im RAM (`0x20000000`, 264 KB) oder im Flash (`0x10000000`, 2 MB), und das Programm passt hinein
+- ein Programm für den Flash beginnt mit dem boot2-Block (256 Bytes: 252 Bytes Code, dann ihre CRC-32), dahinter
+  bei `0x10000100` die Vektortabelle
+
+```asm
+.target pico2
+.arch riscv32
+.imagebase 0x20000000
+```
+
+Ohne `.target` gilt `.arch thumb` mit `.format binary` als Programm für die Arm-Kerne des Pico 2; das gibt
+eine Warnung.
+
+Verwandt: `.arch`, `.imagebase`, `err-target`
+
+## .boot2 – der boot2-Block des Pico
+
+Bei `.target pico`: Setzt an dieser Stelle die 256 Bytes ein, mit denen der RP2040 ein Programm aus dem Flash
+startet. Das ist ein kleines Programm, das den Flash-Chip einrichtet, mit seiner CRC-32 am Ende. Es steht
+am Anfang eines Flash-Programms; danach folgt bei `0x10000100` die Vektortabelle.
+
+**Syntax:** `.boot2` (der Block des Pico-SDK für den Flash des Pico: die Datei `boot2\boot2_w25q080.bin`
+neben Asmonite, und fehlt sie, dieselben Bytes, die Asmonite eingebaut hat) oder `.boot2 datei.bin` (eine
+eigene Datei neben der Quelle, für ein Board mit anderem Flash-Chip: 252 Bytes, dann hängt Asmonite die
+CRC-32 an, oder 256 Bytes, dann prüft es sie)
+
+```asm
+.target pico
+.arch thumb
+.imagebase 0x10000000
+    .boot2
+    dd 0x20042000       ; Vektortabelle bei 0x10000100: Stackzeiger
+    dd _start + 1       ; und Startadresse
+```
+
+Verwandt: `.target`, `err-target`
+
 ## .code, .data – Abschnitte eines PE-Programms
 
 Bei `.format pe` sagen sie, wohin die folgenden Zeilen kommen: `.code` ist das Programm, `.data` die

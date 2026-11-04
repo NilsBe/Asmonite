@@ -4,9 +4,9 @@ Deutsch | [English](README.md)
 
 **Asmonite** ist ein Assembler mit Editor und Debugger für Windows. **Dismonite** ist ein Disassembler
 und Debugger, der vorhandene Programme liest. Beide sind kostenlos, laufen ohne Installation unter
-Windows und arbeiten mit 32-Bit- und 64-Bit-Intel-Code sowie mit ARM.
+Windows und arbeiten mit 32-Bit- und 64-Bit-Intel-Code, mit ARM und mit RISC-V auf dem Raspberry Pi Pico 2.
 
-Aktuelle Version: **0.7.6** | Website: [asmonite.com](https://asmonite.com) und
+Aktuelle Version: **0.8.0** | Website: [asmonite.com](https://asmonite.com) und
 [dismonite.com](https://dismonite.com) | Chat: [Discord](https://discord.gg/Sj8kvqEkc)
 
 ![Der Editor von Asmonite](assets/editor.png)
@@ -22,6 +22,9 @@ Aktuelle Version: **0.7.6** | Website: [asmonite.com](https://asmonite.com) und
 - Debugger: Breakpoints, Einzelschritt (über / hinein), bis zum Cursor, Register (Änderungen rot), Stack,
   Speicher, Watch-Fenster, Programmausgabe. Windows-Programme laufen auf diesem Rechner, x64 über einen
   Hilfsprozess, ARM-Programme auf einem Windows-on-ARM-Rechner, DOS-Programme in QEMU mit FreeDOS.
+- **Raspberry Pi Pico 2 und Pico:** RISC-V (Hazard3) und Arm (Cortex-M33, Cortex-M0+) mit `.target pico2` /
+  `.target pico`; F7 schreibt das Programm über eine CMSIS-DAP-Debug-Probe ins RAM oder in den Flash und
+  debuggt es, **ohne OpenOCD**; UF2-Dateien für das BOOTSEL-Laufwerk. Anleitung: [docs/de/riscv-pico2.md](docs/de/riscv-pico2.md).
 - Übersetzt auch eine kleine C-Teilmenge (`asmonite_cc`, abgeleitet von OTCC) und debuggt sie zeilenweise.
 
 **Dismonite** (Disassembler, Debugger)
@@ -46,8 +49,8 @@ Mit den Prüfsummen lässt sich nachprüfen, dass die Datei die veröffentlichte
 | Ordner | Inhalt |
 |--------|--------|
 | [`docs/`](docs) | Anleitungen und die Unterschiede zu NASM, auf Deutsch und Englisch |
-| [`reference/`](reference) | Die Befehlsinfo der Programme (F1) als Text: x86, x64, ARM, ARM64, Windows-API, DOS |
-| [`examples/`](examples) | Beispielprogramme: Windows (Intel, ARM), DOS, `func` / `if` / Schleifen, ein C- und ein Pascal-Beispiel |
+| [`reference/`](reference) | Die Befehlsinfo der Programme (F1) als Text: x86, x64, ARM, ARM64, RISC-V, Windows-API, DOS |
+| [`examples/`](examples) | Beispielprogramme: Windows (Intel, ARM), DOS, Raspberry Pi Pico 2 und Pico, `func` / `if` / Schleifen, ein C- und ein Pascal-Beispiel |
 | [`CHANGELOG.md`](CHANGELOG.md) | Was sich in welcher Version geändert hat |
 
 Die Programme selbst liegen in der ZIP-Datei der Releases, nicht in diesem Repository.

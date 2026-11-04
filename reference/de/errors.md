@@ -302,6 +302,31 @@ des `.code`-Abschnitts.
 vor dem ersten Befehl oder den ersten Daten, mit einem reinen Dateinamen: Die Datei wird neben der Quelle
 geschrieben, also ohne Ordner und Laufwerk.
 
+## err-target – .target
+
+**Meldung:** `.target pico2: ...`, `unknown .target`, `second .target ...`, die Warnung `.arch thumb with .format binary is taken as a program for the Arm cores ...`
+
+`.target pico2` prüft das Programm für den Raspberry Pi Pico 2 (siehe `.target`). Die Meldung sagt, was nicht
+passt:
+- **IMAGE_DEF fehlt:** Ein Programm für den Flash braucht den Block in seinen ersten 4 KB, sonst startet das
+  Boot-ROM es nicht. Vorlage: `examples\pico2\blink_flash.asm` (RISC-V), `blink_arm_flash.asm` (Arm).
+- **IMAGE_TYPE passt nicht:** `0x1101` ist RISC-V, `0x1021` Arm; mit dem falschen Wert startet das Boot-ROM die
+  anderen Kerne.
+- **Vektortabelle:** Ein Arm-Programm im Flash beginnt mit dem Stackzeiger (eine Adresse im RAM) und der
+  Startadresse mit Bit 0 (`dd _start + 1`: Thumb-Code).
+- **`.imagebase`:** im RAM (`0x20000000`) oder im Flash (`0x10000000`), und das Programm muss hineinpassen.
+
+Bei `.target pico` (RP2040) außerdem:
+- **Befehl, den der Cortex-M0+ nicht hat:** Er kennt nur Thumb-1 und von den 32-Bit-Befehlen nur `bl`, `msr`,
+  `mrs` und die Barrieren. Eine Konstante lädt dort `ldr r0, wert` aus einem Wort hinter dem Code statt
+  `movw`/`movt`.
+- **boot2-Block:** Die ersten 256 Bytes eines Flash-Programms sind ein kleines Programm, das den Flash-Chip
+  einrichtet, mit seiner CRC-32 am Ende. Stimmt die CRC nicht, startet das Boot-ROM nichts. `.boot2` setzt
+  den Block des Pico-SDK ein; `.boot2 datei.bin` eine eigene Datei mit 252 oder 256 Bytes.
+
+Die Warnung ohne `.target`: Asmonite nimmt `.arch thumb` mit `.format binary` als Programm für den Pico 2.
+Schreibe `.target pico2`, dann ist es gesagt und geprüft.
+
 ## err-internal – interner Fehler
 
 **Meldung:** `internal error: ...`
