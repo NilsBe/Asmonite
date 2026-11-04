@@ -1,16 +1,48 @@
-# The Raspberry Pi Pico 2 and Pico with Asmonite
+# The Raspberry Pi Pico and Pico 2 with Asmonite
 
-How to write a program in RISC-V or Arm assembler, run it on a Raspberry Pi Pico 2 or Pico and look at it while it runs. You need no other tool: Asmonite assembles the program, writes it to the board over the debug probe and lets you step through it. The instruction reference is the F1 help of Asmonite (`help\en\riscv.md`). The first Pico (RP2040) has a section of its own: [The Raspberry Pi Pico (RP2040)](#the-raspberry-pi-pico-rp2040).
+How to write a program in RISC-V or Arm assembler, run it on a Raspberry Pi Pico or Pico 2 and look at it while it runs. You need no other tool: Asmonite assembles the program, writes it to the board over the debug probe and lets you step through it. The instruction reference is the F1 help of Asmonite (`help\en\riscv.md`). The Pico (RP2040) comes first; most of the guide is then about the Pico 2 (RP2350) and its RISC-V cores, and the steps of [Running and debugging](#running-and-debugging) are the same for both boards.
 
 ## What you need
 
-- a **Raspberry Pi Pico 2** or a **Raspberry Pi Pico** (not the W models: there the LED sits on the wireless chip)
-- a **debug probe** with CMSIS-DAP: the Raspberry Pi Debug Probe, or a second Pico with the `debugprobe` firmware. Three wires go to the debug pins of the Pico 2 (SWCLK, GND, SWDIO); the Pico 2 gets its power over its own USB cable.
+- a **Raspberry Pi Pico** or a **Raspberry Pi Pico 2** (not the W models: there the LED sits on the wireless chip)
+- a **debug probe** with CMSIS-DAP: the Raspberry Pi Debug Probe, or a second Pico with the `debugprobe` firmware. Three wires go to the debug pins of the board (SWCLK, GND, SWDIO); the board gets its power over its own USB cable.
 - Windows with Asmonite. The probe needs no driver; Windows takes it as a WinUSB device.
 
 Only one program can use the probe at a time: if OpenOCD or another debugger runs, close it (or choose OpenOCD in *Debug > Debug targets*, a backup for the RISC-V cores).
 
-## The chip in short
+## The Raspberry Pi Pico (RP2040)
+
+The first Pico has an RP2040 with two Arm Cortex-M0+ and no RISC-V. Asmonite debugs its core 0 over the same probe and the same three wires. The examples are in `examples\pico\`: `blink_ram.asm` (in the RAM) and `blink_flash.asm` (in the flash; it starts by itself after a power cycle).
+
+```asm
+.target pico            ; for the Raspberry Pi Pico (RP2040)
+.arch thumb
+.imagebase 0x10000000   ; the flash
+    .boot2              ; the boot2 block of the Pico SDK
+vectors:
+    dd 0x20042000       ; vector table at 0x10000100: stack pointer
+    dd _start + 1       ; and start address (+1: Thumb code)
+_start:
+    ...
+```
+
+| What | Address |
+|---|---|
+| Flash (2 MB) | `0x10000000` |
+| RAM (264 KB) | `0x20000000` to `0x20041FFF` |
+| Peripherals, SIO | `0x40000000`, `0xD0000000` (the same as on the Pico 2) |
+
+What is special about it (the Pico 2 follows below):
+
+- **Fewer instructions.** The Cortex-M0+ knows the ARMv6-M: Thumb with the 16-bit instructions, of the 32-bit ones only `bl`, `msr`, `mrs` and the barriers. There is no `movw`/`movt`, no `cbz`, `cbnz`, `it`; most instructions work on `r0` to `r7` only. A 32-bit constant comes from a word behind the code (`ldr r0, label`). With `.target pico` the assembler reports every other instruction as an error with its line.
+- **boot2 instead of IMAGE_DEF.** The boot ROM of the RP2040 starts a flash program only if its first 256 bytes are a small program that sets up the flash chip, with its CRC-32 at the end. **`.boot2`** puts the block of the Pico SDK there (the file `boot2\boot2_w25q080.bin`, or the same bytes built into Asmonite); `.boot2 file.bin` takes a block of your own (252 bytes: the CRC is added; 256 bytes: it is checked). The vector table follows at `0x10000100`.
+- **The pads are not isolated** after a reset: the program needs no `ISO` bit.
+- **Breakpoints:** 4 hardware breakpoints, in the flash only; in the RAM the debugger writes `bkpt` instructions instead, which the memory view does not show.
+- *Debug > Debug targets > Raspberry Pi Pico (RP2040)* and *Test the connection*, then F7 as in [Running and debugging](#running-and-debugging); *Save as UF2 file* writes the family of the RP2040.
+
+A program for the Pico at a Pico 2 (or the other way round) is refused with the name of the board before anything is written. If the cores of the RP2040 do not answer after such an attempt, Asmonite resets them through the rescue port of the chip.
+
+## The Pico 2 (RP2350) in short
 
 The RP2350 on the Pico 2 has two processors of each of two kinds: two Arm Cortex-M33 and two RISC-V cores (Hazard3). At start-up the boot ROM chooses which pair runs, from the program in the flash. Asmonite writes programs for both: for the RISC-V cores (`.arch riscv32`, RV32IMAC with the bit manipulation extensions) and for the Arm cores (`.arch thumb`, see [The Arm cores](#the-arm-cores)); it uses core 0 of either.
 
@@ -121,44 +153,12 @@ Debugging works as with RISC-V (F7, F8, F9, F4, F5) over the USB probe (not thro
 
 **The chip runs one kind of cores at a time.** If the other kind runs, the debugger has it write a flash program into the flash, resets the chip and goes on with the cores of the program (this takes about two seconds; the output window says so). A program in the RAM cannot switch: after a reset the boot ROM starts the cores that the program in the flash is for. Asmonite then says what to do: first start a flash program of the right kind, e.g. `blink_arm_flash.asm` or `blink_flash.asm`. *Test the connection* shows which cores run.
 
-## The Raspberry Pi Pico (RP2040)
-
-The first Pico has an RP2040 with two Arm Cortex-M0+ and no RISC-V. Asmonite debugs its core 0 over the same probe and the same three wires. The examples are in `examples\pico\`: `blink_ram.asm` (in the RAM) and `blink_flash.asm` (in the flash; it starts by itself after a power cycle).
-
-```asm
-.target pico            ; for the Raspberry Pi Pico (RP2040)
-.arch thumb
-.imagebase 0x10000000   ; the flash
-    .boot2              ; the boot2 block of the Pico SDK
-vectors:
-    dd 0x20042000       ; vector table at 0x10000100: stack pointer
-    dd _start + 1       ; and start address (+1: Thumb code)
-_start:
-    ...
-```
-
-| What | Address |
-|---|---|
-| Flash (2 MB) | `0x10000000` |
-| RAM (264 KB) | `0x20000000` to `0x20041FFF` |
-| Peripherals, SIO | `0x40000000`, `0xD0000000` (as on the Pico 2) |
-
-The differences to the Pico 2:
-
-- **Fewer instructions.** The Cortex-M0+ knows the ARMv6-M: Thumb with the 16-bit instructions, of the 32-bit ones only `bl`, `msr`, `mrs` and the barriers. There is no `movw`/`movt`, no `cbz`, `cbnz`, `it`; most instructions work on `r0` to `r7` only. A 32-bit constant comes from a word behind the code (`ldr r0, label`). With `.target pico` the assembler reports every other instruction as an error with its line.
-- **boot2 instead of IMAGE_DEF.** The boot ROM of the RP2040 starts a flash program only if its first 256 bytes are a small program that sets up the flash chip, with its CRC-32 at the end. **`.boot2`** puts the block of the Pico SDK there (the file `boot2\boot2_w25q080.bin`, or the same bytes built into Asmonite); `.boot2 file.bin` takes a block of your own (252 bytes: the CRC is added; 256 bytes: it is checked). The vector table follows at `0x10000100`.
-- **The pads are not isolated** after a reset: the program needs no `ISO` bit.
-- **Breakpoints:** 4 hardware breakpoints, in the flash only; in the RAM the debugger writes `bkpt` instructions instead, which the memory view does not show.
-- *Debug > Debug targets > Raspberry Pi Pico (RP2040)* and *Test the connection* as on the Pico 2; *Save as UF2 file* writes the family of the RP2040.
-
-A program for the Pico 2 at a Pico (or the other way round) is refused with the name of the board before anything is written. If the cores of the RP2040 do not answer after such an attempt, Asmonite resets them through the rescue port of the chip.
-
 ## When it does not connect
 
 *Test the connection* says why, in clear words:
 
 - *No debug probe ... only one program at a time*: another program has the probe (OpenOCD, another instance of Asmonite). Close it.
-- *The board does not answer over SWD*: the Pico 2 has no power, the three wires are wrong or loose, or the probe is not the Debug Probe. The wires: SWCLK, SWDIO, GND.
+- *The board does not answer over SWD*: the board has no power, the three wires are wrong or loose, or the probe is not the Debug Probe. The wires: SWCLK, SWDIO, GND.
 - With **OpenOCD** chosen: start OpenOCD first; the host is `127.0.0.1` and the port `3333`.
 - *The board is an RP2040 ...* (or *not an RP2350*, *no RP2040*): the board at the probe is not the one of `.target`. Asmonite wrote nothing; choose the right entry in *Debug targets* or the right `.target`.
 - *Cannot write the program ... the board needs the program in RAM*: the program has an `.imagebase` that is neither RAM (`0x20000000`) nor flash (`0x10000000`).
