@@ -6,7 +6,7 @@ Deutsch | [English](README.md)
 und Debugger, der vorhandene Programme liest. Beide sind kostenlos, laufen ohne Installation unter
 Windows und arbeiten mit 32-Bit- und 64-Bit-Intel-Code, mit ARM und mit RISC-V auf dem Raspberry Pi Pico 2.
 
-Aktuelle Version: **0.9.1** | Website: [asmonite.com](https://asmonite.com) und
+Aktuelle Version: **0.9.2** | Website: [asmonite.com](https://asmonite.com) und
 [dismonite.com](https://dismonite.com) | Chat: [Discord](https://discord.gg/Sj8kvqEkc)
 
 ![Der Editor von Asmonite](assets/editor.png)

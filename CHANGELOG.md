@@ -5,6 +5,18 @@ What changed from version to version. German: [docs/de/aenderungen.md](docs/de/a
 Version numbers: MAJOR.MINOR.PATCH. While MAJOR is 0, a MINOR step may change what
 existing sources mean; such changes are listed under "Changed" and marked **(sources)**.
 
+## 0.9.2 – 2026-11-05
+
+### Fixed
+- ESP32-C3, writing the flash: the boot ROM refused a block with "the boot ROM refuses command 03 (error 05)" when the
+  program contained the byte `$C0` or `$DB` (as `rgb_ws2812_flash.asm`). The serial protocol must escape these two
+  bytes, and Asmonite did not: the replace function of Delphi stops at the first zero byte, and every packet starts with
+  one. Now each byte is escaped by itself. A failed try left the flash erased; the board then started again and again
+  ("invalid header: 0xffffffff").
+- ESP32-C3: after writing, some boards started the boot ROM in the download mode again instead of the program
+  (`boot:0x4 (DOWNLOAD(USB/UART0/1))`). The chip is now reset by its RTC watchdog, as esptool does; the reset over RTS
+  stays when the boot ROM does not answer.
+
 ## 0.9.1 – 2026-11-05
 
 ### New

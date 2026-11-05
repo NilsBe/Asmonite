@@ -91,6 +91,7 @@ port).
 | "the ESP32-C3 is plugged in, but ... has not given its USB JTAG an interface" | Debug targets > ESP32-C3 > Set up the USB JTAG (once for each board) |
 | "COM8 is open in another program" | Close the terminal (PuTTY ...), then F9 again |
 | "the core of the ESP32-C3 hangs" | Press RESET on the board, then try again |
+| The board restarts every few seconds, the COM port comes and goes, a terminal shows `invalid header: 0xffffffff` | The flash is empty (a write did not finish): hold BOOT, press RESET, let go of BOOT, then F9 with a program for the flash |
 | The board does not answer at all | Hold BOOT, press RESET, let go of BOOT: the chip waits in its boot ROM; then F9 |
 | Nothing on the COM port | Is the program for the USB port (`blink_ram.asm`) or for UART0 (`hello_uart_ram.asm`)? |
 
