@@ -6,6 +6,30 @@ Versionsnummern: MAJOR.MINOR.PATCH. Solange MAJOR 0 ist, darf ein MINOR-Schritt 
 vorhandene Quelltexte bedeuten; solche Änderungen stehen unter „Geändert“ und sind mit
 **(Quelltexte)** markiert.
 
+## 0.9.3 – 2026-11-05
+
+### Neu
+- **STM32F103 („Blue Pill“, Cortex-M3) über die USB-Debug-Probe.** `.target stm32f103` (auch `bluepill`) mit
+  `.arch thumb`: Der Assembler prüft das Programm (RAM 20 KB ab `0x20000000`, Flash ab `0x08000000` mit der
+  Vektortabelle am Anfang). F7/F9 setzen den Kern zurück und halten ihn an, laden ein Programm ins RAM oder schreiben es
+  über den Flash-Controller des Chips in den Flash (nur die Seiten zu 1 KB, die sich unterscheiden) und setzen den Chip
+  zurück; Schritte, Haltepunkte (im RAM Software-Haltepunkte), Register, Speicher. Die Geräte-ID (`DBGMCU_IDCODE`
+  0x410) wird geprüft: Auf einem anderen Chip wird nichts geschrieben. Ein Programm, das in `wfi` schläft, bleibt
+  erreichbar (`DBGMCU_CR`). Debug targets: *STM32F103 (Blue Pill)* mit *Test the connection*. Anschluss: SWCLK, SWDIO
+  und GND der Probe an die vier Pins des Boards, 3V3 bleibt frei. Beispiele `examples/stm32/` (`blink_ram.asm`,
+  `blink_flash.asm`: die LED an PC13). Getestet mit einem originalen STM32F103C8.
+
+### Behoben
+- Raspberry Pi Pico und Pico 2 (Arm-Kerne): Ein Programm im RAM startete auf dem Kern so, wie ihn das Programm davor
+  verlassen hatte: Dessen SysTick lief weiter, und eine Ausnahme, in der es steckte, ließ die Interrupts des neuen
+  Programms nicht zu. Jetzt wird der Kern vor dem Start zurückgesetzt und angehalten (die Peripherie behält ihren
+  Zustand). Ein Programm im RAM ohne Vektortabelle bekommt das Ende des RAM als Stackpointer (vorher stimmte er nur
+  zufällig).
+- Pico 2: Den Flash direkt nach einem Programm im RAM zu schreiben scheiterte („the boot ROM function ... stopped“), bis
+  das Board einmal abgezogen war; jetzt wird der Chip vorher zurückgesetzt, damit sein Boot-ROM bereit ist.
+- Thumb-Assembler: `str r0, [r1, #0]` (ein Offset von 0, auch aus einer `equ`-Konstanten), `mov r2, #0xab00ab00`
+  (Konstanten ab `0x80000000`) und `ldreq r2, label` (`ldr` und `adr` mit Label im IT-Block) fanden keine Kodierung.
+
 ## 0.9.2 – 2026-11-05
 
 ### Behoben

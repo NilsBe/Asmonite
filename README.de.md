@@ -6,7 +6,7 @@ Deutsch | [English](README.md)
 und Debugger, der vorhandene Programme liest. Beide sind kostenlos, laufen ohne Installation unter
 Windows und arbeiten mit 32-Bit- und 64-Bit-Intel-Code, mit ARM und mit RISC-V auf dem Raspberry Pi Pico 2.
 
-Aktuelle Version: **0.9.2** | Website: [asmonite.com](https://asmonite.com) und
+Aktuelle Version: **0.9.3** | Website: [asmonite.com](https://asmonite.com) und
 [dismonite.com](https://dismonite.com) | Chat: [Discord](https://discord.gg/Sj8kvqEkc)
 
 ![Der Editor von Asmonite](assets/editor.png)
@@ -27,6 +27,8 @@ Aktuelle Version: **0.9.2** | Website: [asmonite.com](https://asmonite.com) und
   debuggt es, **ohne OpenOCD**; UF2-Dateien für das BOOTSEL-Laufwerk. Anleitung: [docs/de/riscv-pico2.md](docs/de/riscv-pico2.md).
 - **ESP32-C3:** RISC-V mit `.target esp32c3`; F7 lädt das Programm über den USB-Anschluss des Chips ins RAM oder
   schreibt es in den Flash und debuggt es, **mit einem Kabel, ohne Debug-Probe**. Anleitung: [docs/de/esp32c3.md](docs/de/esp32c3.md).
+- **STM32F103 (Blue Pill):** Arm Cortex-M3 mit `.target stm32f103`; F7 lädt das Programm über dieselbe Debug-Probe wie
+  beim Pico ins RAM oder schreibt es in den Flash und debuggt es. Beispiele: `examples/stm32/`.
 - Übersetzt auch eine kleine C-Teilmenge (`asmonite_cc`, abgeleitet von OTCC) und debuggt sie zeilenweise.
 
 **Dismonite** (Disassembler, Debugger)

@@ -5,6 +5,28 @@ What changed from version to version. German: [docs/de/aenderungen.md](docs/de/a
 Version numbers: MAJOR.MINOR.PATCH. While MAJOR is 0, a MINOR step may change what
 existing sources mean; such changes are listed under "Changed" and marked **(sources)**.
 
+## 0.9.3 – 2026-11-05
+
+### New
+- **STM32F103 ("Blue Pill", Cortex-M3) over the USB debug probe.** `.target stm32f103` (also `bluepill`) with
+  `.arch thumb`: the assembler checks the program (RAM 20 KB at `0x20000000`, flash at `0x08000000` with the vector table
+  at its start). F7/F9 reset the core and halt it, load a program into the RAM, or write it into the flash through the
+  flash controller of the chip (only the pages of 1 KB that differ) and reset the chip; steps, breakpoints (in the RAM
+  software breakpoints), registers, memory. The device id (`DBGMCU_IDCODE` 0x410) is checked: on another chip nothing is
+  written. A program that sleeps in `wfi` stays reachable (`DBGMCU_CR`). Debug targets: *STM32F103 (Blue Pill)* with
+  *Test the connection*. Wiring: SWCLK, SWDIO and GND of the probe to the four pins of the board, 3V3 stays free.
+  Examples `examples/stm32/` (`blink_ram.asm`, `blink_flash.asm`: the LED at PC13). Tested with an original STM32F103C8.
+
+### Fixed
+- Raspberry Pi Pico and Pico 2 (Arm cores): a program in the RAM started on the core as the program before had left it:
+  its SysTick ran on, and an exception it was in kept the interrupts of the new program from being taken. Now the core
+  is reset and halted before it starts (the peripherals keep their state). A program in the RAM without a vector table
+  gets the end of the RAM as its stack pointer (before it was right only by chance).
+- Pico 2: writing the flash right after a program in the RAM failed ("the boot ROM function ... stopped") until the board
+  had been unplugged; now the chip is reset first, so that its boot ROM is ready.
+- Thumb assembler: `str r0, [r1, #0]` (an offset of 0, also from an `equ` constant), `mov r2, #0xab00ab00` (constants
+  from `0x80000000` up) and `ldreq r2, label` (`ldr` and `adr` with a label in an IT block) found no encoding.
+
 ## 0.9.2 – 2026-11-05
 
 ### Fixed
