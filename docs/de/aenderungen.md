@@ -6,6 +6,20 @@ Versionsnummern: MAJOR.MINOR.PATCH. Solange MAJOR 0 ist, darf ein MINOR-Schritt 
 vorhandene Quelltexte bedeuten; solche Änderungen stehen unter „Geändert“ und sind mit
 **(Quelltexte)** markiert.
 
+## 0.9.1 – 2026-11-05
+
+### Neu
+- ESP32-C3-Beispiele für Boards mit einer RGB-LED WS2812 an GPIO 8: `rgb_ws2812_ram.asm` (im RAM) und
+  `rgb_ws2812_flash.asm` (im Flash): Die LED ist abwechselnd rot, grün und blau, mit einer Zeile je Farbe auf dem
+  USB-Seriell-Port. Die 24 Bit der Farbe misst der Zykluszähler des Kerns; die Programme stellen den Takt des Kerns von
+  20 auf 40 MHz. Getestet an einem zweiten Board (zwei USB-C-Anschlüsse, einer am Chip, einer mit CH340 an UART0).
+
+### Behoben
+- ESP32-C3, Set up the USB JTAG: Der Knopf meldete „The setup did not work“, obwohl es geklappt hatte. Er prüfte den
+  Wert, während die Schnittstelle noch neu startete; jetzt wartet er bis zu 10 Sekunden auf sie.
+- Die Einrichtung ist einmal je Board nötig, nicht je USB-Anschluss: Windows erkennt das Board an seiner Seriennummer
+  (der MAC-Adresse des Chips), an jedem Anschluss. Anleitung, Infotext in Debug targets und Meldungen sagten anderes.
+
 ## 0.9.0 – 2026-11-05
 
 ### Neu

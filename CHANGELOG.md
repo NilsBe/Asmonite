@@ -5,6 +5,20 @@ What changed from version to version. German: [docs/de/aenderungen.md](docs/de/a
 Version numbers: MAJOR.MINOR.PATCH. While MAJOR is 0, a MINOR step may change what
 existing sources mean; such changes are listed under "Changed" and marked **(sources)**.
 
+## 0.9.1 – 2026-11-05
+
+### New
+- ESP32-C3 examples for boards with an RGB LED WS2812 at GPIO 8: `rgb_ws2812_ram.asm` (in the RAM) and
+  `rgb_ws2812_flash.asm` (in the flash): the LED is red, green and blue in turn, with a line for each on the USB serial
+  port. The 24 bits of colour are timed with the cycle counter of the core; the programs set the clock of the core from
+  20 to 40 MHz. Tested on a second board (two USB-C ports, one at the chip, one with a CH340 at UART0).
+
+### Fixed
+- ESP32-C3, Set up the USB JTAG: the button said "The setup did not work" although it had worked. It checked the value
+  while the interface was still restarting; now it waits up to 10 seconds for the interface.
+- The setup is needed once for each board, not for each USB port: Windows knows the board by its serial number (the MAC
+  address of the chip), at every port. The guide, the info text in Debug targets and the messages said otherwise.
+
 ## 0.9.0 – 2026-11-05
 
 ### New

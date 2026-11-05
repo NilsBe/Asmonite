@@ -70,6 +70,7 @@ reset the chip after a few seconds. `examples/esp32c3/blink_flash.asm` shows how
 | `examples/esp32c3/blink_ram.asm` | The LEDs at GPIO 12 and 13 blink in turn; every change is a line on the USB serial port (COM port): `LED 12 on`, `LED 13 on` |
 | `examples/esp32c3/blink_flash.asm` | The same in the flash, with the watchdogs switched off at the start |
 | `examples/esp32c3/rgb_ws2812_ram.asm` | For boards with an RGB LED WS2812 at GPIO 8: red, green and blue in turn, and a line for each on the USB serial port. The 24 bits of colour are timed with the cycle counter of the core; the program sets the clock of the core from 20 to 40 MHz |
+| `examples/esp32c3/rgb_ws2812_flash.asm` | The same in the flash, with the watchdogs switched off at the start |
 | `examples/esp32c3/hello_uart_ram.asm` | "Hello, world!" on UART0 (the pin GPIO 21, not the USB port: a USB-serial adapter there shows it; on boards with a second USB port with a CH340 that port) |
 
 The registers they use are written in their comments, with the source: the headers of ESP-IDF and the ESP32-C3

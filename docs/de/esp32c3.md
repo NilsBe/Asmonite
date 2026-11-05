@@ -70,6 +70,7 @@ Chip nach einigen Sekunden zurücksetzen. `examples/esp32c3/blink_flash.asm` zei
 | `examples/esp32c3/blink_ram.asm` | Die LEDs an GPIO 12 und 13 blinken abwechselnd; jeder Wechsel ist eine Zeile auf dem USB-Seriell-Port (COM-Port): `LED 12 on`, `LED 13 on` |
 | `examples/esp32c3/blink_flash.asm` | Dasselbe im Flash, mit abgeschalteten Watchdogs am Anfang |
 | `examples/esp32c3/rgb_ws2812_ram.asm` | Für Boards mit einer RGB-LED WS2812 an GPIO 8: abwechselnd rot, grün und blau, und für jede Farbe eine Zeile auf dem USB-Seriell-Port. Die 24 Bit der Farbe misst der Zykluszähler des Kerns; das Programm stellt den Takt des Kerns von 20 auf 40 MHz |
+| `examples/esp32c3/rgb_ws2812_flash.asm` | Dasselbe im Flash, mit abgeschalteten Watchdogs am Anfang |
 | `examples/esp32c3/hello_uart_ram.asm` | „Hello, world!“ auf UART0 (der Pin GPIO 21, nicht der USB-Anschluss: ein USB-Seriell-Adapter dort zeigt es; bei Boards mit einem zweiten USB-Anschluss mit CH340 dieser Anschluss) |
 
 Die Register, die sie benutzen, stehen in ihren Kommentaren, mit der Quelle: die Header von ESP-IDF und das
