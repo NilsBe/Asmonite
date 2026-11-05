@@ -5,6 +5,30 @@ What changed from version to version. German: [docs/de/aenderungen.md](docs/de/a
 Version numbers: MAJOR.MINOR.PATCH. While MAJOR is 0, a MINOR step may change what
 existing sources mean; such changes are listed under "Changed" and marked **(sources)**.
 
+## 0.9.0 – 2026-11-05
+
+### New
+- **ESP32-C3: debug and flash with one USB cable, without a debug probe and without OpenOCD.** The chip has a USB port
+  that is a serial port and a JTAG debugger at the same time; Asmonite drives both itself (`EspUsbJtag`: the USB JTAG
+  protocol of the chip, `EspRvDmi`: the RISC-V debug transport over JTAG; the debug module of the Pico 2 is used again).
+  `.target esp32c3` with `.arch riscv32`: F7/F9 reset the chip and halt it before the firmware of the flash starts (that
+  firmware locks the memory protection, after which writes into the RAM are lost without an error), switch the
+  interrupts and the watchdogs off, load the program to `0x40380000` and stop at `_start`; steps, breakpoints,
+  registers, memory.
+  - **`.target esp32c3 flash`** writes the program into the flash as an image of the boot ROM, over the serial port of
+    the chip with the protocol of its boot ROM (`EspRomFlash`; the port is found by the USB id 303A:1001); then the
+    debugger lets the boot ROM load it and stops at `_start`. A block that the boot ROM refuses is sent again.
+  - **Debug > Debug targets > ESP32-C3 > Set up the USB JTAG:** Windows gives the USB JTAG the driver WinUSB but no
+    device interface, so programs cannot open it; the button adds it (administrator rights, once for each USB port).
+  - Examples `examples/esp32c3/` (`blink_ram.asm`, `blink_flash.asm`: the LEDs at GPIO 12 and 13 and lines on the USB
+    serial port; `hello_uart_ram.asm`: UART0), guide `docs/en/esp32c3.md`, cases `target_esp32c3_*`. Tested with the
+    LuatOS ESP32C3-CORE.
+
+### Fixed
+- Assembler: a name that is both a label and an `equ` constant (the case of the letters does not count: `count:` and
+  `COUNT equ 5`) is an error now. Before, the value of the constant took the place of the label: on x86 `jmp count`
+  jumped to the address 5 without a message, on RISC-V it said "the target is out of reach".
+
 ## 0.8.0 – 2026-11-04
 
 ### New

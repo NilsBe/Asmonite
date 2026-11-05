@@ -6,6 +6,32 @@ Versionsnummern: MAJOR.MINOR.PATCH. Solange MAJOR 0 ist, darf ein MINOR-Schritt 
 vorhandene Quelltexte bedeuten; solche Änderungen stehen unter „Geändert“ und sind mit
 **(Quelltexte)** markiert.
 
+## 0.9.0 – 2026-11-05
+
+### Neu
+- **ESP32-C3: debuggen und flashen mit einem USB-Kabel, ohne Debug-Probe und ohne OpenOCD.** Der Chip hat einen
+  USB-Anschluss, der zugleich serieller Port und JTAG-Debugger ist; Asmonite steuert beides selbst (`EspUsbJtag`: das
+  USB-JTAG-Protokoll des Chips, `EspRvDmi`: der RISC-V-Debug-Transport über JTAG; das Debug-Modul des Pico 2 wird
+  wiederverwendet). `.target esp32c3` mit `.arch riscv32`: F7/F9 setzen den Chip zurück und halten ihn an, bevor die
+  Firmware des Flash startet (diese Firmware sperrt den Speicherschutz, danach gehen Schreibzugriffe ins RAM ohne
+  Fehlermeldung verloren), schalten Interrupts und Watchdogs ab, laden das Programm nach `0x40380000` und halten bei
+  `_start`; Schritte, Haltepunkte, Register, Speicher.
+  - **`.target esp32c3 flash`** schreibt das Programm als Image des Boot-ROM in den Flash, über den seriellen Port des
+    Chips mit dem Protokoll seines Boot-ROM (`EspRomFlash`; der Port wird über die USB-Kennung 303A:1001 gefunden);
+    danach lässt der Debugger das Boot-ROM es laden und hält bei `_start`. Ein Block, den das Boot-ROM ablehnt, wird
+    noch einmal gesendet.
+  - **Debug > Debug targets > ESP32-C3 > Set up the USB JTAG:** Windows gibt dem USB-JTAG den Treiber WinUSB, aber
+    keine Geräteschnittstelle, also können Programme ihn nicht öffnen; der Knopf trägt sie ein (Administratorrechte,
+    einmal je USB-Anschluss).
+  - Beispiele `examples/esp32c3/` (`blink_ram.asm`, `blink_flash.asm`: die LEDs an GPIO 12 und 13 und Zeilen auf dem
+    USB-Seriell-Port; `hello_uart_ram.asm`: UART0), Anleitung `docs/de/esp32c3.md`, Testfälle `target_esp32c3_*`.
+    Getestet mit dem LuatOS ESP32C3-CORE.
+
+### Behoben
+- Assembler: Ein Name, der zugleich Label und `equ`-Konstante ist (Groß- und Kleinschreibung zählen nicht: `count:`
+  und `COUNT equ 5`), ist jetzt ein Fehler. Vorher nahm der Wert der Konstanten den Platz des Labels ein: auf x86
+  sprang `jmp count` ohne Meldung an die Adresse 5, auf RISC-V hieß es „the target is out of reach“.
+
 ## 0.8.0 – 2026-11-04
 
 ### Neu

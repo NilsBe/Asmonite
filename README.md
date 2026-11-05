@@ -6,7 +6,7 @@
 and debugger that reads existing programs. Both are free, run on Windows without an installer, and
 work with 32-bit and 64-bit Intel code, with ARM and with RISC-V on the Raspberry Pi Pico 2.
 
-Current version: **0.8.0** | Website: [asmonite.com](https://asmonite.com) and
+Current version: **0.9.0** | Website: [asmonite.com](https://asmonite.com) and
 [dismonite.com](https://dismonite.com) | Chat: [Discord](https://discord.gg/Sj8kvqEkc)
 
 ![The Asmonite editor](assets/editor.png)
@@ -25,6 +25,8 @@ Current version: **0.8.0** | Website: [asmonite.com](https://asmonite.com) and
 - **Raspberry Pi Pico 2 and Pico:** RISC-V (Hazard3) and Arm (Cortex-M33, Cortex-M0+) with `.target pico2` /
   `.target pico`; F7 writes the program into the RAM or the flash over a CMSIS-DAP debug probe and debugs it,
   **without OpenOCD**; UF2 files for the BOOTSEL drive. Guide: [docs/en/riscv-pico2.md](docs/en/riscv-pico2.md).
+- **ESP32-C3:** RISC-V with `.target esp32c3`; F7 loads the program into the RAM or writes it into the flash over the
+  USB port of the chip and debugs it, **with one cable, without a debug probe**. Guide: [docs/en/esp32c3.md](docs/en/esp32c3.md).
 - Also compiles a small C subset (`asmonite_cc`, derived from OTCC) and debugs it line by line.
 
 **Dismonite** (disassembler, debugger)
@@ -50,7 +52,7 @@ The sums let you check that the file is the one that was published.
 |--------|---------|
 | [`docs/`](docs) | Guides and the differences to NASM, in English and German |
 | [`reference/`](reference) | The instruction help of the programs (F1) as text: x86, x64, ARM, ARM64, RISC-V, Windows API, DOS |
-| [`examples/`](examples) | Example programs: Windows (Intel, ARM), DOS, Raspberry Pi Pico 2 and Pico, `func` / `if` / loops, a C and a Pascal sample |
+| [`examples/`](examples) | Example programs: Windows (Intel, ARM), DOS, Raspberry Pi Pico 2 and Pico, ESP32-C3, `func` / `if` / loops, a C and a Pascal sample |
 | [`CHANGELOG.md`](CHANGELOG.md) | What changed in each version |
 
 The programs themselves are in the release ZIP, not in this repository.
