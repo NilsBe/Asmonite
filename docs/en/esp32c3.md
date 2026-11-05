@@ -5,7 +5,8 @@ debugger at the same time. Asmonite uses both: it debugs a program in the RAM of
 flash, **with one USB cable, without a debug probe, without OpenOCD and without ESP-IDF**.
 
 Tested with the LuatOS ESP32C3-CORE (the simple version with one USB-C port at the chip; 4 MB flash, run in DIO mode;
-LEDs at GPIO 12 and 13). Other boards whose USB port goes straight to the chip (GPIO 18 and 19) should work the same way;
+LEDs at GPIO 12 and 13) and with a board with two USB-C ports and an RGB LED WS2812 at GPIO 8 (one port goes to the
+chip, the other one to UART0 over a CH340). Other boards whose USB port goes straight to the chip (GPIO 18 and 19) should work the same way;
 boards with a USB-serial chip of their own (CP2102, CH340, CH343) give no USB JTAG.
 
 ## What you need
@@ -18,8 +19,9 @@ boards with a USB-serial chip of their own (CP2102, CH340, CH343) give no USB JT
 
 Windows gives the JTAG part of the USB port the driver WinUSB by itself, but not the entry that programs need to open it.
 In Asmonite: **Debug > Debug targets > ESP32-C3 > Set up the USB JTAG**. Windows asks for administrator rights once; then
-**Test the connection** should say that the board answers. Windows keeps this for each USB port of the computer: if you
-plug the board into another port, press the button again.
+**Test the connection** should say that the board answers. Windows keeps this for each board (it knows the board by its
+serial number, the MAC address of the chip), at every USB port of the computer: a second board needs the button once
+more.
 
 ## A program in the RAM
 
@@ -67,7 +69,8 @@ reset the chip after a few seconds. `examples/esp32c3/blink_flash.asm` shows how
 |---|---|
 | `examples/esp32c3/blink_ram.asm` | The LEDs at GPIO 12 and 13 blink in turn; every change is a line on the USB serial port (COM port): `LED 12 on`, `LED 13 on` |
 | `examples/esp32c3/blink_flash.asm` | The same in the flash, with the watchdogs switched off at the start |
-| `examples/esp32c3/hello_uart_ram.asm` | "Hello, world!" on UART0 (the pin GPIO 21, not the USB port: a USB-serial adapter there shows it) |
+| `examples/esp32c3/rgb_ws2812_ram.asm` | For boards with an RGB LED WS2812 at GPIO 8: red, green and blue in turn, and a line for each on the USB serial port. The 24 bits of colour are timed with the cycle counter of the core; the program sets the clock of the core from 20 to 40 MHz |
+| `examples/esp32c3/hello_uart_ram.asm` | "Hello, world!" on UART0 (the pin GPIO 21, not the USB port: a USB-serial adapter there shows it; on boards with a second USB port with a CH340 that port) |
 
 The registers they use are written in their comments, with the source: the headers of ESP-IDF and the ESP32-C3
 Technical Reference Manual.
@@ -84,7 +87,7 @@ port).
 
 | Message or sign | What to do |
 |---|---|
-| "the ESP32-C3 is plugged in, but ... has not given its USB JTAG an interface" | Debug targets > ESP32-C3 > Set up the USB JTAG (once for each USB port) |
+| "the ESP32-C3 is plugged in, but ... has not given its USB JTAG an interface" | Debug targets > ESP32-C3 > Set up the USB JTAG (once for each board) |
 | "COM8 is open in another program" | Close the terminal (PuTTY ...), then F9 again |
 | "the core of the ESP32-C3 hangs" | Press RESET on the board, then try again |
 | The board does not answer at all | Hold BOOT, press RESET, let go of BOOT: the chip waits in its boot ROM; then F9 |

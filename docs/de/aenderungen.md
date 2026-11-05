@@ -22,7 +22,7 @@ vorhandene Quelltexte bedeuten; solche Änderungen stehen unter „Geändert“ 
     noch einmal gesendet.
   - **Debug > Debug targets > ESP32-C3 > Set up the USB JTAG:** Windows gibt dem USB-JTAG den Treiber WinUSB, aber
     keine Geräteschnittstelle, also können Programme ihn nicht öffnen; der Knopf trägt sie ein (Administratorrechte,
-    einmal je USB-Anschluss).
+    einmal je Board).
   - Beispiele `examples/esp32c3/` (`blink_ram.asm`, `blink_flash.asm`: die LEDs an GPIO 12 und 13 und Zeilen auf dem
     USB-Seriell-Port; `hello_uart_ram.asm`: UART0), Anleitung `docs/de/esp32c3.md`, Testfälle `target_esp32c3_*`.
     Getestet mit dem LuatOS ESP32C3-CORE.

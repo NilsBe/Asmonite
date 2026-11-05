@@ -19,7 +19,7 @@ existing sources mean; such changes are listed under "Changed" and marked **(sou
     the chip with the protocol of its boot ROM (`EspRomFlash`; the port is found by the USB id 303A:1001); then the
     debugger lets the boot ROM load it and stops at `_start`. A block that the boot ROM refuses is sent again.
   - **Debug > Debug targets > ESP32-C3 > Set up the USB JTAG:** Windows gives the USB JTAG the driver WinUSB but no
-    device interface, so programs cannot open it; the button adds it (administrator rights, once for each USB port).
+    device interface, so programs cannot open it; the button adds it (administrator rights, once for each board).
   - Examples `examples/esp32c3/` (`blink_ram.asm`, `blink_flash.asm`: the LEDs at GPIO 12 and 13 and lines on the USB
     serial port; `hello_uart_ram.asm`: UART0), guide `docs/en/esp32c3.md`, cases `target_esp32c3_*`. Tested with the
     LuatOS ESP32C3-CORE.
