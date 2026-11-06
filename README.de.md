@@ -4,8 +4,8 @@ Deutsch | [English](README.md)
 
 **Asmonite** ist ein Assembler mit Editor und Debugger für Windows. **Dismonite** ist ein Disassembler
 und Debugger, der vorhandene Programme liest. Beide sind kostenlos, laufen ohne Installation unter
-Windows und arbeiten mit 32-Bit- und 64-Bit-Intel-Code, mit ARM, mit RISC-V auf dem Raspberry Pi Pico 2 und dem
-ESP32-C3 und mit Xtensa auf dem ESP32-S3.
+Windows und arbeiten mit 32-Bit- und 64-Bit-Intel-Code, mit ARM, mit RISC-V (32 und 64 Bit) auf dem Raspberry Pi
+Pico 2, dem ESP32-C3 und dem MangoPi MQ-Pro (Allwinner D1) und mit Xtensa auf dem ESP32-S3 und dem ESP32.
 
 Aktuelle Version: **0.11.0** | Website: [asmonite.com](https://asmonite.com) und
 [dismonite.com](https://dismonite.com) | Chat: [Discord](https://discord.gg/Sj8kvqEkc)
@@ -20,6 +20,8 @@ Aktuelle Version: **0.11.0** | Website: [asmonite.com](https://asmonite.com) und
   für lesbaren Code. Unterschiede zu NASM: [docs/de/nasm-unterschiede.md](docs/de/nasm-unterschiede.md).
 - **F1 erklärt die Zeile unter dem Cursor:** Syntax, Flags, Beispiel, die importierte Windows-Funktion mit
   ihren Parametern, DOS- und BIOS-Interrupts. Auf Deutsch und Englisch.
+- Welche Befehlsgruppen jede Architektur hat und welche noch fehlen (AVX, die DSP-Erweiterung von Arm,
+  Gleitkomma bei RISC-V ...): [docs/de/befehlssaetze.md](docs/de/befehlssaetze.md).
 - Debugger: Breakpoints, Einzelschritt (über / hinein), bis zum Cursor, Register (Änderungen rot), Stack,
   Speicher, Watch-Fenster, Programmausgabe. Windows-Programme laufen auf diesem Rechner, x64 über einen
   Hilfsprozess, ARM-Programme auf einem Windows-on-ARM-Rechner, DOS-Programme in QEMU mit FreeDOS.
