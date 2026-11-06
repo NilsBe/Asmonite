@@ -4,9 +4,10 @@ Deutsch | [English](README.md)
 
 **Asmonite** ist ein Assembler mit Editor und Debugger für Windows. **Dismonite** ist ein Disassembler
 und Debugger, der vorhandene Programme liest. Beide sind kostenlos, laufen ohne Installation unter
-Windows und arbeiten mit 32-Bit- und 64-Bit-Intel-Code, mit ARM und mit RISC-V auf dem Raspberry Pi Pico 2.
+Windows und arbeiten mit 32-Bit- und 64-Bit-Intel-Code, mit ARM, mit RISC-V auf dem Raspberry Pi Pico 2 und dem
+ESP32-C3 und mit Xtensa auf dem ESP32-S3.
 
-Aktuelle Version: **0.9.3** | Website: [asmonite.com](https://asmonite.com) und
+Aktuelle Version: **0.10.0** | Website: [asmonite.com](https://asmonite.com) und
 [dismonite.com](https://dismonite.com) | Chat: [Discord](https://discord.gg/Sj8kvqEkc)
 
 ![Der Editor von Asmonite](assets/editor.png)
@@ -29,6 +30,9 @@ Aktuelle Version: **0.9.3** | Website: [asmonite.com](https://asmonite.com) und
   schreibt es in den Flash und debuggt es, **mit einem Kabel, ohne Debug-Probe**. Anleitung: [docs/de/esp32c3.md](docs/de/esp32c3.md).
 - **STM32F103 (Blue Pill):** Arm Cortex-M3 mit `.target stm32f103`; F7 lädt das Programm über dieselbe Debug-Probe wie
   beim Pico ins RAM oder schreibt es in den Flash und debuggt es. Beispiele: `examples/stm32/`.
+- **ESP32-S3:** Xtensa LX7 mit `.arch xtensa` und `.target esp32s3`; F7 lädt das Programm über den USB-Anschluss des
+  Chips ins RAM oder schreibt es in den Flash und debuggt es, **mit einem Kabel, ohne Debug-Probe**. Anleitung:
+  [docs/de/esp32s3.md](docs/de/esp32s3.md).
 - Übersetzt auch eine kleine C-Teilmenge (`asmonite_cc`, abgeleitet von OTCC) und debuggt sie zeilenweise.
 
 **Dismonite** (Disassembler, Debugger)
@@ -54,7 +58,7 @@ Mit den Prüfsummen lässt sich nachprüfen, dass die Datei die veröffentlichte
 |--------|--------|
 | [`docs/`](docs) | Anleitungen und die Unterschiede zu NASM, auf Deutsch und Englisch |
 | [`reference/`](reference) | Die Befehlsinfo der Programme (F1) als Text: x86, x64, ARM, ARM64, RISC-V, Windows-API, DOS |
-| [`examples/`](examples) | Beispielprogramme: Windows (Intel, ARM), DOS, Raspberry Pi Pico 2 und Pico, ESP32-C3, `func` / `if` / Schleifen, ein C- und ein Pascal-Beispiel |
+| [`examples/`](examples) | Beispielprogramme: Windows (Intel, ARM), DOS, Raspberry Pi Pico 2 und Pico, ESP32-C3, ESP32-S3, STM32F103, `func` / `if` / Schleifen, ein C- und ein Pascal-Beispiel |
 | [`CHANGELOG.md`](CHANGELOG.md) | Was sich in welcher Version geändert hat |
 
 Die Programme selbst liegen in der ZIP-Datei der Releases, nicht in diesem Repository.

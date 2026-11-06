@@ -5,6 +5,33 @@ What changed from version to version. German: [docs/de/aenderungen.md](docs/de/a
 Version numbers: MAJOR.MINOR.PATCH. While MAJOR is 0, a MINOR step may change what
 existing sources mean; such changes are listed under "Changed" and marked **(sources)**.
 
+## 0.10.0 – 2026-11-06
+
+### New
+- **Xtensa: assembler and disassembler** (`.arch xtensa`), for the ESP32-S3 (Xtensa LX7; the ESP32, LX6, has the same
+  instructions without `salt`, `saltu`): the core instructions, the 16-bit instructions of the code density option
+  (written by themselves when the operands fit, as GNU as does: `add.n`, `l32i.n`, `movi.n`, `mov.n` ...), windowed
+  calls (`call4/8/12`, `entry`, `retw`), zero-overhead loops, multiplication and division, minimum and maximum, the
+  boolean registers, single precision floating point, the special and user registers by name (`rsr.ps a3` or
+  `rsr a3, ps`), constants from a literal pool with `l32r` and `dd`. Checked against GNU as and objdump of Espressif
+  (more than a million instruction words without a difference). The editor colours the lines after `.arch xtensa`. Not
+  yet: MAC16 and the vector instructions of the ESP32-S3 (`ee.*`).
+- **ESP32-S3 over its USB JTAG, with one cable.** `.target esp32s3` (the RAM at `0x40378000..0x403BFFFF`) and
+  `.target esp32s3 flash`: F9/F7 reset the chip into the download mode of its boot ROM over its USB serial port (no
+  button needed, unless a firmware uses the USB port itself), stop core 0 there, load the program and run it or stop at
+  `_start`; steps (also into and out of windowed calls), breakpoints, step over, pause, the registers `a0`..`a15`, `pc`,
+  `ps`, `sar`, `windowbase`, `windowstart`, `lbeg`, `lend`, `lcount` (editable), the memory also as Xtensa code. With
+  `flash` the program goes into the flash as an image of the boot ROM, then runs in the RAM as the boot ROM puts it
+  there. The debugger switches the watchdogs off at every stop. Debug targets: *ESP32-S3* with *Test the connection* and
+  *Set up the USB JTAG*. Examples `examples/esp32s3/` (`rgb_ws2812_ram.asm`, `rgb_ws2812_flash.asm`: the RGB LED at
+  GPIO 48). Guide: `docs/en/esp32s3.md`.
+- Website: the Xtensa instruction reference (224 instructions with encoding, ESP32-S3 and ESP32), and the ARM assembly
+  tutorial for the Raspberry Pi Pico 2 (after the ARM-ASM-Tutorial of Niklas Gürtler, with his kind permission).
+
+### Fixed
+- ESP32-C3: a debug access that the debug module answered with "busy" or "failed" left the connection stuck (both
+  stay until the debugger clears them); now it is cleared and repeated, without doing a write twice.
+
 ## 0.9.3 – 2026-11-05
 
 ### New
