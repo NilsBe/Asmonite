@@ -108,7 +108,7 @@ Technical Reference Manual.
 - Core 0 only; the second core is not started and not debugged.
 - Not yet: the MAC16 and vector instructions (`ee.*`) of the ESP32-S3, programs in the external flash or PSRAM (only
   the internal RAM), WiFi and Bluetooth.
-- The original ESP32 (Xtensa LX6) has the same instructions (without `salt`, `saltu`), but no USB JTAG: it would need
-  a JTAG probe; not supported.
+- The original ESP32 (Xtensa LX6) has the same instructions (without `salt`, `saltu`), but no USB JTAG: Asmonite
+  runs and flashes it over the serial port of the board, without a debugger ([esp32.md](esp32.md)).
 - How the chip does the debugging: the protocol of `esp_usb_jtag.c` and the Xtensa debug module of OpenOCD
   (`src/target/xtensa`).

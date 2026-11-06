@@ -591,3 +591,85 @@ Related: `zext.h`
 Multiplication in which the partial products are combined with xor and not added: used for checksums (CRC) and error-correcting codes. `clmul` gives the low half, `clmulh` the high half, `clmulr` the reversed form.
 
 Related: `xor`, `mul`
+
+## riscv64, rv64 – the 64-bit RISC-V
+<!-- names: riscv64, rv64, xlen -->
+
+With `.arch riscv64` the registers `x0` to `x31` are 64 bits wide (the T-Head C906 of the Milk-V Duo and the MangoPi MQ-Pro, QEMU `virt`). The instructions of RV32 stay and work on all 64 bits (`add`, `slli` up to 63, `lw` extends the sign of the word to 64 bits); new are the loads and stores of 64 bits (`ld`, `sd`, `lwu`), the W instructions that compute with the lower 32 bits and extend the sign of the result to 64 (`addw`, `addiw`, `sllw` …), the atomic `.d` forms and some forms of the bit manipulation sets. The 16-bit forms change too: `c.jal` is gone, `c.addiw`, `c.ld`, `c.sd` take its place.
+
+`li` takes any 64-bit number (up to 8 instructions). `lui` extends the sign of its 32 bits to 64: `lui a0, 0x80000` is `0xFFFFFFFF80000000`; `li` takes care of it, and `li` with a label gives 4 instructions that leave the upper 32 bits 0, so that addresses from `0x80000000` on (the RAM of QEMU `virt` and of the boards) stay positive.
+
+Related: `ld`, `addw`, `li`
+
+## ld, lwu, sd – load and store 64 bits (RV64)
+<!-- names: ld, lwu, sd -->
+
+**Syntax:** `ld rd, offset(rs1)`, `sd rs2, offset(rs1)` (offset from -2048 to 2047)
+
+`ld` loads a doubleword (8 bytes), `sd` stores one. `lwu` loads a word and fills the upper 32 bits with 0 (`lw` copies the sign into them). The stack of RV64 code holds 8 bytes per register (`sd ra, 8(sp)`).
+
+```asm
+addi sp, sp, -16
+sd   ra, 8(sp)       ; save the return address (64 bits)
+ld   ra, 8(sp)
+addi sp, sp, 16
+```
+
+Related: `lw`, `sw`, `sp`
+
+## addw, subw, addiw, sllw, srlw, sraw, slliw, srliw, sraiw, sext.w, negw – 32-bit arithmetic (RV64)
+<!-- names: addw, subw, addiw, sllw, srlw, sraw, slliw, srliw, sraiw, sext.w, negw -->
+
+**Syntax:** `addw rd, rs1, rs2`, `addiw rd, rs1, imm`, `slliw rd, rs1, shamt` (0 to 31)
+
+Compute with the lower 32 bits as on RV32 and extend the sign of the 32-bit result into the upper half: the arithmetic of `int` in C. `sext.w rd, rs` is `addiw rd, rs, 0` (extend the sign of a word), `negw rd, rs` is `subw rd, zero, rs`.
+
+```asm
+addw  a0, a0, a1     ; a 32-bit sum, as a 64-bit number
+sext.w a2, a3        ; the low word of a3 with its sign
+```
+
+Related: `add`, `slli`, `riscv64`
+
+## mulw, divw, divuw, remw, remuw – multiply and divide with 32 bits (RV64)
+<!-- names: mulw, divw, divuw, remw, remuw -->
+
+**Syntax:** `mulw rd, rs1, rs2`
+
+As `mul`, `div`, `divu`, `rem`, `remu` with the lower 32 bits; the 32-bit result gets its sign extended to 64 bits.
+
+Related: `mul`, `addw`
+
+## lr.d, sc.d, amoswap.d, amoadd.d, amoxor.d, amoand.d, amoor.d, amomin.d, amomax.d, amominu.d, amomaxu.d – atomic doublewords (RV64)
+<!-- names: lr.d, sc.d, amoswap.d, amoadd.d, amoxor.d, amoand.d, amoor.d, amomin.d, amomax.d, amominu.d, amomaxu.d -->
+
+**Syntax:** `amoadd.d rd, rs2, (rs1)`, `lr.d rd, (rs1)`, `sc.d rd, rs2, (rs1)`
+
+The atomic instructions of `lr.w`, `sc.w` and `amoadd.w` on 8 bytes; the address is a multiple of 8.
+
+Related: `lr.w`, `amoadd.w`
+
+## add.uw, sh1add.uw, sh2add.uw, sh3add.uw, slli.uw, zext.w – addresses from 32-bit indices (Zba, RV64)
+<!-- names: add.uw, sh1add.uw, sh2add.uw, sh3add.uw, slli.uw, zext.w -->
+
+**Syntax:** `sh2add.uw rd, rs1, rs2`, `slli.uw rd, rs1, shamt`
+
+Take the lower 32 bits of `rs1` without their sign (as `unsigned int`), shift them and add `rs2`: the address of an array element from a 32-bit index. `zext.w rd, rs` is `add.uw rd, rs, zero`: the low word with the upper 32 bits 0.
+
+Related: `sh1add`, `lwu`
+
+## clzw, ctzw, cpopw, rolw, rorw, roriw, packw – the W forms of Zbb and Zbkb (RV64)
+<!-- names: clzw, ctzw, cpopw, rolw, rorw, roriw, packw -->
+
+**Syntax:** `clzw rd, rs`, `rolw rd, rs1, rs2`, `roriw rd, rs1, shamt` (0 to 31)
+
+`clz`, `ctz`, `cpop`, `rol`, `ror`, `rori` and `pack` on the lower 32 bits; the 32-bit result gets its sign extended. On RV64 `clz` and the others without `w` count and rotate all 64 bits.
+
+Related: `clz`, `rol`, `pack`
+
+## c.ld, c.sd, c.ldsp, c.sdsp, c.addiw, c.addw, c.subw, c.zext.w – the 16-bit forms of RV64
+<!-- names: c.ld, c.sd, c.ldsp, c.sdsp, c.addiw, c.addw, c.subw, c.zext.w -->
+
+The short forms of `ld`, `sd` (registers `s0`, `s1`, `a0` to `a5`, offsets 0 to 248 in steps of 8), `ld`/`sd` relative to `sp` (0 to 504), `addiw` (-32 to 31), `addw`, `subw` and `zext.w`. They take the places of `c.jal` and of the floating point loads and stores of RV32. `c.slli`, `c.srli`, `c.srai` shift up to 63 on RV64.
+
+Related: `compressed`, `ld`, `addw`

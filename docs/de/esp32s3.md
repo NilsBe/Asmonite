@@ -109,7 +109,7 @@ Technical Reference Manual.
 - Nur Kern 0; der zweite Kern wird nicht gestartet und nicht gedebuggt.
 - Noch nicht: die MAC16- und Vektorbefehle (`ee.*`) des ESP32-S3, Programme im externen Flash oder PSRAM (nur das
   interne RAM), WLAN und Bluetooth.
-- Der ursprüngliche ESP32 (Xtensa LX6) hat dieselben Befehle (ohne `salt`, `saltu`), aber keinen USB-JTAG: Er bräuchte
-  eine JTAG-Probe; nicht unterstützt.
+- Der ursprüngliche ESP32 (Xtensa LX6) hat dieselben Befehle (ohne `salt`, `saltu`), aber keinen USB-JTAG: Asmonite
+  startet und flasht ihn über den seriellen Port des Boards, ohne Debugger ([esp32.md](esp32.md)).
 - Wie der Chip das Debuggen macht: das Protokoll von `esp_usb_jtag.c` und das Xtensa-Debug-Modul von OpenOCD
   (`src/target/xtensa`).

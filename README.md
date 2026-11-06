@@ -7,7 +7,7 @@ and debugger that reads existing programs. Both are free, run on Windows without
 work with 32-bit and 64-bit Intel code, with ARM, with RISC-V on the Raspberry Pi Pico 2 and the ESP32-C3, and with
 Xtensa on the ESP32-S3.
 
-Current version: **0.10.0** | Website: [asmonite.com](https://asmonite.com) and
+Current version: **0.11.0** | Website: [asmonite.com](https://asmonite.com) and
 [dismonite.com](https://dismonite.com) | Chat: [Discord](https://discord.gg/Sj8kvqEkc)
 
 ![The Asmonite editor](assets/editor.png)
@@ -26,6 +26,8 @@ Current version: **0.10.0** | Website: [asmonite.com](https://asmonite.com) and
 - **Raspberry Pi Pico 2 and Pico:** RISC-V (Hazard3) and Arm (Cortex-M33, Cortex-M0+) with `.target pico2` /
   `.target pico`; F7 writes the program into the RAM or the flash over a CMSIS-DAP debug probe and debugs it,
   **without OpenOCD**; UF2 files for the BOOTSEL drive. Guide: [docs/en/riscv-pico2.md](docs/en/riscv-pico2.md).
+  The Pico (RP2040) also **without a debug probe**: a program in the RAM over its USB boot (BOOTSEL), one cable.
+  Guide: [docs/en/picoboot.md](docs/en/picoboot.md).
 - **ESP32-C3:** RISC-V with `.target esp32c3`; F7 loads the program into the RAM or writes it into the flash over the
   USB port of the chip and debugs it, **with one cable, without a debug probe**. Guide: [docs/en/esp32c3.md](docs/en/esp32c3.md).
 - **STM32F103 (Blue Pill):** Arm Cortex-M3 with `.target stm32f103`; F7 loads the program into the RAM or writes it into
@@ -33,6 +35,11 @@ Current version: **0.10.0** | Website: [asmonite.com](https://asmonite.com) and
 - **ESP32-S3:** Xtensa LX7 with `.arch xtensa` and `.target esp32s3`; F7 loads the program into the RAM or writes it
   into the flash over the USB port of the chip and debugs it, **with one cable, without a debug probe**. Guide:
   [docs/en/esp32s3.md](docs/en/esp32s3.md).
+- **ESP32:** Xtensa LX6 with `.arch xtensa` and `.target esp32`; F9 loads the program into the RAM or writes it into
+  the flash over the USB serial chip of the board and debugs it with a small monitor of Asmonite, **without a JTAG
+  probe**. Guide: [docs/en/esp32.md](docs/en/esp32.md).
+- **MangoPi MQ-Pro (Allwinner D1):** RISC-V with 64 bits (`.arch riscv64`, `.target d1`); F9 loads the program over USB
+  (the FEL mode of the boot ROM) and debugs it, **with one cable, without JTAG**. Guide: [docs/en/d1.md](docs/en/d1.md).
 - Also compiles a small C subset (`asmonite_cc`, derived from OTCC) and debugs it line by line.
 
 **Dismonite** (disassembler, debugger)

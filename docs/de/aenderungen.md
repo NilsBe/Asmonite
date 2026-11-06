@@ -6,6 +6,73 @@ Versionsnummern: MAJOR.MINOR.PATCH. Solange MAJOR 0 ist, darf ein MINOR-Schritt 
 vorhandene Quelltexte bedeuten; solche Änderungen stehen unter „Geändert“ und sind mit
 **(Quelltexte)** markiert.
 
+## 0.11.0 – 2026-11-06
+
+### Behoben
+- Ein Zeichen als Immediate geht auch außerhalb von x86: `movs r0, #'0'` (Thumb), `li a0, 'A'` (RISC-V), `movi a2,
+  '1'` (Xtensa). Thumb nimmt auch die kurzen Schreibweisen von GAS: `lsrs r1, r1, r3` und `ands r2, r2, r4` geben die
+  16-Bit-Form, `muls r1, r0` geht, `dsb`, `dmb`, `isb` brauchen keine Option, und `mrs`/`msr` kennen die
+  Spezialregister des Cortex-M (`primask`, `control`, `msp`, `psp`, `basepri`, `faultmask` ...). Mit `.target pico`
+  nennt ein Laden oder Speichern, dessen Offset für den Cortex-M0+ zu groß ist (`ldrb r0, [r2, #40]`), die Bereiche,
+  die er hat.
+- Ein Wort mit Doppelpunkt ist in jedem Modus außer x86 eine Marke, auch wenn es der Name eines x86-Befehls ist:
+  `loop:` wurde unter `.arch riscv32` (und thumb, x64, arm64) abgelehnt.
+- Pico 2: Das Umschalten von den Arm-Kernen zurück auf die RISC-V-Kerne klappt wieder, wenn der Chip in seinem
+  USB-Boot steht (BOOTSEL), etwa weil im Flash kein Programm steht, das das Boot-ROM starten kann. Der Arm-Kern blieb
+  dort im HardFault des Boot-ROMs stehen („stopped for another reason (DFSR 03, pc 000002F8)“): Der USB-Boot läuft
+  im Non-secure-Zustand, mit einer Stack-Grenze und dem RAM als Non-secure. Der Debugger setzt den Kern für die
+  Flash-Funktionen des Boot-ROMs jetzt auf Secure. Ein Programm für die anderen Kerne ohne IMAGE_DEF-Block wird nicht
+  mehr geschrieben (das Boot-ROM könnte es nicht starten, der Chip bliebe im USB-Boot): Der Debugger sagt das
+  stattdessen.
+
+### Neu
+- **Der Raspberry Pi Pico (RP2040) ohne Debug-Probe:** Steht das Board in seinem USB-Boot (BOOT halten, RUN drücken:
+  das Laufwerk RPI-RP2), debuggen F9 und F7 ein Programm mit `.target pico` für das RAM allein über das USB-Kabel:
+  Breakpoints, Schritte Zeile für Zeile, Schritt über einen Aufruf, die Register, das RAM; kehrt das Programm zurück,
+  zeigt das Ausgabefenster r0 und r1. Ein kleiner Stub von Asmonite bei 0x2003F000 wird vom Boot-ROM aufgerufen
+  (PICOBOOT, die Schnittstelle von picotool) und kommt an jedem Breakpoint zurück. Keine Pause eines laufenden
+  Programms; nur Programme im RAM (unter 0x2003F000). Einmal für jedes Board: der Treiber WinUsb Device für „RP2
+  Boot“, dann Debug > Debug targets > Raspberry Pi Pico > „Set up the USB boot“. Ausprobiert mit einem LilyGO
+  T-PicoC3. Anleitung: `docs/de/picoboot.md`.
+- Beispiele: `examples\esp32c3\sum_ram.asm` (die Summe von 1 bis 100 mit einer Funktion, ohne Pin: für jedes
+  C3-Board) und `examples\t-picoc3\display_ram.asm` für das LilyGO T-PicoC3 (ein RP2040 und ein ESP32-C3 auf
+  einem Board): Der RP2040 füllt sein Display (ST7789 über SPI0) und schaltet die rote LED ein; als UF2 fürs RAM
+  (Project > UF2, dann auf das Laufwerk RPI-RP2), der Flash bleibt, wie er ist. Beide am Board ausprobiert.
+  `examples\t-picoc3\lines_ram.asm`: ein weißer Rahmen und Linien in den Farben des Regenbogens auf dem Display (eine
+  Routine, die ein Rechteck füllt), gemacht für den Debugger über den USB-Boot: Es kehrt zurück, das nächste F9
+  zeichnet wieder. `examples\t-picoc3\text_ram.asm`: Text mit einem eigenen Zeichensatz (5 × 7 Punkte, Ziffern und
+  Großbuchstaben) und ein Zähler, der auf dem Display hochzählt, während die rote LED blinkt; eine Taste des Boards
+  beendet ihn.
+- **ESP32 (der ursprüngliche, Xtensa LX6): ausführen und flashen** mit `.target esp32` und `.target esp32 flash`
+  (`.arch xtensa`, das IRAM bei `0x40080000..0x4009FFFF`): F9 setzt den Chip über die Leitungen DTR und RTS des
+  USB-Seriell-Chips des Boards (CP210x, CH340, CH9102, CH343, FTDI) in den Download-Modus seines Boot-ROMs, wie esptool,
+  und legt das Programm ins RAM und startet es, oder schreibt es in den Flash bei `0x1000` (ein Image des Boot-ROMs,
+  Chip-ID 0) und setzt den Chip zurück. Ein Reset wird an der ersten Zeile des Boot-ROMs geprüft und wiederholt, bis sie
+  „DOWNLOAD“ sagt; kommt ein Board in 10 Sekunden nicht dorthin, bekommt der Benutzer den Hinweis „BOOT halten“.
+  **Debuggen** über denselben seriellen Port: Ein kleiner Debug-Monitor von Asmonite (`esp32mon.asm`, 2 KB oben im
+  IRAM) übernimmt die Vektoren von break, ICOUNT und den Ausnahmen und spricht über UART0 mit Asmonite (Register,
+  Speicher, laufen, Schritt): Haltepunkte, Schritte in und über Aufrufe mit Registerfenster, die Register; was das
+  Programm über UART0 schreibt, steht im Protokoll. Noch keine Pause.
+  `salt`, `saltu` werden für den LX6 abgelehnt. Debug targets: der Eintrag ESP32 mit Test the connection (COM-Port und MAC-Adresse). Beispiele `examples/esp32/` (`blink_ram.asm`,
+  `blink_flash.asm`: die LED an GPIO 2; `hello_uart_ram.asm`: Text am COM-Port des Boards). Anleitung:
+  `docs/de/esp32.md`.
+- **RISC-V mit 64 Bit (RV64)**: `.arch riscv64` im Assembler und im Disassembler: RV64I, M, A, die RV64-Formen von
+  Zba, Zbb, Zbs, Zbc, Zbkb, die 16-Bit-Formen von RV64 (`c.ld`, `c.sd`, `c.addiw` …); `li` nimmt jede 64-Bit-Zahl,
+  mit einer Marke 4 Befehle, die eine Adresse ab `0x80000000` positiv lassen. Gegen capstone geprüft; F1-Hilfe für
+  die neuen Befehle.
+- **MangoPi MQ-Pro (Allwinner D1, RV64)** mit `.target d1`: F9 lädt das Programm über USB ins SRAM des Chips (der
+  FEL-Modus seines Boot-ROMs, ein Kabel, ohne sunxi-fel, ohne JTAG) und **debuggt es**: Haltepunkte, Schritte Zeile
+  für Zeile, die Register mit 64 Bit, der Speicher; wenn `_start` mit `ret` zurückkehrt, zeigt das Protokoll `a0` und
+  `a1`. Ein kleiner Stub von Asmonite bei `0x27800` lässt das Programm zwischen zwei Aufrufen des Boot-ROMs laufen und
+  kommt bei einem Haltepunkt (`ebreak`) oder einer Ausnahme zurück; ein laufendes Programm lässt sich nicht anhalten.
+  Debug targets: der Eintrag MangoPi MQ-Pro mit Test the connection. Beispiele `examples/d1/` (`sum_ram.asm`, `fibonacci_ram.asm`). Anleitung:
+  `docs/de/d1.md`.
+- **Der Reiter Serial** neben dem Ausgabefenster: ein kleines Terminal für den seriellen Port eines Boards. Nach F9 auf
+  einem ESP32 zeigt es, was das Programm über UART0 schreibt, und schickt ihm eine eingegebene Zeile; Disconnect gibt
+  den Port frei, Connect öffnet einen beliebigen seriellen Port von Hand (die Liste von Windows mit den Gerätenamen,
+  die Baudrate; in der ini-Datei gemerkt), Reset gibt einen Puls auf RTS (EN) bei den ESP32-Boards. Hellgrau auf
+  Schwarz. DTR und RTS bleiben aus, das Öffnen des Ports setzt den Chip also nicht zurück.
+
 ## 0.10.0 – 2026-11-06
 
 ### Neu
