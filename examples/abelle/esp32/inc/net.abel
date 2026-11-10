@@ -1,0 +1,635 @@
+# A small IP stack in aBelle for the WiFi of the ESP32, for include "inc/net.abel" (it includes wifi.abel next to it):
+# Ethernet frames through the station (wifi_send, wifi_recv), ARP, IPv4, ping (ICMP echo, both ways), UDP, DHCP, DNS.
+#
+#   net_init()                         our MAC; the addresses are zeros until DHCP
+#   dhcp_run() i32                     DISCOVER, OFFER, REQUEST, ACK: net_ip, net_mask, net_gw, net_dns; 1 or 0
+#   udp_payload() pchar                where the data of a UDP packet to send go (up to 1400 bytes)
+#   udp_send(dst, sport, dport, n) i32 sends them to dst (4 bytes): the MAC by ARP (the router's for another
+#                                      network); 0 or minus one when ARP got no answer
+#   net_recv(ms) i32                   one frame, waiting for it up to ms milliseconds: ARP and ping are answered
+#                                      here, a UDP packet for us gives its length (its data at rx + udp_off, the
+#                                      ports in udp_sport, udp_dport, its sender's address at rx + udp_from); 0 else
+#                                      (a TCP segment for us: tcp_got, for inc/tcp.abel)
+#   arp_send(1, ip, zeros)             an ARP request to all: who has ip? Its answer (net_recv) sets arp_heard,
+#                                      arp_heard_ip, arp_heard_mac
+#   ip_hop(dst) i32                   the MAC for a packet to dst into arp_mac (of the router when dst is in
+#                                      another network) by ARP; 1 or 0
+#   dns_lookup(name, ip) i32           the IPv4 address of name ("ptbtime1.ptb.de") into the 4 bytes at ip, asked
+#                                      the DNS server of DHCP; 1 or 0
+#   net_set_name(name)                 the name of the board ("esp32"; net_init gives one from the MAC): DHCP tells
+#                                      it to the router (option 12), mDNS answers for <name>.local
+#   mdns_start()                       after dhcp_run: mDNS on, the name told to the network (twice, 1 s); from
+#                                      then on net_recv answers questions for <name>.local ("ping esp32.local")
+#   ping_send(dst, seq, n) i32        an ICMP echo request (a ping) with n bytes of data to dst; 0, -1 when ARP got
+#                                      no answer; its reply: net_recv sets ping_got = seq, ping_ttl, ping_from
+#
+# The tasks of the WiFi run only while the program is in the service (wifi_recv): a program calls net_recv again and
+# again while it waits for something. The numbers of the protocols are big endian: put16, get16, put32, get32.
+include "wifi.abel"
+
+ETH_HDR = 14
+IP_HDR = 20
+UDP_HDR = 8
+TX_DATA = 42                        # ETH_HDR + IP_HDR + UDP_HDR: the data of a UDP packet in tx
+
+net_mac: char[8]
+net_ip: char[4]
+net_mask: char[4]
+net_gw: char[4]
+net_dns: char[4]
+net_server: char[4]                 # the DHCP server
+net_lease: i32 = 0                  # seconds
+net_id: i32 = 0                     # the identification of the IPv4 packets
+broadcast: char[8]                  # FF:FF:FF:FF:FF:FF
+zeros: char[8]
+arp_ip: char[4]                     # the address resolved last
+arp_mac: char[8]                    # its MAC
+arp_done: i32 = 0                   # arp_mac is valid
+arp_heard: i32 = 0                  # an ARP answer came (net_recv): its sender in arp_heard_ip, arp_heard_mac; a
+arp_heard_ip: char[4]               # program that uses it sets arp_heard to 0 again
+arp_heard_mac: char[8]
+tx: char[1600]
+rx: char[1600]
+rx_n: i32 = 0                       # the length of the frame in rx
+udp_off: i32 = 0                    # the UDP packet net_recv gave: its data in rx
+udp_n: i32 = 0                      # their length
+udp_from: i32 = 0                   # the address of its sender in rx (4 bytes)
+udp_sport: i32 = 0
+udp_dport: i32 = 0
+tcp_got: i32 = 0                    # the frame in rx is a TCP segment for us (net_recv): at rx + tcp_off, tcp_n bytes
+tcp_off: i32 = 0
+tcp_n: i32 = 0
+dhcp_xid: i32 = 0
+net_rng: u32[1] at 0x3FF75144       # RNG_DATA_REG: random numbers (true ones while the radio runs)
+dhcp_offered: char[4]
+PING_ID = 0x6162                    # the identifier of our echo requests ("ab")
+ping_got: i32 = -1                  # the sequence number of the last echo reply for us (net_recv), -1 none
+ping_ttl: i32 = 0                   # its time to live
+ping_from: char[4]                  # its sender
+net_name: char[32]                  # the name of the board in the network: DHCP (option 12) and mDNS (net_set_name)
+ip_ttl: i32 = 64                    # the time to live of the IPv4 packets we send
+MDNS_PORT = 5353
+mdns_on: i32 = 0                    # mdns_start was called: net_recv answers questions for <net_name>.local
+mdns_group: char[4]                 # 224.0.0.251
+mdns_mac: char[8]                   # 01:00:5E:00:00:FB, its MAC
+mdns_tx: char[400]                  # the answers of mDNS: not in tx, where a packet of the program may wait for ARP
+mdns_count: i32 = 0                 # the answers sent
+
+# ---------- bytes ----------
+
+def put16(p: pchar, v):
+    p[0] = (v >> 8) & 0xFF
+    p[1] = v & 0xFF
+
+def get16(p: pchar) i32:
+    return (p[0] << 8) | p[1]
+
+def put32(p: pchar, v: u32):
+    p[0] = i32(v >> 24)
+    p[1] = i32(v >> 16) & 0xFF
+    p[2] = i32(v >> 8) & 0xFF
+    p[3] = i32(v) & 0xFF
+
+def get32(p: pchar) u32:
+    return (u32(p[0]) << 24) | (u32(p[1]) << 16) | (u32(p[2]) << 8) | u32(p[3])
+
+def clear(p: pchar, n):
+    for i in 0..n: p[i] = 0
+
+def copy(d: pchar, s: pchar, n):
+    for i in 0..n: d[i] = s[i]
+
+def same(a: pchar, b: pchar, n) i32:
+    for i in 0..n:
+        if a[i] != b[i]: return False
+    return True
+
+def is_zero(p: pchar, n) i32:
+    return same(p, zeros, n)
+
+# the checksum of IPv4, ICMP and UDP over the n bytes at p: the ones' complement of the ones' complement sum of
+# the 16-bit words (an odd last byte counts as the high byte of a word)
+def checksum(p: pchar, n) i32:
+    sum = 0
+    for i in 0..n / 2: sum += get16(p + 2 * i)
+    if n & 1: sum += p[n - 1] << 8
+    while sum >> 16 != 0: sum = (sum & 0xFFFF) + (sum >> 16)
+    return sum ^ 0xFFFF
+
+# ---------- Ethernet, IPv4, UDP ----------
+
+def net_init():
+    wifi_mac(net_mac)
+    for i in 0..6: broadcast[i] = 0xFF
+    clear(net_ip, 4)
+    clear(net_mask, 4)
+    clear(net_gw, 4)
+    clear(net_dns, 4)
+    arp_done = False
+    # a name from the MAC ("esp32-3e78") until net_set_name gives another one
+    net_set_name("esp32-")
+    for md_k in 0..2:
+        md_b = net_mac[4 + md_k]
+        net_name[6 + 2 * md_k] = md_hexdigit(md_b >> 4)
+        net_name[7 + 2 * md_k] = md_hexdigit(md_b & 15)
+    net_name[10] = 0
+
+# the Ethernet header of a frame in tx: to dst, from us, of type t (0x0800 IPv4, 0x0806 ARP)
+def eth_header(dst: pchar, t):
+    copy(tx, dst, 6)
+    copy(tx + 6, net_mac, 6)
+    put16(tx + 12, t)
+
+# an IPv4 header at p: n bytes follow it, of protocol proto (1 ICMP, 17 UDP), from src to dst
+def ip_header(p: pchar, n, proto, src: pchar, dst: pchar):
+    clear(p, IP_HDR)
+    p[0] = 0x45                     # version 4, a header of 5 words
+    put16(p + 2, IP_HDR + n)
+    net_id += 1
+    put16(p + 4, net_id)
+    p[8] = ip_ttl                   # time to live
+    p[9] = proto
+    copy(p + 12, src, 4)
+    copy(p + 16, dst, 4)
+    put16(p + 10, checksum(p, IP_HDR))
+
+# the data of a UDP packet to send: put them here, then udp_send
+def udp_payload() pchar:
+    return tx + TX_DATA
+
+# the UDP packet with the n bytes at udp_payload() from src_ip to dst_ip (its MAC dst_mac), the ports sport and
+# dport; 0 or the error of the WiFi
+def udp_send_raw(dst_ip: pchar, dst_mac: pchar, src_ip: pchar, sport, dport, n) i32:
+    eth_header(dst_mac, 0x0800)
+    ip_header(tx + ETH_HDR, UDP_HDR + n, 17, src_ip, dst_ip)
+    u = tx + ETH_HDR + IP_HDR
+    put16(u, sport)
+    put16(u + 2, dport)
+    put16(u + 4, UDP_HDR + n)
+    put16(u + 6, 0)                 # no checksum (IPv4 allows that)
+    return wifi_send(tx, TX_DATA + n)
+
+# the next hop of a packet to dst: dst itself in our network, else the router
+def ip_next(dst: pchar) pchar:
+    for i in 0..4:
+        if (dst[i] & net_mask[i]) != (net_ip[i] & net_mask[i]): return net_gw
+    return dst
+
+# the MAC for a packet to dst into arp_mac: the one kept, or ARP (2 seconds); 1 or 0
+def ip_hop(dst: pchar) i32:
+    hop = ip_next(dst)
+    if arp_done and same(arp_ip, hop, 4): return True
+    return arp_resolve(hop, 2000)
+
+# the UDP packet with the n bytes at udp_payload() to dst, the ports sport and dport: the MAC of dst (of the router
+# when dst is in another network) by ARP; 0, -1 when ARP got no answer, else the error of the WiFi
+def udp_send(dst: pchar, sport, dport, n) i32:
+    if same(dst, broadcast, 4): return udp_send_raw(dst, broadcast, net_ip, sport, dport, n)
+    if not ip_hop(dst): return -1
+    return udp_send_raw(dst, arp_mac, net_ip, sport, dport, n)
+
+# ---------- ping ----------
+
+# an ICMP echo request to dst: type 8, code 0, the checksum, our identifier, the sequence number seq, then n bytes
+# of data ("abcd..."); 0, -1 when ARP got no answer, else the error of the WiFi
+def ping_send(dst: pchar, seq, n) i32:
+    if n > 1400: n = 1400
+    if not ip_hop(dst): return -1
+    eth_header(arp_mac, 0x0800)
+    ip_header(tx + ETH_HDR, 8 + n, 1, net_ip, dst)
+    icmp = tx + ETH_HDR + IP_HDR
+    icmp[0] = 8                     # echo request
+    icmp[1] = 0
+    put16(icmp + 2, 0)
+    put16(icmp + 4, PING_ID)
+    put16(icmp + 6, seq)
+    for i in 0..n: icmp[8 + i] = 'a' + i % 23
+    put16(icmp + 2, checksum(icmp, 8 + n))
+    return wifi_send(tx, ETH_HDR + IP_HDR + 8 + n)
+
+# ---------- ARP ----------
+
+# an ARP packet (op 1 a request to all, 2 an answer to target_mac) about target_ip
+def arp_send(op, target_ip: pchar, target_mac: pchar):
+    if op == 1: eth_header(broadcast, 0x0806)
+    else: eth_header(target_mac, 0x0806)
+    a = tx + ETH_HDR
+    put16(a, 1)                     # Ethernet
+    put16(a + 2, 0x0800)            # IPv4
+    a[4] = 6                        # a MAC has 6 bytes
+    a[5] = 4                        # an address 4
+    put16(a + 6, op)
+    copy(a + 8, net_mac, 6)
+    copy(a + 14, net_ip, 4)
+    copy(a + 18, target_mac, 6)
+    copy(a + 24, target_ip, 4)
+    wifi_send(tx, 42)
+
+# the MAC of ip into arp_mac (arp_ip = ip): a request, then its answer within ms milliseconds; 1 or 0 (the frames
+# that come meanwhile are handled by net_recv, UDP packets are lost)
+def arp_resolve(ip: pchar, ms) i32:
+    copy(arp_ip, ip, 4)
+    arp_done = False
+    arp_send(1, ip, zeros)
+    for i in 0..ms / 10:
+        net_recv(10)
+        if arp_done: return True
+    return False
+
+# an ARP packet came (at rx + ETH_HDR): a request for our address is answered, an answer for arp_ip is kept
+def arp_in():
+    a = rx + ETH_HDR
+    if get16(a + 2) != 0x0800 or a[4] != 6 or a[5] != 4: return
+    op = get16(a + 6)
+    if op == 1 and same(a + 24, net_ip, 4) and not is_zero(net_ip, 4): arp_send(2, a + 14, a + 8)
+    elif op == 2:
+        # every answer: for a program that listens (arpscan.abel)
+        copy(arp_heard_ip, a + 14, 4)
+        copy(arp_heard_mac, a + 8, 6)
+        arp_heard = True
+        if same(a + 14, arp_ip, 4):
+            copy(arp_mac, a + 8, 6)
+            arp_done = True
+
+# ---------- receiving ----------
+
+# an ICMP echo request (a ping) at rx + off came: the same packet back as an echo reply
+def ping_reply(off, n):
+    copy(tx, rx, rx_n)
+    copy(tx, rx + 6, 6)             # back to its sender
+    copy(tx + 6, net_mac, 6)
+    ip = tx + ETH_HDR
+    copy(ip + 12, rx + ETH_HDR + 16, 4)
+    copy(ip + 16, rx + ETH_HDR + 12, 4)
+    ip[8] = 64
+    put16(ip + 10, 0)
+    put16(ip + 10, checksum(ip, IP_HDR))
+    icmp = tx + off
+    icmp[0] = 0                     # echo reply
+    put16(icmp + 2, 0)
+    put16(icmp + 2, checksum(icmp, n))
+    wifi_send(tx, rx_n)
+
+# one frame, waiting for it up to ms milliseconds: a UDP packet for us gives the length of its data (rx + udp_off,
+# udp_sport, udp_dport, rx + udp_from), anything else 0 (ARP and pings are answered here)
+def net_recv(ms) i32:
+    tcp_got = False
+    rx_n = wifi_recv(rx, 1600, ms)
+    if rx_n < ETH_HDR: return 0
+    if rx_n > 1600: rx_n = 1600
+    t = get16(rx + 12)
+    if t == 0x0806:
+        if rx_n >= 42: arp_in()
+        return 0
+    if t != 0x0800: return 0
+    ip = rx + ETH_HDR
+    if (ip[0] >> 4) != 4: return 0
+    ihl = (ip[0] & 15) * 4
+    total = get16(ip + 2)
+    if total > rx_n - ETH_HDR: return 0
+    # for us: our address, the broadcast, or anything while we have no address (DHCP)
+    md_for_us = same(ip + 16, net_ip, 4) or same(ip + 16, broadcast, 4) or is_zero(net_ip, 4)
+    if mdns_on and same(ip + 16, mdns_group, 4): md_for_us = True       # mDNS
+    if not md_for_us: return 0
+    if ip[9] == 1:
+        icmp = ip + ihl
+        if icmp[0] == 8 and not is_zero(net_ip, 4): ping_reply(ETH_HDR + ihl, total - ihl)
+        elif icmp[0] == 0 and total - ihl >= 8 and get16(icmp + 4) == PING_ID:
+            ping_got = get16(icmp + 6)
+            ping_ttl = ip[8]
+            copy(ping_from, ip + 12, 4)
+        return 0
+    if ip[9] == 6:
+        if same(ip + 16, net_ip, 4) and total - ihl >= 20:
+            tcp_got = True
+            tcp_off = ETH_HDR + ihl
+            tcp_n = total - ihl
+        return 0
+    if ip[9] != 17: return 0
+    u = ip + ihl
+    n = get16(u + 4) - UDP_HDR
+    if n < 0 or n > total - ihl - UDP_HDR: return 0
+    udp_sport = get16(u)
+    udp_dport = get16(u + 2)
+    udp_off = ETH_HDR + ihl + UDP_HDR
+    udp_from = ETH_HDR + 12
+    udp_n = n
+    if mdns_on and udp_dport == MDNS_PORT:
+        mdns_in()
+        return 0
+    return n
+
+# ---------- DNS ----------
+
+DNS_PORT = 53000                    # our port for the questions
+dns_id: i32 = 0
+
+# the place behind the name at p in the DNS message d (n bytes): labels up to a 0, or a pointer (2 bytes) at the
+# end; -1 when it runs past the end
+def dns_skip_name(d: pchar, p, n) i32:
+    while p < n:
+        c = d[p]
+        if c == 0: return p + 1
+        if (c & 0xC0) == 0xC0: return p + 2
+        p += 1 + c
+    return -1
+
+# the IPv4 address of name into the 4 bytes at ip: a question for its A record to the DNS server of DHCP, the first
+# A record of the answer (3 tries, 2 seconds each); 1 or 0
+def dns_lookup(name: pchar, ip: pchar) i32:
+    if is_zero(net_dns, 4): return False
+    for attempt in 0..3:
+        dns_id += 1
+        q = udp_payload()
+        clear(q, 12)
+        put16(q, 0x6100 + (dns_id & 0xFF))
+        q[2] = 1                    # recursion desired
+        put16(q + 4, 1)             # one question
+        # the name as labels: "ptbtime1.ptb.de" is 8 ptbtime1 3 ptb 2 de 0
+        p = 12
+        start = 0
+        i = 0
+        while True:
+            c = name[i]
+            if c == '.' or c == 0:
+                q[p] = i - start
+                copy(q + p + 1, name + start, i - start)
+                p += 1 + i - start
+                start = i + 1
+                if c == 0: break
+            i += 1
+            if i > 250: return False
+        q[p] = 0
+        put16(q + p + 1, 1)         # type A
+        put16(q + p + 3, 1)         # class IN
+        n = p + 5
+        if udp_send(net_dns, DNS_PORT, 53, n) != 0: continue
+        for t in 0..20:
+            n = net_recv(100)
+            if n < 12 or udp_sport != 53 or udp_dport != DNS_PORT: continue
+            d = rx + udp_off
+            if get16(d) != 0x6100 + (dns_id & 0xFF): continue
+            if (d[3] & 15) != 0: return False       # the server knows no such name
+            answers = get16(d + 6)
+            p = 12
+            for k in 0..get16(d + 4):               # the questions
+                p = dns_skip_name(d, p, n)
+                if p < 0: return False
+                p += 4
+            for k in 0..answers:
+                p = dns_skip_name(d, p, n)
+                if p < 0 or p + 10 > n: return False
+                typ = get16(d + p)
+                size = get16(d + p + 8)
+                p += 10
+                if typ == 1 and size == 4 and p + 4 <= n:
+                    copy(ip, d + p, 4)
+                    return True
+                p += size
+            return False
+    return False
+
+# ---------- the name of the board, mDNS ----------
+
+def md_hexdigit(v) i32:
+    if v < 10: return '0' + v
+    return 'a' + v - 10
+
+def md_lower(c) i32:
+    if c >= 'A' and c <= 'Z': return c + 32
+    return c
+
+# the name of the board (up to 31 characters: letters, digits, '-') for DHCP (option 12; call it before dhcp_run)
+# and mDNS (<name>.local); net_init gives it one from the MAC ("esp32-3e78")
+def net_set_name(md_s: pchar):
+    md_k = 0
+    while md_s[md_k] != 0 and md_k < 31:
+        net_name[md_k] = md_s[md_k]
+        md_k += 1
+    net_name[md_k] = 0
+
+# the md_c bytes at md_a are the text md_t (big or small letters alike)
+def md_label_is(md_a: pchar, md_c, md_t: pchar) i32:
+    for md_k in 0..md_c:
+        if md_t[md_k] == 0 or md_lower(md_a[md_k]) != md_lower(md_t[md_k]): return False
+    return md_t[md_c] == 0
+
+# the name at md_p of the message md_d (md_n bytes) is <net_name>.local (its labels; pointers followed)
+def md_is_ours(md_d: pchar, md_p, md_n) i32:
+    md_part = 0                     # 0: our name next, 1: "local", 2: the end
+    md_hops = 0
+    while md_p < md_n:
+        md_c = md_d[md_p]
+        if (md_c & 0xC0) == 0xC0:
+            if md_p + 1 >= md_n or md_hops > 8: return False
+            md_p = ((md_c & 0x3F) << 8) | md_d[md_p + 1]
+            md_hops += 1
+            continue
+        if md_c == 0: return md_part == 2
+        if md_p + 1 + md_c > md_n: return False
+        if md_part == 0:
+            if not md_label_is(md_d + md_p + 1, md_c, net_name): return False
+        elif md_part == 1:
+            if not md_label_is(md_d + md_p + 1, md_c, "local"): return False
+        else: return False
+        md_part += 1
+        md_p += 1 + md_c
+    return False
+
+# <net_name>.local as labels at md_p: the place behind it
+def md_put_name(md_p: pchar) pchar:
+    md_k = 0
+    while net_name[md_k] != 0: md_k += 1
+    md_p[0] = md_k
+    copy(md_p + 1, net_name, md_k)
+    md_p = md_p + 1 + md_k
+    md_p[0] = 5
+    copy(md_p + 1, "local", 5)
+    md_p[6] = 0
+    return md_p + 7
+
+# our A record (<net_name>.local = net_ip) in an answer: to all (224.0.0.251:5353, the class with its bit "flush the
+# cache", 120 s) or, md_legacy, to a resolver that asked from another port than 5353 (its id md_id and its question
+# of type md_type again, 10 s, as RFC 6762 wants it); the frame in mdns_tx
+def md_send(md_legacy, md_type, md_ip: pchar, md_mac: pchar, md_port, md_id):
+    md_u = mdns_tx + TX_DATA
+    clear(md_u, 12)
+    put16(md_u, md_id)
+    put16(md_u + 2, 0x8400)         # an answer, authoritative
+    put16(md_u + 6, 1)              # one record
+    md_p = md_u + 12
+    if md_legacy:
+        put16(md_u + 4, 1)          # the question again
+        md_p = md_put_name(md_p)
+        put16(md_p, md_type)
+        put16(md_p + 2, 1)
+        md_p = md_p + 4
+    md_p = md_put_name(md_p)
+    put16(md_p, 1)                  # type A
+    if md_legacy:
+        put16(md_p + 2, 1)          # class IN
+        put32(md_p + 4, 10)
+    else:
+        put16(md_p + 2, 0x8001)     # class IN, flush the cache
+        put32(md_p + 4, 120)
+    put16(md_p + 8, 4)
+    copy(md_p + 10, net_ip, 4)
+    md_n = md_p + 14 - md_u
+    copy(mdns_tx, md_mac, 6)
+    copy(mdns_tx + 6, net_mac, 6)
+    put16(mdns_tx + 12, 0x0800)
+    ip_ttl = 255                    # mDNS: the time to live 255 (a sign that it comes from this network)
+    ip_header(mdns_tx + ETH_HDR, UDP_HDR + md_n, 17, net_ip, md_ip)
+    ip_ttl = 64
+    md_h = mdns_tx + ETH_HDR + IP_HDR
+    put16(md_h, MDNS_PORT)
+    put16(md_h + 2, md_port)
+    put16(md_h + 4, UDP_HDR + md_n)
+    put16(md_h + 6, 0)
+    wifi_send(mdns_tx, TX_DATA + md_n)
+    mdns_count += 1
+
+# a packet to port 5353 came (net_recv, at rx + udp_off): a question for our A record (type A or ANY, class IN) is
+# answered; answers of others are let be
+def mdns_in():
+    md_d = rx + udp_off
+    md_n = udp_n
+    if md_n < 12 or (md_d[2] & 0x80) != 0: return
+    md_p = 12
+    for md_i in 0..get16(md_d + 4):
+        md_ours = md_is_ours(md_d, md_p, md_n)
+        md_p = dns_skip_name(md_d, md_p, md_n)
+        if md_p < 0 or md_p + 4 > md_n: return
+        md_t = get16(md_d + md_p)
+        md_c = get16(md_d + md_p + 2) & 0x7FFF
+        md_p += 4
+        if md_ours and md_c == 1 and (md_t == 1 or md_t == 255):
+            if udp_sport != MDNS_PORT:
+                md_send(True, md_t, rx + udp_from, rx + 6, udp_sport, get16(md_d))
+            else: md_send(False, 1, mdns_group, mdns_mac, MDNS_PORT, 0)
+            return
+
+# mDNS on (after dhcp_run): net_recv answers questions for <net_name>.local from now on; first the name is told to
+# all twice, a second apart
+def mdns_start():
+    mdns_group[0] = 224
+    mdns_group[1] = 0
+    mdns_group[2] = 0
+    mdns_group[3] = 251
+    mdns_mac[0] = 0x01
+    mdns_mac[1] = 0x00
+    mdns_mac[2] = 0x5E
+    mdns_mac[3] = 0x00
+    mdns_mac[4] = 0x00
+    mdns_mac[5] = 0xFB
+    mdns_on = True
+    md_send(False, 1, mdns_group, mdns_mac, MDNS_PORT, 0)
+    md_t0 = wifi_millis()
+    while wifi_millis() - md_t0 < 1000: net_recv(20)
+    md_send(False, 1, mdns_group, mdns_mac, MDNS_PORT, 0)
+
+# ---------- DHCP ----------
+
+# a DHCP message of type t (1 DISCOVER, 3 REQUEST) at udp_payload(); its length
+def dhcp_message(t) i32:
+    d = udp_payload()
+    clear(d, 300)
+    d[0] = 1                        # BOOTREQUEST
+    d[1] = 1                        # Ethernet
+    d[2] = 6
+    put32(d + 4, u32(dhcp_xid))
+    d[10] = 0x80                    # answer by broadcast
+    copy(d + 28, net_mac, 6)
+    o = d + 236
+    o[0] = 0x63                     # the magic cookie
+    o[1] = 0x82
+    o[2] = 0x53
+    o[3] = 0x63
+    o[4] = 53                       # the type
+    o[5] = 1
+    o[6] = t
+    o[7] = 55                       # the parameters we want: subnet mask, router, DNS
+    o[8] = 3
+    o[9] = 1
+    o[10] = 3
+    o[11] = 6
+    o = o + 12
+    if t == 3:
+        o[0] = 50                   # the address offered
+        o[1] = 4
+        copy(o + 2, dhcp_offered, 4)
+        o[6] = 54                   # the server
+        o[7] = 4
+        copy(o + 8, net_server, 4)
+        o = o + 12
+    # our name (the router shows it in its list, and its DNS may know it: esp32.fritz.box)
+    md_k = 0
+    while net_name[md_k] != 0: md_k += 1
+    if md_k > 0:
+        o[0] = 12
+        o[1] = md_k
+        copy(o + 2, net_name, md_k)
+        o = o + 2 + md_k
+    o[0] = 255
+    return 240 + (o + 1 - d - 240)
+
+# the next DHCP answer of type t for our xid within ms milliseconds: 1 (the packet at rx + udp_off) or 0
+def dhcp_wait(t, ms) i32:
+    for i in 0..ms / 100:
+        n = net_recv(100)
+        if n < 240 or udp_dport != 68: continue
+        d = rx + udp_off
+        if d[0] != 2 or get32(d + 4) != u32(dhcp_xid): continue
+        if dhcp_option(d, n, 53) >= 0 and rx[dhcp_option(d, n, 53)] == t: return True
+    return False
+
+# the place of the value of option code in the DHCP packet d (n bytes) in rx, -1 if it is not there
+def dhcp_option(d: pchar, n, code) i32:
+    p = 240
+    while p < n:
+        c = d[p]
+        if c == 255: return -1
+        if c == 0:
+            p += 1
+            continue
+        if c == code: return udp_off + p + 2
+        p += 2 + d[p + 1]
+    return -1
+
+# an address: DISCOVER to all, the OFFER, REQUEST, the ACK; net_ip, net_mask, net_gw, net_dns, net_lease; 1 or 0
+def dhcp_run() i32:
+    clear(net_ip, 4)
+    dhcp_xid = i32(net_rng[0])      # a new transaction: a random xid (the same one each time looked to a router
+                                    # like the repetition of one it had answered already, for the program before)
+    got = False
+    for t in 0..3:                  # DISCOVER, again after 2 seconds without an OFFER
+        n = dhcp_message(1)
+        udp_send_raw(broadcast, broadcast, zeros, 68, 67, n)
+        if dhcp_wait(2, 2000):
+            got = True
+            break
+    if not got: return False
+    d = rx + udp_off
+    copy(dhcp_offered, d + 16, 4)
+    o = dhcp_option(d, udp_n, 54)
+    if o < 0: return False
+    copy(net_server, rx + o, 4)
+    got = False
+    for t in 0..3:                  # REQUEST, again after 2 seconds without an ACK
+        n = dhcp_message(3)
+        udp_send_raw(broadcast, broadcast, zeros, 68, 67, n)
+        if dhcp_wait(5, 2000):
+            got = True
+            break
+    if not got: return False
+    d = rx + udp_off
+    copy(net_ip, d + 16, 4)
+    o = dhcp_option(d, udp_n, 1)
+    if o >= 0: copy(net_mask, rx + o, 4)
+    o = dhcp_option(d, udp_n, 3)
+    if o >= 0: copy(net_gw, rx + o, 4)
+    o = dhcp_option(d, udp_n, 6)
+    if o >= 0: copy(net_dns, rx + o, 4)
+    o = dhcp_option(d, udp_n, 51)
+    if o >= 0: net_lease = i32(get32(rx + o))
+    return True

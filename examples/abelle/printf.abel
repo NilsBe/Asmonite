@@ -1,0 +1,18 @@
+# Hello, world! with printf of msvcrt.dll, the C runtime of Windows (kernel32.dll has no printf).
+# expect-output: Hello, world!
+# expect-output: 6 * 7 = 42
+# expect-output: 255 in hex: ff, as a character: A
+# expect-output: aBelle has 6 letters
+#
+# The functions of msvcrt.dll go by the convention of C: cdecl (the caller takes the arguments away, kernel32.dll:
+# stdcall, the function itself). printf takes as many arguments as its text asks for: ... behind its parameters.
+
+extern "msvcrt.dll" cdecl:
+    def printf(text: pchar, ...) i32
+
+def main() i32:
+    printf("Hello, world!\n")
+    printf("%d * %d = %d\n", 6, 7, 6 * 7)
+    printf("%d in hex: %x, as a character: %c\n", 255, 255, 'A')
+    printf("%s has %d letters\n", "aBelle", 6)
+    return 0

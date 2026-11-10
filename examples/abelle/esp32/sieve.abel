@@ -1,0 +1,121 @@
+# A benchmark: the sieve of Eratosthenes for the primes below 20000, ten times, and the time it took (timer 0 of timer
+# group 0), every five seconds over UART0 (under the debugger in the tab Serial, else in a terminal on the COM port,
+# 115200 baud). There are 2262 primes below 20000.
+# F9 in Asmonite runs it in the RAM (gone after a reset); Debug > Write to Flash and Run writes it into the flash
+# at 0x1000 first (in place of the firmware that was there): then the board runs it at every start, also without
+# the PC.
+#
+# The array of the sieve has 20000 bytes in the DRAM; the compiler puts its zeros into the program, so they go over
+# the serial port with it (a bigger array takes longer to load).
+#
+# watchdogs_off(): when the boot ROM starts a program from the flash, it switches the watchdogs on. WITHOUT IT A
+# BOARD THAT RUNS THE PROGRAM FROM THE FLASH RESETS AFTER A FEW SECONDS (see blink.abel). In the RAM it does no
+# harm.
+target "esp32"
+
+uart0: u32[32]    at 0x3FF40000     # UART0
+timg0: u32[64]    at 0x3FF5F000     # timer group 0
+
+UART_FIFO = 0x00 / 4                # takes a byte to send
+UART_STATUS = 0x1C / 4              # bits 23..16: the bytes in the FIFO
+
+T0CONFIG = 0x00 / 4
+T0LO = 0x04 / 4
+T0UPDATE = 0x0C / 4
+
+LIMIT = 20000
+RUNS = 10
+
+# for watchdogs_off()
+
+timg1:    u32[64]    at 0x3FF60000    # timer group 1
+rtc_cntl: u32[64]    at 0x3FF48000    # RTC_CNTL
+
+WDT_KEY = 0x50D83AA1                # unlocks the registers of a watchdog
+TIMG_WDTCONFIG0 = 0x48 / 4
+TIMG_WDTWPROTECT = 0x64 / 4
+RTC_WDTCONFIG0 = 0x8C / 4
+RTC_WDTWPROTECT = 0xA4 / 4
+
+digits: char[12]
+composite: char[20000]              # 1: not a prime
+
+def watchdogs_off():
+    timg0[TIMG_WDTWPROTECT] = WDT_KEY       # unlock
+    timg0[TIMG_WDTCONFIG0] = 0              # off
+    timg0[TIMG_WDTWPROTECT] = 0             # lock
+    timg1[TIMG_WDTWPROTECT] = WDT_KEY
+    timg1[TIMG_WDTCONFIG0] = 0
+    timg1[TIMG_WDTWPROTECT] = 0
+    rtc_cntl[RTC_WDTWPROTECT] = WDT_KEY
+    rtc_cntl[RTC_WDTCONFIG0] = 0
+    rtc_cntl[RTC_WDTWPROTECT] = 0
+
+# timer 0 on: counts up, each microsecond
+def timer_start():
+    timg0[T0CONFIG] = u32((1 << 31) | (1 << 30) | (40 << 13))
+
+def micros() u32:
+    timg0[T0UPDATE] = 1
+    return timg0[T0LO]
+
+def wait_ms(ms):
+    start = micros()
+    while micros() - start < u32(ms * 1000): pass
+
+def put_char(c):
+    while ((uart0[UART_STATUS] >> 16) & 0xFF) >= 120: pass
+    uart0[UART_FIFO] = u32(c)
+
+def print(s: pchar):
+    n = 0
+    while s[n] != 0:
+        put_char(s[n])
+        n += 1
+
+def print_int(v):
+    if v < 0:
+        put_char('-')
+        v = 0 - v
+    p = digits + 11
+    p[0] = 0
+    while True:
+        p -= 1
+        p[0] = '0' + i32(u32(v) % 10)
+        v = i32(u32(v) / 10)
+        if v == 0: break
+    print(p)
+
+# the primes below LIMIT
+def sieve() i32:
+    for i in 0..LIMIT: composite[i] = 0
+    count = 0
+    for i in 2..LIMIT:
+        if composite[i] == 0:
+            count += 1
+            j = i * i
+            while j < LIMIT:
+                composite[j] = 1
+                j += i
+    return count
+
+def main():
+    watchdogs_off()
+    timer_start()
+    while True:
+        start = micros()
+        count = 0
+        for r in 0..RUNS: count = sieve()
+        us = i32(micros() - start)
+        print("sieve: ")
+        print_int(count)
+        print(" primes below ")
+        print_int(LIMIT)
+        print(", ")
+        print_int(RUNS)
+        print(" runs in ")
+        print_int(us / 1000)
+        print(" ms (")
+        print_int(us / RUNS)
+        print(" us each)\r\n")
+        wait_ms(5000)

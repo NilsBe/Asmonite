@@ -6,7 +6,7 @@ Breakpoints, steps line by line, step over a call, the registers, the memory. Wh
 shows `r0` and `r1`.
 
 This works for the Raspberry Pi Pico and for other boards with the RP2040. Tested with a LilyGO T-PicoC3 (an RP2040
-and an ESP32-C3 on one board).
+and an ESP32-C3 on one board, see [t-picoc3.md](t-picoc3.md)).
 
 With the Raspberry Pi Debug Probe (or another CMSIS-DAP probe) at the SWD pins Asmonite debugs the Pico as before,
 also programs in the flash and with pause. The USB boot is the way without a probe.
@@ -84,6 +84,15 @@ back. A step puts a `bkpt` at every address the instruction can go to (the next 
 The examples of the Pico 1 in `examples/pico` that run in the RAM run this way too; a program that ends in a loop
 (`blink_ram.asm`) can only be stopped by a breakpoint or by RUN. `examples/t-picoc3/display_ram.asm` fills the display
 of the LilyGO T-PicoC3 (step through its setup of the SPI with F7).
+
+## No serial output
+
+Over the USB boot a program has no way to send text to the PC: the USB port is the drive and PICOBOOT of the boot
+ROM, nothing more (a COM port would need a USB stack in the program, and the program would take the USB port away
+from the debugger). What a program wants to show: in the RAM, where the memory window shows it at a breakpoint, or on
+a display. With the debug probe the UART of the probe shows what the Pico sends on GP0
+([riscv-pico2.md](riscv-pico2.md), "The serial output over the debug probe"); without it a USB serial adapter at GP0
+and GND does that, also next to a session over the USB boot.
 
 ## If something does not work
 

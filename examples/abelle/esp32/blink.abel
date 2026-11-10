@@ -1,0 +1,55 @@
+# Blink on the ESP32 DevKit: the LED at GPIO 2 on and off, about half a second each.
+# F9 in Asmonite translates it with abelle_esp32, loads it with the monitor over the USB cable into the RAM and runs
+# it (gone after a reset). Debug > Write to Flash and Run writes it into the flash at 0x1000 first (in place of the
+# firmware that was there): then the board runs it at every start, also without the PC.
+#
+# watchdogs_off(): when the boot ROM starts a program from the flash, it switches the watchdogs on (the bootloader of
+# ESP-IDF would switch them off again). WITHOUT IT A BOARD THAT RUNS THE PROGRAM FROM THE FLASH RESETS AFTER A FEW
+# SECONDS. Each watchdog is unlocked with a key in its WPROTECT register, switched off (WDTCONFIG0 = 0) and locked
+# again. In the RAM it does no harm.
+target "esp32"
+
+gpio:     u32[0x140] at 0x3FF44000    # the GPIO registers
+iomux:    u32[64]    at 0x3FF49000    # IO_MUX: the function of each pin
+
+GPIO_OUT_W1TS = 0x08 / 4            # a 1 sets the pin
+GPIO_OUT_W1TC = 0x0C / 4            # a 1 clears it
+GPIO_ENABLE_W1TS = 0x24 / 4         # a 1 makes it an output
+LED = 2
+
+# for watchdogs_off()
+
+timg0:    u32[64]    at 0x3FF5F000    # timer group 0
+timg1:    u32[64]    at 0x3FF60000    # timer group 1
+rtc_cntl: u32[64]    at 0x3FF48000    # RTC_CNTL
+
+WDT_KEY = 0x50D83AA1                # unlocks the registers of a watchdog
+TIMG_WDTCONFIG0 = 0x48 / 4
+TIMG_WDTWPROTECT = 0x64 / 4
+RTC_WDTCONFIG0 = 0x8C / 4
+RTC_WDTWPROTECT = 0xA4 / 4
+
+def watchdogs_off():
+    timg0[TIMG_WDTWPROTECT] = WDT_KEY       # unlock
+    timg0[TIMG_WDTCONFIG0] = 0              # off
+    timg0[TIMG_WDTWPROTECT] = 0             # lock
+    timg1[TIMG_WDTWPROTECT] = WDT_KEY
+    timg1[TIMG_WDTCONFIG0] = 0
+    timg1[TIMG_WDTWPROTECT] = 0
+    rtc_cntl[RTC_WDTWPROTECT] = WDT_KEY
+    rtc_cntl[RTC_WDTCONFIG0] = 0
+    rtc_cntl[RTC_WDTWPROTECT] = 0
+
+def wait():
+    for i in 0..500000: pass        # about half a second at 40 MHz (no timer yet)
+
+def main():
+    watchdogs_off()
+    iomux[0x40 / 4] = 0x2800              # GPIO 2: function GPIO (MCU_SEL 2), drive 2
+    gpio[(0x530 + 4 * LED) / 4] = 0x100   # FUNC2_OUT_SEL: a simple output
+    gpio[GPIO_ENABLE_W1TS] = 1 << LED
+    while True:
+        gpio[GPIO_OUT_W1TS] = 1 << LED    # on
+        wait()
+        gpio[GPIO_OUT_W1TC] = 1 << LED    # off
+        wait()

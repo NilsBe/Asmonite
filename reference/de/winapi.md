@@ -1211,7 +1211,7 @@ kernel32.dll · stdcall · 1 Parameter (4 Bytes)
 
 Der Debugger zeigt den Text in seiner Ausgabe; ohne Debugger passiert nichts.
 
-## DebugBreak – Haltepunkt auslösen
+## DebugBreak – Breakpoint auslösen
 
 kernel32.dll · stdcall · keine Parameter
 

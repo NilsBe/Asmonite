@@ -1,0 +1,139 @@
+# A reaction game on the ESP32 DevKit: after a random time of 2 to 5 seconds the LED (GPIO 2) goes on; press the BOOT
+# button as fast as you can. The program writes your time and your best one over UART0 (under the debugger in the tab
+# Serial, else in a terminal on the COM port, 115200 baud). Press before the LED is on, and it says "too early".
+# F9 in Asmonite runs it in the RAM (gone after a reset); Debug > Write to Flash and Run writes it into the flash
+# at 0x1000 first (in place of the firmware that was there): then the board runs it at every start, also without
+# the PC.
+#
+# The BOOT button pulls GPIO 0 to ground (the boot ROM reads it only at a reset, then it is a pin as any other):
+# IO_MUX_GPIO0 (0x3FF49044) as a GPIO with its input on and the pull-up, then bit 0 of GPIO_IN (0x3FF4403C) is 0
+# while the button is pressed. The random time comes from RNG_DATA (see dice.abel), the time from timer 0 (timer.abel).
+#
+# watchdogs_off(): when the boot ROM starts a program from the flash, it switches the watchdogs on. WITHOUT IT A
+# BOARD THAT RUNS THE PROGRAM FROM THE FLASH RESETS AFTER A FEW SECONDS (see blink.abel). In the RAM it does no
+# harm.
+target "esp32"
+
+gpio:  u32[0x140] at 0x3FF44000     # the GPIO registers
+iomux: u32[64]    at 0x3FF49000     # IO_MUX: the function of each pin
+uart0: u32[32]    at 0x3FF40000     # UART0
+timg0: u32[64]    at 0x3FF5F000     # timer group 0
+rng:   u32[1]     at 0x3FF75144     # RNG_DATA
+
+GPIO_OUT_W1TS = 0x08 / 4            # a 1 sets the pin
+GPIO_OUT_W1TC = 0x0C / 4            # a 1 clears it
+GPIO_ENABLE_W1TS = 0x24 / 4         # a 1 makes it an output
+GPIO_IN = 0x3C / 4                  # the level of the pins 0 .. 31
+LED = 2
+
+UART_FIFO = 0x00 / 4                # takes a byte to send
+UART_STATUS = 0x1C / 4              # bits 23..16: the bytes in the FIFO
+
+T0CONFIG = 0x00 / 4
+T0LO = 0x04 / 4
+T0UPDATE = 0x0C / 4
+
+# for watchdogs_off()
+
+timg1:    u32[64]    at 0x3FF60000    # timer group 1
+rtc_cntl: u32[64]    at 0x3FF48000    # RTC_CNTL
+
+WDT_KEY = 0x50D83AA1                # unlocks the registers of a watchdog
+TIMG_WDTCONFIG0 = 0x48 / 4
+TIMG_WDTWPROTECT = 0x64 / 4
+RTC_WDTCONFIG0 = 0x8C / 4
+RTC_WDTWPROTECT = 0xA4 / 4
+
+digits: char[12]
+
+def watchdogs_off():
+    timg0[TIMG_WDTWPROTECT] = WDT_KEY       # unlock
+    timg0[TIMG_WDTCONFIG0] = 0              # off
+    timg0[TIMG_WDTWPROTECT] = 0             # lock
+    timg1[TIMG_WDTWPROTECT] = WDT_KEY
+    timg1[TIMG_WDTCONFIG0] = 0
+    timg1[TIMG_WDTWPROTECT] = 0
+    rtc_cntl[RTC_WDTWPROTECT] = WDT_KEY
+    rtc_cntl[RTC_WDTCONFIG0] = 0
+    rtc_cntl[RTC_WDTWPROTECT] = 0
+
+# timer 0 on: counts up, each microsecond
+def timer_start():
+    timg0[T0CONFIG] = u32((1 << 31) | (1 << 30) | (40 << 13))
+
+def micros() u32:
+    timg0[T0UPDATE] = 1
+    return timg0[T0LO]
+
+def wait_ms(ms):
+    start = micros()
+    while micros() - start < u32(ms * 1000): pass
+
+def put_char(c):
+    while ((uart0[UART_STATUS] >> 16) & 0xFF) >= 120: pass
+    uart0[UART_FIFO] = u32(c)
+
+def print(s: pchar):
+    n = 0
+    while s[n] != 0:
+        put_char(s[n])
+        n += 1
+
+def print_int(v):
+    if v < 0:
+        put_char('-')
+        v = 0 - v
+    p = digits + 11
+    p[0] = 0
+    while True:
+        p -= 1
+        p[0] = '0' + i32(u32(v) % 10)
+        v = i32(u32(v) / 10)
+        if v == 0: break
+    print(p)
+
+# the BOOT button is pressed (GPIO 0 low)
+def pressed() i32:
+    return (gpio[GPIO_IN] & 1) == 0
+
+# waits until the button is up, then a little longer (it bounces)
+def wait_released():
+    while pressed(): pass
+    wait_ms(50)
+
+# waits ms milliseconds; True if the button was pressed meanwhile
+def wait_or_pressed(ms) i32:
+    start = micros()
+    while micros() - start < u32(ms * 1000):
+        if pressed(): return True
+    return False
+
+def main():
+    watchdogs_off()
+    timer_start()
+    iomux[0x40 / 4] = 0x2800              # GPIO 2: function GPIO (MCU_SEL 2), drive 2
+    gpio[(0x530 + 4 * LED) / 4] = 0x100   # FUNC2_OUT_SEL: a simple output
+    gpio[GPIO_ENABLE_W1TS] = 1 << LED
+    iomux[0x44 / 4] = 0x2B00              # GPIO 0: function GPIO, drive 2, input on (FUN_IE), pull-up (FUN_WPU)
+    best = 0
+    print("reaction game: press BOOT as soon as the LED goes on\r\n")
+    while True:
+        gpio[GPIO_OUT_W1TC] = 1 << LED    # off
+        wait_released()
+        if wait_or_pressed(2000 + i32(rng[0] % 3000)):
+            print("too early!\r\n")
+            wait_released()
+            continue
+        gpio[GPIO_OUT_W1TS] = 1 << LED    # on
+        start = micros()
+        while not pressed(): pass
+        ms = i32(micros() - start) / 1000
+        gpio[GPIO_OUT_W1TC] = 1 << LED
+        if best == 0 or ms < best: best = ms
+        print("reaction ")
+        print_int(ms)
+        print(" ms (best ")
+        print_int(best)
+        print(" ms)\r\n")
+        wait_released()
+        wait_ms(1000)

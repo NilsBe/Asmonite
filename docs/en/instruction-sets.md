@@ -53,7 +53,7 @@ SVE is on servers and on few phones; the Windows on ARM computers Asmonite debug
 The C906 core of the **Allwinner D1** (MangoPi MQ-Pro) has F and D, and a vector unit of the old, not ratified version
 0.7.1. The Hazard3 cores of the Pico 2 and the core of the ESP32-C3 have no floating point.
 
-## Xtensa (ESP32-S3, ESP32)
+## Xtensa (ESP32, ESP32-S3)
 
 | There | Missing |
 |---|---|

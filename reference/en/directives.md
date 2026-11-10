@@ -140,6 +140,28 @@ name has no folder part. Asmonite runs and debugs the file named here.
 
 Related: `.format`
 
+## .include – insert a file
+
+Puts the text of another file in this place, as if it stood here. This way constants (`equ`), functions and
+data can be spread over several files.
+
+- The name is in quotes and counts from the folder of the file the `.include` is in (`/` and `\` both work).
+  A name with a drive or from the root counts as it is.
+- Each file is read once: a second `.include` of the same file, also from another included file, is left out.
+- An included file may use `.include` itself.
+- Error messages name the file and its line: `inc\uart.asm(12): ...`.
+- In the debugger: when the program stops in an included file, Asmonite shows that file in place of the source,
+  read only. Breakpoints and single steps work there as in the source.
+
+**Syntax:** `.include "name"`
+
+```asm
+.include "uart.asm"
+.include "../common/board.inc"
+```
+
+Related: `equ`
+
 ## .target – the device
 
 Says which device the program is for. The output is then a flat binary (like `.format binary`, which can

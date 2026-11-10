@@ -5,7 +5,8 @@
 ;   1. plug in the board (Debug > Debug targets: ESP32-C3)
 ;   2. press F9 (Run) or F7 (Step into): the chip is reset and halted before its firmware starts,
 ;      the program is loaded to 0x40380000 and stops at _start
-;   3. open COM8 in a terminal program (the speed does not matter on this port) to see the lines
+;   3. the tab Serial next to the output window connects to that port by itself and shows the lines (or a
+;      terminal program on COM8; the speed does not matter on this port)
 ; Nothing is written to the flash: after RESET the firmware of the board runs again.
 ;
 ; The registers (ESP-IDF, components/soc/esp32c3/register/soc: reg_base.h, gpio_reg.h, io_mux_reg.h,

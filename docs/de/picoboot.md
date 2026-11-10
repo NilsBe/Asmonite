@@ -6,7 +6,7 @@ Zeile für Zeile, Schritt über einen Aufruf, die Register, der Speicher. Wenn d
 `r0` und `r1`.
 
 Das geht beim Raspberry Pi Pico und bei anderen Boards mit dem RP2040. Ausprobiert mit einem LilyGO T-PicoC3 (ein
-RP2040 und ein ESP32-C3 auf einem Board).
+RP2040 und ein ESP32-C3 auf einem Board, siehe [t-picoc3.md](t-picoc3.md)).
 
 Mit dem Raspberry Pi Debug Probe (oder einer anderen CMSIS-DAP-Sonde) an den SWD-Pins debuggt Asmonite den Pico wie
 bisher, auch Programme im Flash und mit Pause. Der USB-Boot ist der Weg ohne Sonde.
@@ -89,6 +89,15 @@ dort. Ein Schritt setzt ein `bkpt` an jede Adresse, zu der der Befehl gehen kann
 Die Beispiele des Pico 1 in `examples/pico`, die im RAM laufen, gehen auch so; ein Programm, das in einer Schleife
 endet (`blink_ram.asm`), hält nur an einem Breakpoint oder mit RUN an. `examples/t-picoc3/display_ram.asm` füllt das
 Display des LilyGO T-PicoC3 (geh mit F7 durch das Einrichten des SPI).
+
+## Keine serielle Ausgabe
+
+Über den USB-Boot hat ein Programm keinen Weg, Text zum PC zu schicken: Der USB-Anschluss ist das Laufwerk und
+PICOBOOT des Boot-ROMs, sonst nichts (ein COM-Port bräuchte einen USB-Stack im Programm, und das Programm nähme dem
+Debugger den USB-Anschluss weg). Was ein Programm zeigen will: ins RAM, wo es das Speicherfenster an einem Breakpoint
+zeigt, oder auf ein Display. Mit der Debug Probe zeigt der UART der Probe, was der Pico an GP0 sendet
+([riscv-pico2.md](riscv-pico2.md), „Die serielle Ausgabe über die Debug Probe“); ohne sie tut das ein
+USB-Seriell-Adapter an GP0 und GND, auch neben einer Sitzung über den USB-Boot.
 
 ## Wenn etwas nicht geht
 

@@ -1,0 +1,50 @@
+# The factorials 1! .. 10! (recursion) and how to print a number: its digits from the back into a char array.
+# expect-output: 1! = 1
+# expect-output: 2! = 2
+# expect-output: 3! = 6
+# expect-output: 4! = 24
+# expect-output: 5! = 120
+# expect-output: 6! = 720
+# expect-output: 7! = 5040
+# expect-output: 8! = 40320
+# expect-output: 9! = 362880
+# expect-output: 10! = 3628800
+
+extern "kernel32.dll":
+    def GetStdHandle(n) u32
+    def WriteFile(h: u32, buf: pchar, n: u32, written: pchar, ov: u32) i32
+
+written: char[4]
+digits: char[12]
+
+def print(s: pchar):
+    n = 0
+    while s[n] != 0: n += 1
+    WriteFile(GetStdHandle(-11), s, u32(n), written, 0)
+
+def print_int(n):
+    p = digits + 11
+    p[0] = 0
+    neg = n < 0
+    if neg: n = -n
+    while True:
+        p -= 1
+        p[0] = '0' + n % 10
+        n /= 10
+        if n == 0: break
+    if neg:
+        p -= 1
+        p[0] = '-'
+    print(p)
+
+def fact(n) i32:
+    if n <= 1: return 1
+    return n * fact(n - 1)
+
+def main() i32:
+    for i in 1..11:
+        print_int(i)
+        print("! = ")
+        print_int(fact(i))
+        print("\n")
+    return 0

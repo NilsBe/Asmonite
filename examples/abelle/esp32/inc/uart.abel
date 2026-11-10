@@ -1,0 +1,64 @@
+# Text and numbers over UART0 of the ESP32, for include "inc/uart.abel" (the boot ROM has set UART0 up: 115200 baud).
+# UART_STATUS_REG at 0x3FF4001C has in bits 23..16 how many bytes wait in the FIFO of 128; a byte to send goes into
+# UART_FIFO_REG, written on the AHB at 0x60000000 as ESP-IDF does it (through 0x3FF40000 the FIFO of the ESP32 may
+# take wrong bytes while the other core is busy: the WiFi runs on core 1).
+# The names of the parameters and local variables here begin with u_: in aBelle a local name may not be the one of a
+# global of the program that includes this file (an assignment would change that global).
+uart0: u32[32] at 0x3FF40000
+uart0_fifo: u32[1] at 0x60000000
+UART_STATUS = 0x1C / 4
+
+uart_digits: char[12]
+
+# one byte; waits while the FIFO is (nearly) full
+def put_char(u_c):
+    while ((uart0[UART_STATUS] >> 16) & 0xFF) >= 120: pass
+    uart0_fifo[0] = u32(u_c)
+
+# a text up to its 0
+def print(u_s: pchar):
+    u_n = 0
+    while u_s[u_n] != 0:
+        put_char(u_s[u_n])
+        u_n += 1
+
+# a text and a line end
+def println(u_s: pchar):
+    print(u_s)
+    print("\r\n")
+
+# a number in decimal
+def print_int(u_v):
+    if u_v < 0:
+        put_char('-')
+        u_v = 0 - u_v
+    u_p = uart_digits + 11
+    u_p[0] = 0
+    while True:
+        u_p -= 1
+        u_p[0] = '0' + i32(u32(u_v) % 10)
+        u_v = i32(u32(u_v) / 10)
+        if u_v == 0: break
+    print(u_p)
+
+# a hex digit (0 .. 15)
+def put_hex(u_d):
+    if u_d < 10: put_char('0' + u_d)
+    else: put_char('A' + u_d - 10)
+
+# a byte as two hex digits
+def print_byte(u_b):
+    put_hex((u_b >> 4) & 15)
+    put_hex(u_b & 15)
+
+# the 6 bytes at u_p as a MAC: "CC:50:E3:95:3E:78"
+def print_mac(u_p: pchar):
+    for u_i in 0..6:
+        if u_i > 0: put_char(':')
+        print_byte(u_p[u_i])
+
+# the 4 bytes at u_p as an IPv4 address: "192.168.43.17"
+def print_ip(u_p: pchar):
+    for u_i in 0..4:
+        if u_i > 0: put_char('.')
+        print_int(u_p[u_i])

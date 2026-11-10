@@ -16,7 +16,7 @@ denselben Texten.
 
 | Auf der Zeile | Die Hilfe zeigt |
 | --- | --- |
-| ein Befehl (`mov`, `push`, `add r0, r1, #1`) | Syntax, erlaubte Operanden, Flags, ein Beispiel; x86, nach `.arch thumb` ARM Thumb-2 |
+| ein Befehl (`mov`, `push`, `add r0, r1, #1`) | Syntax, erlaubte Operanden, Flags, ein Beispiel; für x86 und x64, ARM (Thumb-2, `.arch thumb`), ARM64, RISC-V (32 und 64 Bit) und Xtensa, nach dem `.arch` des Quelltexts. Ein Befehl ohne eigene Erklärung zeigt seinen kurzen Abschnitt aus der Befehlsreferenz (Syntax, Wirkung, Flags); nach einem x87- oder SSE-Befehl folgt der Überblick `x87` oder `sse` |
 | der Aufruf einer importierten Funktion (`call [ExitProcess]`, `ldr r3, =CloseHandle`) | die DLL, die Aufrufkonvention, jeden Parameter mit Typ und Bedeutung, das Ergebnis, eine kurze Erklärung |
 | `int 21h`, `int 10h`, `int 13h` ... | die Funktion (ihre Nummer steht in `ah`; die Info sucht sie in den Zeilen davor), Ein- und Ausgaberegister, Fehlercodes |
 | eine Direktive (`.arch`, `.format`, `.import`, `section` ...) | was sie bewirkt und ein Beispiel |

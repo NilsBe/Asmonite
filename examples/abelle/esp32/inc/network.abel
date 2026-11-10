@@ -1,0 +1,8 @@
+# The network the examples of the WiFi connect to (dhcp.abel ...): put the name of yours and its password here. It
+# has to be in the 2.4 GHz band, open (the password "") or with WPA2 (WPA3 alone does not go yet; the hotspot of a
+# phone can be one).
+def network_name() pchar:
+    return "your-network"
+
+def network_password() pchar:
+    return ""

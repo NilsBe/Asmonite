@@ -53,7 +53,7 @@ SVE gibt es auf Servern und wenigen Telefonen; die Windows-on-ARM-Rechner, auf d
 Der C906-Kern des **Allwinner D1** (MangoPi MQ-Pro) hat F und D, dazu eine Vektoreinheit in der alten, nicht
 ratifizierten Fassung 0.7.1. Die Hazard3-Kerne des Pico 2 und der Kern des ESP32-C3 haben kein Gleitkomma.
 
-## Xtensa (ESP32-S3, ESP32)
+## Xtensa (ESP32, ESP32-S3)
 
 | Da | Fehlt |
 |---|---|

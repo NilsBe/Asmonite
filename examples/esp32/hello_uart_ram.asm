@@ -1,12 +1,13 @@
 ; ESP32 (the original, Xtensa LX6): "Hello, world!" through UART0 once a second.
 ; UART0 is the serial port of the board: its TX (GPIO 1) goes to the USB serial chip, so a terminal on the COM
 ; port of the board shows the text (115200 baud, 8N1; the boot ROM has set UART0 up). Press F9: the program goes
-; into the RAM under the debug monitor of Asmonite, which has the port then: the text shows in the output window
-; ("UART0: Hello, world!"). The program does not end: put a breakpoint into its loop to stop it (a running program
-; cannot be paused yet), or press EN on the board.
+; into the RAM under the debug monitor of Asmonite, which has the port then: the text shows in the tab Serial
+; next to the output window. The program does not end: Debug > Pause stops it where it is (or a breakpoint in its
+; loop), Stop ends the session, EN on the board resets the chip.
 ;
-; The program and its text are in the IRAM (0x40080000): the core reads it only in words of 32 bits (l8ui there is
-; a LoadStoreError), so the text is read word by word and taken apart with extui, the lowest byte first.
+; The code is in the IRAM (0x40080000), the text after .data in the DRAM (0x3FFB0000): the core reads the DRAM
+; byte by byte (l8ui), the IRAM only in words of 32 bits. The literal lit_message holds the address of the text;
+; l32r reads it from the IRAM, a word.
 ;
 ; UART0 (ESP32 Technical Reference Manual, chapter "UART Controller"; ESP-IDF
 ; components/soc/esp32/include/soc/uart_reg.h): UART_FIFO_REG at 0x3FF40000 takes a byte to send,
@@ -26,22 +27,16 @@ _start:
 
 again:
   l32r  a3, lit_message
-next_word:
-  l32i  a4, a3, 0                    ; four bytes of the text
-  movi  a8, 4
 next_byte:
-  extui a5, a4, 0, 8                 ; the lowest one
+  l8ui  a5, a3, 0                    ; a byte of the text
   beqz  a5, sent
 fifo_full:
   l32i  a11, a2, 0x1C                ; UART_STATUS_REG
   extui a11, a11, 16, 8              ; TXFIFO_CNT
   bgeu  a11, a6, fifo_full
   s32i  a5, a2, 0                    ; UART_FIFO_REG
-  srli  a4, a4, 8
-  addi  a8, a8, -1
-  bnez  a8, next_byte
-  addi  a3, a3, 4
-  j     next_word
+  addi  a3, a3, 1
+  j     next_byte
 
 sent:
   rsr   a9, ccount
@@ -51,6 +46,6 @@ wait:
   bltu  a10, a7, wait
   j     again
 
-align 4
+.data
 message:
   db    'Hello, world!', 13, 10, 0

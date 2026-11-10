@@ -6,6 +6,170 @@ Versionsnummern: MAJOR.MINOR.PATCH. Solange MAJOR 0 ist, darf ein MINOR-Schritt 
 vorhandene Quelltexte bedeuten; solche Änderungen stehen unter „Geändert“ und sind mit
 **(Quelltexte)** markiert.
 
+## 0.12.0 – 2026-11-10
+
+### Neu
+- **aBelle**, eine kleine Programmiersprache mit der Schreibweise von Python, nah an der Hardware (`.abel`). Ihr
+  Compiler ist in aBelle geschrieben und übersetzt sich selbst; er schreibt den Maschinencode selbst, mit einer
+  Map-Datei für den Debugger. Drei Compiler liegen in der ZIP neben Asmonite: `abelle.exe` (Windows, x86),
+  `abelle64.exe` (Windows, x64; Project > aBelle for x64) und `abelle_esp32.exe` (der ESP32, `target "esp32"`). In
+  Asmonite übersetzt und debuggt F9 eine `.abel`-Datei in ihrem Quelltext: Breakpoints, F7/F8 Zeile für Zeile,
+  Variablen unter der Maus und im Fenster Watch nach ihrem Typ, F1-Hilfe zu den Wörtern der Sprache. Auf dem ESP32:
+  Register als Felder an einer festen Adresse (`gpio: u32[0x140] at 0x3FF44000`), Funktionen des ROM
+  (`def ets_delay_us(us: u32) at 0x40008534`), F9 in den RAM, Shift+F9 in den Flash. Beispiele in `examples/abelle/`
+  und `examples/abelle/esp32/` (blink, timer, chipinfo, clock, dice, reaction, sieve, temperature ...). Seite:
+  asmonite.com/de/abelle.html.
+- **WLAN auf dem ursprünglichen ESP32**, ohne ESP-IDF: **Debug > ESP32 Board Files > Install WiFi** bringt das WLAN
+  aufs Board (sein Teil im Flash bei 0x100000, `wlan.rom` und der Dienst `wlansvc` in die Dateien der Konsole;
+  `wlan.rom` enthält die WLAN-Bibliotheken von Espressif, einmal gebunden mit dem eigenen Linker von Asmonite,
+  Apache-Lizenz 2.0, siehe `wlan/`). Ein aBelle-Programm lädt den Dienst selbst (`inc/wifi.abel`), mit `run` in der
+  Konsole wie unter F9. Das WLAN läuft auf dem zweiten Kern: Der Debugger hält das Programm auf dem ersten Kern am
+  Breakpoint an, und die Station bleibt verbunden. Scan, offene Netze und WPA2, Frames hinein und hinaus; ein kleiner
+  IP-Stack in aBelle (`inc/net.abel`: ARP, IPv4, Ping in beide Richtungen, UDP, DHCP mit dem Namen des Boards, DNS,
+  mDNS: das Board ist unter `esp32.local` erreichbar) und TCP (`inc/tcp.abel`, eine Verbindung zur Zeit, als Client
+  oder Server). Beispiele: scan, dhcp, dns, ping, wol (Wake-on-LAN), arpscan, ntp, udpecho, httpget, webserver
+  (`http://esp32.local/`), telnetd (eine kleine Shell über Telnet: Dateien, Speicher, Ping, LED). Ein Fehler des WLAN
+  kommt als Satz (`wifi_error_text`). Seite: asmonite.com/de/esp32.html.
+- Assembler: **`.include "name"`** setzt den Text einer anderen Datei an diese Stelle (der Name gilt vom Ordner der
+  Datei aus, in der die Zeile steht; jede Datei wird einmal gelesen, eine eingebundene Datei darf weitere einbinden).
+  Fehlermeldungen und Warnungen nennen die eingebundene Datei und ihre Zeile (`inc\uart.asm(12): ...`), in Asmonite
+  und in `asmoc`. Hält der Debugger in einer eingebundenen Datei, zeigt der Editor sie an Stelle der Quelle,
+  schreibgeschützt; Breakpoints, Einzelschritte, F4 und die Werte unter der Maus gehen dort wie in der Quelle.
+  F1-Hilfe: Direktiven.
+- ESP32: **`.data`** legt Texte, Tabellen und Puffer ins DRAM (ab `0x3FFB0000`, oder `.data 0x3FFC0100`), wo sich Bytes
+  lesen und schreiben lassen: Das IRAM des Programms nimmt nur Wörter, ein `l8ui` auf einen Text dort hielt mit einem
+  LoadStoreError an. `.code` schaltet zurück zum Code. Der Debugger lädt die Daten nach dem Code; ein Programm für den
+  Flash bekommt sie als zweites Segment im Image, das das Boot-ROM bei jedem Start kopiert. Daten, die in den Stack
+  (`0x3FFBF000..0x3FFC000F`) oder aus dem DRAM hinaus reichen, sind ein Fehler. `examples/esp32/hello_uart_ram.asm`
+  liest seinen Text jetzt Byte für Byte, neu: `hello_uart_flash.asm`.
+- Website: Die Originaldokumentation jeder Befehlsreferenz hat einen Link pro Zeile.
+- Doku: `docs/de/boards.md`, welches Board wie debuggt wird (über eine Debug-Probe oder mit dem USB-Kabel allein) und
+  wie seine serielle Ausgabe zum PC kommt, auch als Tabelle auf der Seite der Ziele; neue Anleitungen für die Blue Pill
+  (`stm32.md`) und den LilyGO T-PicoC3 (`t-picoc3.md`); riscv-pico2.md, picoboot.md und d1.md sagen, was es ohne Probe
+  und für die serielle Ausgabe gibt.
+- ESP32: Was das Programm unter dem Debugger über UART0 schreibt, erscheint im Reiter **Serial** (so wie es kommt, der
+  Reiter kommt nach vorn), nicht mehr als Zeilen „UART0: …“ im Ausgabefenster. Solange die Sitzung dauert, sind
+  Connect, Port, Baudrate und die Eingabe gesperrt, und die Kopfzeile sagt, dass der Debugger den Port hat; ein im
+  Reiter verbundener Port wird beim Start freigegeben (bisher meldete F9 „COM14 is open in another program“).
+- Raspberry Pi Pico 2, Pico und Blue Pill: Der Reiter Serial verbindet sich von selbst mit dem UART der Raspberry Pi
+  Debug Probe (ihr Stecker „U“), wenn eine Sitzung über die Probe das Programm geladen hat; er schaltet dafür DTR ein
+  (die Probe sendet nur dann) und lässt es bei den Boards von Espressif aus. Neue Beispiele `hello_uart_ram.asm` für
+  den Pico 2 (RISC-V; `hello_uart_arm_ram.asm` für Arm), den Pico und die Blue Pill: „Hello, world!“ mit 115200 Baud
+  (RP2040 und RP2350 starten dafür ihren Quarz). Die Anleitung riscv-pico2.md sagt, wie das Kabel geht.
+- ESP32-S3 und ESP32-C3: Der Reiter Serial verbindet sich von selbst mit dem seriellen Port des USB-Anschlusses des Chips, wenn der
+  Debugger das Programm geladen hat (beim Start gibt er ihn frei: Der Reset ins Boot-ROM und der Flash brauchen ihn);
+  der Debugger behält den JTAG desselben Anschlusses. Neu: `examples/esp32s3/hello_usb_ram.asm` (USB Serial/JTAG). Die
+  Anleitung sagt, wie Bytes im RAM gelesen werden: Die IRAM-Adresse nimmt nur Wörter, dasselbe Byte am Datenbus liegt
+  0x6F0000 tiefer.
+- ESP32: **Debug > Pause** hält ein laufendes Programm an, auch in einer Endlosschleife, und Stop beendet die Sitzung
+  sofort (bisher musste man auf einen Haltepunkt warten). Der Debug-Monitor von Asmonite nimmt ein Byte auf UART0 als
+  NMI, während das Programm läuft. Auf dem Board auch mit dem Flash getestet (`.target esp32 flash` unter dem
+  Debugger).
+- Reiter Serial: Die Liste der Ports zeigt den Port zuerst (`COM14 - Silicon Labs CP210x USB to UART Bridge`), so ist
+  er auch in einer schmalen Box zu sehen; die aufgeklappte Liste ist so breit wie ihr längster Eintrag, und der ganze
+  Eintrag ist der Hinweis (Tooltip) der Box.
+
+- Befehlsinfo (F1): Jeder Befehl des Assemblers hat jetzt einen Abschnitt. Wo die Hilfe keine eigene Erklärung hat (das
+  meiste von SSE, x87, Gleitkomma und Neon bei ARM64, die Befehle von Xtensa), zeigt F1 den kurzen Abschnitt aus der
+  Befehlsreferenz: Syntax, Wirkung, Flags (help/<Sprache>/<arch>_ref.md, erzeugt von tools/gen_help_ref.py aus den
+  Tabellen des Assemblers). Neu: eine Hilfe für Xtensa (Registerfenster, `l32r`, `loop`, das Schieben über `SAR`,
+  Laden und Speichern und das IRAM, Spezialregister), die Überblicke `x87` und `sse` für x86 (F1 auf einem x87- oder
+  SSE-Befehl zeigt sie nach seinem eigenen Abschnitt).
+- **File > Open Recent**: die letzten fünf Dateien, geöffnet oder unter neuem Namen gespeichert (in der ini-Datei
+  gemerkt); eine Datei, die es nicht mehr gibt, verlässt die Liste.
+- Asmonite und Dismonite: Das Mausrad scrollt den Teil des Fensters unter dem Mauszeiger (Editor, Register, Stack,
+  Speicher, Ausgabe), nicht den mit dem Fokus.
+- ESP32: neues Beispiel `examples/esp32/clock_ram.asm`: der Kern vom Quarz (40 MHz) und von der PLL mit 80, 160 und
+  240 MHz, so wie der Bootloader von ESP-IDF sie einrichtet (die PLL über den I2C-Bus im Chip mit der Funktion
+  `rom_i2c_writeReg` des ROMs, aufgerufen mit `callx8`; die Spannung des Kerns für 240 MHz); UART0 und der Timer folgen
+  jeder Änderung des Takts der Peripherie. Es schreibt, wie schnell eine Schleife bei jedem Takt läuft: auf einem
+  DevKit V1 6664, 13333, 26666 und 40000 Durchläufe pro Millisekunde.
+- ESP32: neues Beispiel `examples/esp32/console.asm`, eine **Konsole über UART0 mit einem kleinen Dateisystem** im
+  Flash, für jedes Terminalprogramm (115200 Baud): `ls`, `cat`, `put` (einen Text tippen oder einfügen, bis 64 KB,
+  dann eine Zeile mit nur einem Punkt), `rm`, `df`, `format`, `help`. Backspace, Ctrl+C und CR, LF oder CR LF am
+  Zeilenende funktionieren. Das Dateisystem belegt die oberen 2 MB eines Flash mit 4 MB: ein Verzeichnis für 64
+  Dateien, doppelt gehalten, sodass ein Reset während des Schreibens das alte stehen lässt; jede Datei mit ihrer
+  CRC-32. Der Flash wird mit den Funktionen des ROMs beschrieben. Was hereinkommt, landet in einem Ring von 4 KB,
+  auch während die Konsole sendet; so kommt auch ein eingefügter Text von 62 KB vollständig an. Schreiben mit Debug >
+  Write to Flash and Run, die Sitzung beenden, dann der Reiter Serial (Connect, Reset) oder ein anderes Terminal.
+  Unter dem Debugger läuft sie nicht: Der Debug-Monitor nimmt jedes Byte auf UART0 als seine Pause.
+  Ein Programm auf dem PC spricht mit ihr in Paketen (STX, Befehl, Länge, Daten, CRC-32): Dateien jeder Art und Größe
+  hoch und herunter (etwa 10 KB/s), die Liste, der Platz, Löschen; ein beschädigtes Stück wird neu geschickt. Asmonite
+  hat die Gegenseite in `src/debugger/EspConsole.pas`.
+  `run name` startet ein Programm aus einer Datei (dem Image, das Asmonite in den Flash schreibt: Code und `.data`),
+  `boot name` startet es nach jedem Reset (eine Sekunde, um in der Konsole zu bleiben: BOOT oder eine Taste),
+  `noboot` beendet das. Ein Programm für F9 passt unverändert: Die Konsole liegt darüber (Code ab `0x4009C000`, Daten
+  ab `0x3FFD0000`); die Datei wird an ihrer CRC-32 geprüft, die Segmente an ihren Adressen. `load name` bringt die
+  Teile eines Programms für den RAM an ihren Platz, ohne es zu starten, auch in den Raum zwischen den Programmen und
+  der Konsole (IRAM `0x40098000` .. `0x4009BFFF`, DRAM `0x3FFD8000` .. `0x3FFDFFFF`); Segmente für den Flash lässt es
+  aus. Ein Teil, den `load` dorthin bringt, kann eigene Befehle mitbringen (bei `0x40094000` das Wort `CMDS` und die
+  Adresse einer Tabelle aus Namen, Funktionen und Zeilen für `help`); nach einem Reset vergisst die Konsole sie. Ihre
+  Wartezeiten folgen dem Takt des Kerns (`g_ticks_per_us_pro` des ROMs), auch wenn ein Programm ihn geändert hat.
+- ESP32: **Debug > ESP32 Board Files**, ein Fenster für die Dateien der Konsole: die Liste (mit dem Programm, das nach
+  einem Reset startet), Upload File, Upload This Program (das Programm im Editor als Image), Download, Delete, Run
+  (danach zeigt der Reiter Serial, was es schreibt), Autostart, Reset Board, Format, Write Console to Flash. Die Arbeit
+  läuft im Hintergrund mit ihren Schritten und einem Balken; Cancel bricht sie ab. Doku: esp32.md hat einen Teil zur
+  Konsole und sagt, wie Write to Flash and Run arbeitet.
+- ESP32: **Debug > Write to Flash and Run** (Shift+F9) schreibt ein Programm für den RAM (`.target esp32`) zuerst in
+  den Flash, wie `.target esp32 flash` es tut, und debuggt es dann wie F9: Das Board startet es bei jedem Start. So
+  geht derselbe Quelltext ohne Änderung in den RAM oder in den Flash (`.target esp32 flash` bleibt, wie es war).
+- Boards: ein **Startfenster** mitten über Asmonite, während eine Sitzung startet (ab einer halben Sekunde): die
+  Schritte (verbinden, die Resets in den Download-Modus mit dem Versuch, der Debug-Monitor, das Programm, der Flash,
+  der Lauf bis zur Zeile), ein Balken für die Bytes, die Zeit bisher und **Cancel**. Es geht, sobald das Programm läuft
+  oder angehalten hat. Alle Schritte beim ESP32; die anderen Boards zeigen Verbinden, Programm oder Flash und den Lauf
+  bis zur Zeile.
+- ESP32: Ein Schritt über eine Zeile, die lange dauert (eine Schleife in einer Zeile, `for: pass` in einem übersetzten
+  Programm), läuft nach 100 Einzelschritten mit voller Geschwindigkeit weiter, mit Breakpoints an den Zeilenanfängen.
+- ESP32: Der Flash wird mit 921600 Baud geschrieben (Write to Flash and Run, Write Console to Flash): Das Boot-ROM
+  wechselt seine Rate (CHANGE_BAUDRATE), ein Lesezugriff mit der neuen Rate prüft sie; schafft das Board sie nicht,
+  startet Asmonite das Boot-ROM neu und schreibt mit 115200. 334 KB dauerten 14,6 s statt 44 s.
+- ESP32-Debugger: Ein Programm ab 16 KB wird mit 921600 Baud geladen (98 KB in 6,3 s statt 21 s). Der Debug-Monitor
+  wechselt die Rate von UART0 auf den Befehl `b` und geht von selbst zurück, wenn mit der neuen Rate keine Antwort
+  kommt; jedes Stück von 8 KB wird zurückgelesen und neu geschrieben, wenn es abweicht. Bevor das Programm läuft
+  oder einen Schritt macht, gilt wieder 115200, wie das Programm es erwartet.
+- ESP32 Board Files: Ein Upload oder Download ab 16 KB läuft mit 921600 Baud (100 KB hoch in 3,7 s statt 11,5 s,
+  herunter in 1,8 s statt 9,6 s). Die Konsole wechselt die Rate von UART0 auf das Paket `S` und geht zurück, wenn
+  das nächste Paket nicht richtig ankommt; am Ende jeder Übertragung gilt wieder 115200, die Rate eines Terminals.
+- ESP32: Die Größe des Flash des Boards aus seiner JEDEC-ID (der Befehl 0x9F über SPI1, wie esptool flash_id):
+  Test the connection und Board Files zeigen sie an („flash 4 MB (Boya, JEDEC id 68 40 16)“), Write to Flash
+  verweigert ein Image, das nicht hineinpasst, Erase Flash löscht ihn ganz, und mit weniger als 4 MB warnt Board
+  Files und formatiert nicht (das Dateisystem der Konsole liegt bei 2 bis 4 MB). Die Konsole beantwortet das Paket
+  `I` mit der ID. Auch das Beispiel chipinfo zeigt sie.
+- ESP32-Konsole: Das Dateisystem reicht von 2 MB bis zum Ende des Flash (2 MB bei 4 MB Flash wie bisher, 6 MB bei
+  8 MB wie auf einem WROVER; bis 16 MB). Ein vorher formatiertes Board behält seine Größe bis zum nächsten Format.
+- ESP32: Scheitert das Schreiben des Flash mit der schnelleren Rate, obwohl sie ihre Prüfung bestanden hat (ein
+  USB-Seriell-Chip, der 3 MBaud annimmt), startet Asmonite das Boot-ROM neu und schreibt das ganze Image mit 115200:
+  Es bleibt kein halb geschriebenes Image zurück.
+- ESP32 Board Files: **Erase Flash...** löscht den ganzen Flash (4 MB beim DevKit) über das Boot-ROM, wie bei einem neuen Board:
+  keine Konsole, keine Dateien (8 bis 17 s). Write Console to Flash und Format machen daraus wieder ein Board für
+  Asmonite.
+
+### Behoben
+- ESP32: Der Debugger konnte kein Programm laden, das größer als etwa 34 KB ist („Cannot write the program to
+  40080000“): Er schickte es in einem Stück, und das dauerte länger, als der serielle Port für einen Schreibvorgang
+  zulässt. Es geht jetzt in Stücken von 8 KB. Die Meldung eines solchen Fehlers nennt den Grund (und verweist nicht
+  mehr auf `.imagebase 0x20000000` des Pico).
+- Boards: Pause und Stop wirkten nicht, solange ein Schritt Befehl für Befehl lief (eine lange Zeile): Die Sitzung
+  blieb auf „running“. Ein Stop, auf den das Board 3 Sekunden lang nicht antwortet, beendet die Sitzung trotzdem.
+- ESP32: Ein Reset des Boards, während das Programm lief (Knopf EN, Strom), ließ Asmonite auf „running“, und weder
+  Pause noch Stop beendeten das. Die Zeile `rst:0x…,boot:0x…` des Boot-ROMs am Port beendet die Sitzung jetzt mit
+  einem Hinweis.
+- Befehlsinfo (F1): Mit `.arch riscv64` und mit `.arch xtensa` zeigte sie die Hilfe für x86.
+- ESP32: Ein Programm, dessen Aufrufe tiefer gehen, als die 64 Register der Fenster fassen (mehr als etwa sieben
+  `call8`), hielt mit einer Double Exception im Überlauf-Handler an: Der Monitor legt jetzt unter den ersten `sp` einen
+  Rahmen für den Aufrufer von `_start`, wie ESP-IDF.
+- ESP32: Solange ein Programm den zweiten Kern (die APP-CPU) beschäftigte, bekam `examples/esp32/console.asm` hin
+  und wieder ein Byte von UART0 doppelt. Die Konsole und der Debug-Monitor lesen und schreiben UART0 jetzt wie
+  ESP-IDF (den RX-FIFO bei `0x3FF40000`, den TX-FIFO bei `0x60000000`), der Monitor leert den RX-FIFO bei einem
+  Stopp, und beide schauen beim Warten seltener nach: Ein Kern, der den APB ständig belegt, kann die Lesezugriffe des
+  anderen Kerns auf DPORT-Register verfälschen (ein Erratum des ESP32).
+- x86-Assembler: Ein Abstand von 128 bis 255 in 32-Bit-Code (`mov eax, [esp+200]`, `[ebx+200]`) wurde als ein Byte
+  geschrieben, das der Prozessor als -128 bis -1 liest; jetzt nimmt er 32 Bit. 16-Bit-Code behält 0 bis 255 als ein
+  Byte, wie geschrieben.
+- `.format pe`: Ein Abschnitt, dessen Größe ein Vielfaches von 0x200 ist (Code von genau 0x200, 0x400, 0xC00 …
+  Bytes), bekam in den Köpfen die Größe 0x1000: Windows lud das Programm nicht, oder es stürzte ab. Ein Label am Ende
+  eines solchen Abschnitts (`data_end:`) hatte die Adresse des Anfangs des nächsten.
+
 ## 0.11.0 – 2026-11-06
 
 ### Behoben

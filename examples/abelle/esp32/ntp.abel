@@ -1,0 +1,126 @@
+# The time from the internet: the station connects to the network of inc/network.abel, gets an address by DHCP
+# (inc/net.abel), finds the time server of the PTB (Physikalisch-Technische Bundesanstalt, Braunschweig) by DNS,
+# asks it by NTP (UDP, port 123) and shows the date and the time, UTC and CET. It needs wlan.rom and wlansvc in the
+# files of the board (Debug > ESP32 Board Files); the program loads them itself (inc/wifi.abel): "run ntp" in the
+# console, or F9 in Asmonite.
+target "esp32"
+include "inc/uart.abel"
+include "inc/net.abel"
+include "inc/network.abel"
+
+ntp_server: char[4]                 # the address of ntp_name()
+NTP_TO_UNIX = 0x83AA7E80            # the seconds from 1900 to 1970 (2208988800)
+
+# the name of the time server
+def ntp_name() pchar:
+    return "ptbtime1.ptb.de"
+
+# two digits
+def print_2(v):
+    if v < 10: put_char('0')
+    print_int(v)
+
+# the time t (seconds since 1970) as "2026-11-09 17:30:05"
+def print_time(t: u32):
+    secs = i32(t % 86400)
+    days = i32(t / 86400)
+    # the date: from 1970 on, year by year, month by month
+    year = 1970
+    while True:
+        n = 365
+        if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0): n = 366
+        if days < n: break
+        days -= n
+        year += 1
+    month = 1
+    while True:
+        n = 31
+        if month == 4 or month == 6 or month == 9 or month == 11: n = 30
+        if month == 2:
+            n = 28
+            if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0): n = 29
+        if days < n: break
+        days -= n
+        month += 1
+    print_int(year)
+    put_char('-')
+    print_2(month)
+    put_char('-')
+    print_2(days + 1)
+    put_char(' ')
+    print_2(secs / 3600)
+    put_char(':')
+    print_2(secs / 60 % 60)
+    put_char(':')
+    print_2(secs % 60)
+
+def main():
+    println("NTP (aBelle)")
+    net_init()
+    print("mac: ")
+    print_mac(net_mac)
+    println("")
+    print("connecting to ")
+    println(network_name())
+    r = wifi_connect(network_name(), network_password())
+    if r != 0:
+        print("wifi_connect: error ")
+        print_int(r)
+        print(" (")
+        print(wifi_error_text(r))
+        print(")")
+        print(", status ")
+        print_int(wifi_status())
+        println("")
+    elif not dhcp_run(): println("dhcp: no answer")
+    else:
+        print("ip: ")
+        print_ip(net_ip)
+        print("  mask: ")
+        print_ip(net_mask)
+        print("  router: ")
+        print_ip(net_gw)
+        print("  dns: ")
+        print_ip(net_dns)
+        print("  lease: ")
+        print_int(net_lease)
+        println(" s")
+        got = False
+        if not dns_lookup(ntp_name(), ntp_server):
+            print("dns: no address for ")
+            println(ntp_name())
+            wifi_disconnect()
+            println("ntp end")
+            while True: pass
+        print("dns: ")
+        print(ntp_name())
+        print(" = ")
+        print_ip(ntp_server)
+        println("")
+        for attempt in 0..3:
+            p = udp_payload()
+            clear(p, 48)
+            p[0] = 0x23             # no warning, version 4, a client
+            r = udp_send(ntp_server, 123, 123, 48)
+            if r != 0:
+                print("udp_send: ")
+                print_int(r)
+                println("")
+                break
+            for i in 0..30:
+                n = net_recv(100)
+                if n >= 48 and udp_sport == 123:
+                    got = True
+                    break
+            if got: break
+            println("ntp: no answer, once more")
+        if got:
+            t = get32(rx + udp_off + 40) - NTP_TO_UNIX
+            print("time: ")
+            print_time(t)
+            print(" UTC, ")
+            print_time(t + 3600)
+            println(" CET")
+    wifi_disconnect()
+    println("ntp end")
+    while True: pass

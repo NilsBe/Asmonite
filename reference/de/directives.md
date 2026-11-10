@@ -142,6 +142,29 @@ geschrieben; der Name hat keinen Ordneranteil. Asmonite startet und debuggt die 
 
 Verwandt: `.format`
 
+## .include – eine Datei einfügen
+
+Setzt den Text einer anderen Datei an diese Stelle, als stünde er hier. So lassen sich Konstanten (`equ`),
+Funktionen und Daten auf mehrere Dateien verteilen.
+
+- Der Name steht in Anführungszeichen und gilt vom Ordner der Datei aus, in der das `.include` steht (`/` und
+  `\` gehen beide). Ein Name mit Laufwerk oder ab der Wurzel gilt so, wie er ist.
+- Jede Datei wird einmal gelesen: Ein zweites `.include` derselben Datei, auch aus einer anderen eingebundenen
+  Datei, lässt der Assembler weg.
+- Eine eingebundene Datei darf selbst `.include` benutzen.
+- Fehlermeldungen nennen die Datei und ihre Zeile: `inc\uart.asm(12): ...`.
+- Im Debugger: Hält das Programm in einer eingebundenen Datei, zeigt Asmonite diese Datei an Stelle der
+  Quelle, schreibgeschützt. Breakpoints und Einzelschritte gehen dort wie in der Quelle.
+
+**Syntax:** `.include "name"`
+
+```asm
+.include "uart.asm"
+.include "../common/board.inc"
+```
+
+Verwandt: `equ`
+
 ## .target – das Gerät
 
 Sagt, für welches Gerät das Programm ist. Die Ausgabe ist dann eine reine Binärdatei (wie `.format binary`,

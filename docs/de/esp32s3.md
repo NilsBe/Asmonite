@@ -40,7 +40,7 @@ _start:
 F9 (Ausführen) oder F7 (Step into) drücken. Der Debugger setzt den Chip über den USB-Seriell-Port in den Download-Modus
 seines Boot-ROMs zurück (mit den Leitungen DTR und RTS, wie esptool), hält Kern 0 dort an, lädt das Programm nach
 `0x40378000` und lässt es laufen oder hält bei `_start`. So beginnt jede Sitzung mit demselben sauberen Chip: der Kern
-mit 40 MHz, die Watchdogs aus, die Peripherie wie nach einem Reset. Dann: Schritte (F7, F8), Haltepunkte (F5), die
+mit 40 MHz, die Watchdogs aus, die Peripherie wie nach einem Reset. Dann: Schritte (F7, F8), Breakpoints (F5), die
 Register `a0` .. `a15`, `pc`, `ps`, `sar`, `windowbase`, `windowstart` und die Schleifenregister, der Speicher (auch als
 Code). Der Stackpointer `a1` beginnt bei `0x3FCD0000`. Nach RST läuft wieder die Firmware aus dem Flash.
 
@@ -70,7 +70,7 @@ Das RAM von `0x40378000` bis `0x403BFFFF` (288 KB) ist frei für das Programm; d
 F9 oder F7 schreiben das Programm jetzt in den Flash an die Adresse 0, als Image des Boot-ROMs (ein Segment bei
 `.imagebase`); das Boot-ROM lädt es bei jedem Start ins RAM. Das Schreiben geht über den **seriellen Port** des Chips
 (den COM-Port des Boards); kein Terminalprogramm darf diesen Port in dem Moment offen haben. Danach legt der Debugger
-das Programm so ins RAM, wie es das Boot-ROM tut, und lässt es dort laufen; Haltepunkte gehen also wie bei einem
+das Programm so ins RAM, wie es das Boot-ROM tut, und lässt es dort laufen; Breakpoints gehen also wie bei einem
 Programm im RAM. Nach RST (oder wenn das Board wieder angesteckt wird) startet das Boot-ROM es von selbst aus dem Flash.
 
 Das ersetzt die Firmware, die vorher im Flash war.
@@ -84,12 +84,28 @@ Ein Programm, das das Boot-ROM aus dem Flash startet, muss zwei Dinge selbst tun
 - den **Takt** setzen, wenn es Zeit misst: Aus dem Flash lässt das Boot-ROM den Kern auf 20 MHz, in seinem
   Download-Modus auf 40 MHz (`SYSTEM_SYSCLK_CONF` bei `0x600C0060`, `PRE_DIV_CNT` = 0 ergibt 40 MHz).
 
+## Die serielle Ausgabe und Bytes im RAM
+
+Der USB-Anschluss des Chips hat zwei Teile: den JTAG des Debuggers und einen seriellen Port (CDC; im Geräte-Manager
+„USB Serial Device (COM13)“). Was ein Programm in das Peripheral USB Serial/JTAG schreibt (`0x60038000`: ein Byte in
+`EP1`, dann `WR_DONE` in `EP1_CONF`), kommt an diesem COM-Port heraus, auch während der Debugger den JTAG hat. Der
+Reiter **Serial** neben dem Ausgabefenster verbindet sich von selbst damit, wenn der Debugger das Programm geladen hat:
+Der Reset ins Boot-ROM und das Schreiben des Flash gehen über diesen Port, deshalb gibt der Reiter ihn beim Start der
+Sitzung frei und öffnet ihn danach wieder. Connect und Disconnect bleiben benutzbar.
+`examples/esp32s3/hello_usb_ram.asm` schreibt dort einmal pro Sekunde „Hello, world!“.
+
+Das RAM des Programms ist ein Speicher an zwei Bussen. Unter seiner IRAM-Adresse (`0x40378000` ..) holt der Kern
+Befehle und liest und schreibt nur Wörter: `l8ui`, `l16ui`, `s8i` halten dort mit einem LoadStoreError an, wie beim
+ESP32. Am Datenbus liegt dasselbe Byte `0x6F0000` tiefer (`0x3FC88000` für `0x40378000`), und dort gehen Bytes: Das
+Beispiel zieht `0x6F0000` von der Adresse seines Textes ab, bevor es ihn liest.
+
 ## Die Beispiele
 
 | Datei | Was sie tut |
 |---|---|
 | `examples/esp32s3/rgb_ws2812_ram.asm` | Die RGB-LED WS2812 an GPIO 48: rot, grün und blau im Wechsel, je eine halbe Sekunde. Die 24 Farbbits werden mit dem Taktzähler `ccount` getaktet; Aufrufe mit Registerfenster über `call8`, `entry`, `retw` |
 | `examples/esp32s3/rgb_ws2812_flash.asm` | Dasselbe im Flash, mit abgeschalteten Watchdogs und gesetztem Takt am Anfang |
+| `examples/esp32s3/hello_usb_ram.asm` | „Hello, world!“ einmal pro Sekunde über den USB-Anschluss des Chips: der Reiter Serial zeigt es |
 
 Die Register, die sie benutzen, stehen in ihren Kommentaren, mit der Quelle: den Headern von ESP-IDF und dem ESP32-S3
 Technical Reference Manual.

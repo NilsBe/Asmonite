@@ -14,6 +14,8 @@ Nur ein Programm kann die Probe zur Zeit benutzen: Läuft OpenOCD oder ein ander
 
 Der erste Pico hat einen RP2040 mit zwei Arm Cortex-M0+ und ohne RISC-V. Asmonite debuggt seinen Kern 0 über dieselbe Probe und dieselben drei Drähte. Die Beispiele liegen in `examples\pico\`: `blink_ram.asm` (im RAM) und `blink_flash.asm` (im Flash; es startet nach dem Aus- und Einschalten von selbst).
 
+**Ohne Probe:** Der Pico lässt sich auch mit seinem USB-Kabel allein debuggen, über seinen USB-Boot (BOOTSEL): ein Programm im RAM, mit Breakpoints und Schritten, ohne Pause. Das steht in [picoboot.md](picoboot.md). Der Pico 2 kann das nicht (sein USB-Boot hat keinen Befehl, mit dem ein Debugger laufen könnte): Er braucht die Probe.
+
 ```asm
 .target pico            ; für den Raspberry Pi Pico (RP2040)
 .arch thumb
@@ -152,6 +154,33 @@ Dasselbe geht mit den Arm-Kernen: `.target pico2` und `.arch thumb` (der Cortex-
 Debuggen geht wie bei RISC-V (F7, F8, F9, F4, F5) über die USB-Probe (nicht über OpenOCD). Rechts stehen `R0` bis `R12`, `SP`, `LR`, `PC`, `XPSR` und seine Flags `N Z C V`; der Kern hat **8 Hardware-Breakpoints**. Beginnt das Programm mit einer Vektortabelle, setzt der Debugger beim Start den Stackzeiger aus ihr. *Step over* kennt `bl` und `blx`.
 
 **Der Chip läuft immer nur mit einer Sorte von Kernen.** Läuft gerade die andere Sorte, schreibt der Debugger ein Flash-Programm mit ihr in den Flash, setzt den Chip zurück und macht mit den Kernen des Programms weiter (das dauert etwa zwei Sekunden; das Ausgabefenster sagt es). Ein Programm im RAM kann nicht umschalten: Das Boot-ROM startet nach einem Reset die Kerne, für die das Programm im Flash ist. Dann sagt Asmonite, was zu tun ist: zuerst ein Flash-Programm der passenden Sorte starten, zum Beispiel `blink_arm_flash.asm` oder `blink_flash.asm`. *Test the connection* zeigt, welche Kerne gerade laufen.
+
+## Die serielle Ausgabe über die Debug Probe
+
+Die Raspberry Pi Debug Probe hat auch einen seriellen Port: Ihr zweiter Stecker, **„U“**, ist ein UART mit einem
+eigenen COM-Port am PC (neben dem SWD an „D“, über dasselbe USB-Kabel). Sein Kabel geht so an das Board:
+
+| Probe, Stecker „U“ | Pico 2, Pico | Blue Pill |
+|---|---|---|
+| RX (Eingang der Probe; gelb am Kabel der Probe) | GP0, Pin 1 (TX von UART0) | PA9 (TX von USART1) |
+| TX (Ausgang der Probe; orange) | GP1, Pin 2 (RX von UART0) | PA10 (RX von USART1) |
+| GND (schwarz) | GND, Pin 3 | G |
+
+Hat eine Sitzung über die Probe das Programm geladen, verbindet sich der Reiter **Serial** neben dem Ausgabefenster
+von selbst mit diesem COM-Port und zeigt, was das Board sendet (mit der Baudrate aus dem Reiter, 115200 von
+Haus aus); Debugger und Terminal kommen sich nicht in die Quere, Connect und Disconnect bleiben benutzbar. Die
+Beispiele `examples/pico2/hello_uart_ram.asm` (RISC-V), `hello_uart_arm_ram.asm` (Arm),
+`examples/pico/hello_uart_ram.asm` und `examples/stm32/hello_uart_ram.asm` schreiben etwa einmal pro Sekunde „Hello,
+world!“ mit 115200 Baud: RP2040 und RP2350 starten dafür zuerst ihren 12-MHz-Quarz (nach einem Reset laufen sie von
+einem Ringoszillator, der für eine Baudrate nicht genau genug ist), der STM32 läuft von seinem 8-MHz-HSI.
+
+Die Probe schickt, was sie empfängt, nur an ein Terminal, das die Leitung DTR eingeschaltet hat; der Reiter Serial
+tut das für sie (und lässt DTR bei den Boards von Espressif aus, wo es den Chip zurücksetzen würde). In einem anderen
+Terminalprogramm: DTR an.
+
+**Ohne Probe gibt es keinen seriellen Port.** Der USB-Anschluss des Pico und des Pico 2 ist ein USB-Controller ohne
+eigenen seriellen Port: Der COM-Port von Programmen aus dem Pico SDK kommt von einem USB-Stack im Programm (TinyUSB),
+den ein Assembler-Programm nicht hat. Ein USB-Seriell-Adapter an GP0 und GND tut, was der UART der Probe tut.
 
 ## Wenn es sich nicht verbindet
 

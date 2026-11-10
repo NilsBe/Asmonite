@@ -1,0 +1,46 @@
+# The primes below 100 by the sieve of Eratosthenes: a char array as the sieve, a growing array for the primes.
+# expect-output: 2 3 5 7 11 13 17 19 23 29 31 37 41 43 47 53 59 61 67 71 73 79 83 89 97
+# expect-output: 25 primes below 100
+
+extern "kernel32.dll":
+    def GetStdHandle(n) u32
+    def WriteFile(h: u32, buf: pchar, n: u32, written: pchar, ov: u32) i32
+
+LIMIT = 100
+
+written: char[4]
+digits: char[12]
+crossed: char[LIMIT]        # 1: a multiple of a smaller prime
+primes: i32[]               # grows with every prime found
+
+def print(s: pchar):
+    n = 0
+    while s[n] != 0: n += 1
+    WriteFile(GetStdHandle(-11), s, u32(n), written, 0)
+
+def print_int(n):
+    p = digits + 11
+    p[0] = 0
+    while True:
+        p -= 1
+        p[0] = '0' + n % 10
+        n /= 10
+        if n == 0: break
+    print(p)
+
+def main() i32:
+    for i in 2..LIMIT:
+        if crossed[i] == 0:
+            append(primes, i)
+            # cross out its multiples, from its square on
+            j = i * i
+            while j < LIMIT:
+                crossed[j] = 1
+                j += i
+    for k in 0..len(primes):
+        if k > 0: print(" ")
+        print_int(primes[k])
+    print("\n")
+    print_int(len(primes))
+    print(" primes below 100\n")
+    return 0

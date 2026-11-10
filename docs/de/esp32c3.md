@@ -36,7 +36,7 @@ _start:
 
 Drück F9 (Ausführen) oder F7 (Einzelschritt). Der Debugger setzt den Chip zurück und hält ihn sofort an, bevor die
 Firmware im Flash startet, lädt das Programm nach `0x40380000` und hält bei `_start`. Dann gehen: Schritte (F7, F8),
-Haltepunkte (F5; der Kern hat Hardware-Haltepunkte dafür), die Register `x0` .. `x31` und `pc`, der Speicher. Nach
+Breakpoints (F5; der Kern hat Hardware-Breakpoints dafür), die Register `x0` .. `x31` und `pc`, der Speicher. Nach
 einem Reset (die RESET-Taste) läuft wieder die Firmware des Flash.
 
 Warum der Reset: Firmware wie LuatOS oder ESP-IDF schaltet den Speicherschutz des Chips ein; dann lässt sich bis zum
@@ -53,7 +53,8 @@ nächsten Reset nichts mehr ins RAM des Codes schreiben. Angehalten, bevor die F
 
 F9 oder F7 schreiben das Programm jetzt in den Flash an Adresse 0, als Image des Boot-ROM: Das Boot-ROM lädt es bei
 jedem Start ins RAM nach `0x40380000`. Geschrieben wird über den **seriellen Port** des Chips (den COM-Port des Boards),
-mit dem Protokoll seines Boot-ROM; in diesem Moment darf kein Terminalprogramm (PuTTY o. ä.) den Port offen haben.
+mit dem Protokoll seines Boot-ROM; in diesem Moment darf kein Terminalprogramm (PuTTY o. ä.) den Port offen haben
+(der Reiter Serial von Asmonite gibt ihn von selbst frei).
 Danach lässt der Debugger das Boot-ROM das Programm starten und hält bei `_start` – du siehst das Programm also genau
 so, wie es auch ohne Debugger startet. Es startet außerdem nach jedem Reset von selbst.
 
@@ -83,6 +84,15 @@ Der USB-Anschluss des Chips ist auch ein serieller Port (COM-Port); ein Programm
 `WR_DONE`). Bit 1 von `EP1_CONF` sagt, dass der Puffer Daten nimmt. Liest kein Programm auf dem PC den Port, läuft der
 Puffer voll; die Beispiele lassen die Zeile dann fallen, statt ewig zu warten. Jedes Terminal zeigt die Zeilen (die
 Geschwindigkeit ist auf diesem Port egal).
+
+Unter dem Debugger zeigt sie der Reiter **Serial** neben dem Ausgabefenster: Er verbindet sich von selbst mit diesem
+COM-Port, wenn der Debugger das Programm geladen hat. Der Debugger hat den JTAG desselben USB-Anschlusses, der
+serielle Port bleibt frei; nur der Reset ins Boot-ROM und das Schreiben des Flash gehen über ihn, deshalb gibt der
+Reiter ihn beim Start der Sitzung frei. Connect und Disconnect bleiben benutzbar. (Ein Terminal eines anderen
+Programms muss vor F9 geschlossen sein.)
+
+Der RISC-V-Kern des C3 liest und schreibt Bytes auch unter der IRAM-Adresse des Programms (`lbu`, `sb`): Die Texte der
+Beispiele stehen neben ihrem Code.
 
 ## Wenn etwas nicht geht
 

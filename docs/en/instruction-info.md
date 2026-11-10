@@ -16,7 +16,7 @@ same texts.
 
 | On the line | The help shows |
 | --- | --- |
-| an instruction (`mov`, `push`, `add r0, r1, #1`) | syntax, allowed operands, flags, an example; x86, and ARM Thumb-2 after `.arch thumb` |
+| an instruction (`mov`, `push`, `add r0, r1, #1`) | syntax, allowed operands, flags, an example; for x86 and x64, ARM (Thumb-2, `.arch thumb`), ARM64, RISC-V (32 and 64 bits) and Xtensa, after the `.arch` of the source. An instruction without an explanation of its own shows its short section from the instruction reference (syntax, operation, flags); after an x87 or SSE instruction comes the overview `x87` or `sse` |
 | a call of an imported function (`call [ExitProcess]`, `ldr r3, =CloseHandle`) | the DLL, the calling convention, every parameter with type and meaning, the result, a short explanation |
 | `int 21h`, `int 10h`, `int 13h` ... | the function (its number is in `ah`; the info looks for it in the lines before), input and output registers, error codes |
 | a directive (`.arch`, `.format`, `.import`, `section` ...) | what it does and an example |

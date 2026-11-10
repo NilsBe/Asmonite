@@ -1,0 +1,46 @@
+# The multiplication table: two for loops inside each other, the numbers right-aligned.
+# expect-output:    1   2   3   4   5   6   7   8   9  10
+# expect-output:    2   4   6   8  10  12  14  16  18  20
+# expect-output:    3   6   9  12  15  18  21  24  27  30
+# expect-output:    4   8  12  16  20  24  28  32  36  40
+# expect-output:    5  10  15  20  25  30  35  40  45  50
+# expect-output:    6  12  18  24  30  36  42  48  54  60
+# expect-output:    7  14  21  28  35  42  49  56  63  70
+# expect-output:    8  16  24  32  40  48  56  64  72  80
+# expect-output:    9  18  27  36  45  54  63  72  81  90
+# expect-output:   10  20  30  40  50  60  70  80  90 100
+
+extern "kernel32.dll":
+    def GetStdHandle(n) u32
+    def WriteFile(h: u32, buf: pchar, n: u32, written: pchar, ov: u32) i32
+
+written: char[4]
+digits: char[12]
+
+def print(s: pchar):
+    n = 0
+    while s[n] != 0: n += 1
+    WriteFile(GetStdHandle(-11), s, u32(n), written, 0)
+
+def print_int(n):
+    p = digits + 11
+    p[0] = 0
+    while True:
+        p -= 1
+        p[0] = '0' + n % 10
+        n /= 10
+        if n == 0: break
+    print(p)
+
+# n with spaces in front: 4 characters wide
+def column(n):
+    if n < 10: print("   ")
+    elif n < 100: print("  ")
+    else: print(" ")
+    print_int(n)
+
+def main() i32:
+    for row in 1..11:
+        for col in 1..11: column(row * col)
+        print("\n")
+    return 0

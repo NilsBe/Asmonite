@@ -1,0 +1,86 @@
+# Wake-on-LAN: the station connects to the network of inc/network.abel, gets an address by DHCP (inc/net.abel) and
+# sends the "magic packet" for the PC with the MAC of wol_target() to all of the network (a UDP broadcast to port 9),
+# three times. A PC whose network card is set up for it (in the BIOS / UEFI and in the driver: "Wake on Magic
+# Packet") starts from sleep or from off. It needs wlan.rom and wlansvc in the files of the board (Debug > ESP32
+# Board Files, Install WiFi); the program loads them itself (inc/wifi.abel): "run wol" in the console, or F9 in
+# Asmonite.
+#
+# The magic packet: 6 bytes FF, then the MAC of the PC 16 times (102 bytes). The network card looks for this pattern
+# in every frame it gets, whatever the protocol around it: UDP to port 9 ("discard") is only the usual way. A PC on
+# WiFi mostly does not wake this way, one on a cable does.
+target "esp32"
+include "inc/uart.abel"
+include "inc/net.abel"
+include "inc/network.abel"
+
+WOL_PORT = 9
+wol_mac: char[8]
+
+# the MAC of the PC to wake: put yours here (Windows: "ipconfig /all", the physical address of the network card)
+def wol_target() pchar:
+    return "02:00:00:12:34:56"
+
+# a hex digit, -1 if c is none
+def hex_value(c) i32:
+    if c >= '0' and c <= '9': return c - '0'
+    if c >= 'a' and c <= 'f': return c - 'a' + 10
+    if c >= 'A' and c <= 'F': return c - 'A' + 10
+    return -1
+
+# the text s ("02:00:00:12:34:56" or "02-00-00-12-34-56") into the 6 bytes at m; 1 or 0
+def parse_mac(s: pchar, m: pchar) i32:
+    p = 0
+    for i in 0..6:
+        hi = hex_value(s[p])
+        lo = hex_value(s[p + 1])
+        if hi < 0 or lo < 0: return False
+        m[i] = hi * 16 + lo
+        p += 2
+        if i < 5:
+            if s[p] != ':' and s[p] != '-': return False
+            p += 1
+    return s[p] == 0
+
+def main():
+    println("Wake-on-LAN (aBelle)")
+    if not parse_mac(wol_target(), wol_mac):
+        print("not a MAC: ")
+        println(wol_target())
+        println("wol end")
+        while True: pass
+    net_init()
+    print("connecting to ")
+    println(network_name())
+    r = wifi_connect(network_name(), network_password())
+    if r != 0:
+        print("wifi_connect: error ")
+        print_int(r)
+        print(" (")
+        print(wifi_error_text(r))
+        print(")")
+        println("")
+    elif not dhcp_run(): println("dhcp: no answer")
+    else:
+        print("ip: ")
+        print_ip(net_ip)
+        println("")
+        for attempt in 0..3:
+            # 6 x FF, 16 x the MAC (each time: net_recv may have sent something from tx meanwhile)
+            p = udp_payload()
+            for i in 0..6: p[i] = 0xFF
+            for k in 0..16: copy(p + 6 + k * 6, wol_mac, 6)
+            r = udp_send(broadcast, WOL_PORT, WOL_PORT, 102)
+            print("magic packet for ")
+            print_mac(wol_mac)
+            print(" to 255.255.255.255:")
+            print_int(WOL_PORT)
+            if r != 0:
+                print(": error ")
+                print_int(r)
+            println("")
+            # a little time between them; frames that come meanwhile are handled
+            t0 = wifi_millis()
+            while wifi_millis() - t0 < 300: net_recv(10)
+    wifi_disconnect()
+    println("wol end")
+    while True: pass

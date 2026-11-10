@@ -1,0 +1,71 @@
+# Working with text: a pchar walks through a string, a growing char array holds a new one (backwards, in capitals).
+# expect-output: Hello, aBelle!
+# expect-output: !elleBa ,olleH
+# expect-output: HELLO, ABELLE!
+# expect-output: 14 characters, 5 vowels
+
+extern "kernel32.dll":
+    def GetStdHandle(n) u32
+    def WriteFile(h: u32, buf: pchar, n: u32, written: pchar, ov: u32) i32
+
+written: char[4]
+digits: char[12]
+text: char[]                # the new text, with a 0 at its end
+
+def length(s: pchar) i32:
+    n = 0
+    while s[n] != 0: n += 1
+    return n
+
+def print(s: pchar):
+    WriteFile(GetStdHandle(-11), s, u32(length(s)), written, 0)
+
+def print_int(n):
+    p = digits + 11
+    p[0] = 0
+    while True:
+        p -= 1
+        p[0] = '0' + n % 10
+        n /= 10
+        if n == 0: break
+    print(p)
+
+# s backwards into text
+def reverse(s: pchar):
+    resize(text, 0)
+    i = length(s)
+    while i > 0:
+        i -= 1
+        append(text, s[i])
+    append(text, 0)
+
+# s in capitals into text
+def upper(s: pchar):
+    resize(text, 0)
+    for i in 0..length(s):
+        c = s[i]
+        if c >= 'a' and c <= 'z': c -= 32
+        append(text, c)
+    append(text, 0)
+
+def is_vowel(c) i32:
+    return c == 'a' or c == 'e' or c == 'i' or c == 'o' or c == 'u' or c == 'A' or c == 'E'
+
+def main() i32:
+    s = "Hello, aBelle!"
+    print(s)
+    print("\n")
+    reverse(s)
+    print(text)
+    print("\n")
+    upper(s)
+    print(text)
+    print("\n")
+    n = 0
+    for i in 0..length(s):
+        if is_vowel(s[i]): n += 1
+    print_int(length(s))
+    print(" characters, ")
+    print_int(n)
+    print(" vowels\n")
+    return 0

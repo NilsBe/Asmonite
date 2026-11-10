@@ -1,0 +1,83 @@
+# Hello over UART0 on the ESP32 DevKit: "Hello, world!" and a counter, about once a second.
+# UART0 is the serial port of the board: its TX (GPIO 1) goes to the USB serial chip, so a terminal on the COM port
+# shows the text (115200 baud, 8N1; the boot ROM has set UART0 up). Under the debugger (F9 in Asmonite) the debug
+# monitor has the port: the text shows in the tab Serial next to the output window.
+# F9 in Asmonite runs it in the RAM (gone after a reset); Debug > Write to Flash and Run writes it into the flash
+# at 0x1000 first (in place of the firmware that was there): then the board runs it at every start, also without
+# the PC.
+#
+# watchdogs_off(): when the boot ROM starts a program from the flash, it switches the watchdogs on. WITHOUT IT A
+# BOARD THAT RUNS THE PROGRAM FROM THE FLASH RESETS AFTER A FEW SECONDS (see blink.abel). In the RAM it does no
+# harm.
+#
+# UART0 (ESP32 Technical Reference Manual, chapter "UART Controller"): UART_FIFO_REG at 0x3FF40000 takes a byte to
+# send, UART_STATUS_REG at 0x3FF4001C has in bits 23..16 (TXFIFO_CNT) how many bytes wait in the FIFO of 128.
+target "esp32"
+
+uart0: u32[32] at 0x3FF40000
+UART_FIFO = 0x00 / 4
+UART_STATUS = 0x1C / 4
+
+digits: char[12]
+
+# for watchdogs_off()
+
+timg0:    u32[64]    at 0x3FF5F000    # timer group 0
+timg1:    u32[64]    at 0x3FF60000    # timer group 1
+rtc_cntl: u32[64]    at 0x3FF48000    # RTC_CNTL
+
+WDT_KEY = 0x50D83AA1                # unlocks the registers of a watchdog
+TIMG_WDTCONFIG0 = 0x48 / 4
+TIMG_WDTWPROTECT = 0x64 / 4
+RTC_WDTCONFIG0 = 0x8C / 4
+RTC_WDTWPROTECT = 0xA4 / 4
+
+def watchdogs_off():
+    timg0[TIMG_WDTWPROTECT] = WDT_KEY       # unlock
+    timg0[TIMG_WDTCONFIG0] = 0              # off
+    timg0[TIMG_WDTWPROTECT] = 0             # lock
+    timg1[TIMG_WDTWPROTECT] = WDT_KEY
+    timg1[TIMG_WDTCONFIG0] = 0
+    timg1[TIMG_WDTWPROTECT] = 0
+    rtc_cntl[RTC_WDTWPROTECT] = WDT_KEY
+    rtc_cntl[RTC_WDTCONFIG0] = 0
+    rtc_cntl[RTC_WDTWPROTECT] = 0
+
+# one byte; waits while the FIFO is (nearly) full
+def put_char(c):
+    while ((uart0[UART_STATUS] >> 16) & 0xFF) >= 120: pass
+    uart0[UART_FIFO] = u32(c)
+
+# a text up to its 0
+def print(s: pchar):
+    n = 0
+    while s[n] != 0:
+        put_char(s[n])
+        n += 1
+
+# a number in decimal
+def print_int(v):
+    if v < 0:
+        put_char('-')
+        v = 0 - v
+    p = digits + 11
+    p[0] = 0
+    while True:
+        p -= 1
+        p[0] = '0' + i32(u32(v) % 10)
+        v = i32(u32(v) / 10)
+        if v == 0: break
+    print(p)
+
+def wait():
+    for i in 0..1000000: pass       # about a second at 40 MHz (no timer yet)
+
+def main():
+    watchdogs_off()
+    count = 0
+    while True:
+        print("Hello, world! ")
+        print_int(count)
+        print("\r\n")
+        count += 1
+        wait()

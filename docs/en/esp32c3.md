@@ -54,7 +54,7 @@ written into the RAM of the code until the next reset. Halted before the firmwar
 F9 or F7 now write the program into the flash at address 0, as an image of the boot ROM: the boot ROM loads it into
 the RAM at `0x40380000` at every start. The writing goes over the **serial port** of the chip (the COM port of the
 board), with the protocol of its boot ROM; no terminal program (PuTTY or similar) may have that port open at that
-moment. Then the debugger lets the boot ROM start the program and stops at `_start`, so you see the program exactly as
+moment (the tab Serial of Asmonite lets it go by itself). Then the debugger lets the boot ROM start the program and stops at `_start`, so you see the program exactly as
 it starts without the debugger. It also starts by itself after every reset.
 
 This replaces the firmware that was in the flash before (on the LuatOS board: LuatOS; it can be downloaded again
@@ -83,6 +83,14 @@ The USB port of the chip is a serial port as well (COM port); a program writes a
 Bit 1 of `EP1_CONF` says that the buffer takes data. If no program on the PC reads the port, the buffer fills; the
 examples then drop the line instead of waiting forever. Any terminal shows the lines (the speed does not matter on this
 port).
+
+Under the debugger the tab **Serial** next to the output window shows them: it connects to that COM port by itself
+when the debugger has loaded the program. The debugger has the JTAG of the same USB port, the serial port stays
+free; only the reset into the boot ROM and the writing of the flash go over it, so the tab lets it go at the start
+of the session. Connect and Disconnect stay usable. (A terminal of another program has to be closed before F9.)
+
+The RISC-V core of the C3 reads and writes bytes at the IRAM address of the program too (`lbu`, `sb`): the texts of
+the examples stand next to their code.
 
 ## If something does not work
 

@@ -83,12 +83,28 @@ shows how, a few lines at `_start`):
 - set the **clock** if it counts time: from the flash the boot ROM leaves the core at 20 MHz, in its download mode at
   40 MHz (`SYSTEM_SYSCLK_CONF` at `0x600C0060`, `PRE_DIV_CNT` = 0 gives 40 MHz).
 
+## The serial output and bytes in the RAM
+
+The USB port of the chip has two parts: the JTAG of the debugger and a serial port (CDC; in the Device Manager
+"USB Serial Device (COM13)"). What a program writes to the peripheral USB Serial/JTAG (`0x60038000`: a byte into
+`EP1`, then `WR_DONE` in `EP1_CONF`) comes out on that COM port, also while the debugger has the JTAG. The tab
+**Serial** next to the output window connects to it by itself when the debugger has loaded the program: the reset
+into the boot ROM and the writing of the flash go over that port, so the tab lets it go at the start of the session
+and opens it again afterwards. Connect and Disconnect stay usable. `examples/esp32s3/hello_usb_ram.asm` writes
+"Hello, world!" once a second there.
+
+The RAM of the program is one memory on two buses. At its IRAM address (`0x40378000` ..) the core fetches
+instructions and reads and writes words only: `l8ui`, `l16ui`, `s8i` there stop with a LoadStoreError, as on the
+ESP32. On the data bus the same byte is `0x6F0000` lower (`0x3FC88000` for `0x40378000`), and bytes work there:
+the example takes `0x6F0000` off the address of its text before it reads it.
+
 ## The examples
 
 | File | What it does |
 |---|---|
 | `examples/esp32s3/rgb_ws2812_ram.asm` | The RGB LED WS2812 at GPIO 48: red, green and blue in turn, half a second each. The 24 bits of colour are timed with the cycle counter `ccount`; windowed calls with `call8`, `entry`, `retw` |
 | `examples/esp32s3/rgb_ws2812_flash.asm` | The same in the flash, with the watchdogs switched off and the clock set at the start |
+| `examples/esp32s3/hello_usb_ram.asm` | "Hello, world!" once a second over the USB port of the chip: the tab Serial shows it |
 
 The registers they use are written in their comments, with the source: the headers of ESP-IDF and the ESP32-S3
 Technical Reference Manual.

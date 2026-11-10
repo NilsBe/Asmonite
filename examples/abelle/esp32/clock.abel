@@ -1,0 +1,177 @@
+# The clock of the ESP32: the program says at what frequency the core runs, measures how fast a loop goes, and every
+# six seconds switches the core to the next of 40, 20 and 10 MHz (the crystal, divided). The LED blinks at the same
+# speed at every clock (the timer follows it), the loops per millisecond halve. Every two seconds a line over UART0
+# (under the debugger in the tab Serial, else in a terminal on the COM port, 115200 baud).
+# F9 in Asmonite runs it in the RAM (gone after a reset); Debug > Write to Flash and Run writes it into the flash
+# at 0x1000 first (in place of the firmware that was there): then the board runs it at every start, also without
+# the PC.
+#
+# The clock (ESP32 Technical Reference Manual, chapter "Reset and Clock"; ESP-IDF rtc_clk.c):
+#   RTC_CNTL_CLK_CONF (0x3FF48070) bits 28..27 SOC_CLK_SEL: 0 the crystal (40 MHz on the DevKit), 1 the PLL, 2 the
+#   RC oscillator of 8 MHz, 3 the audio PLL. The boot ROM leaves the crystal; the bootloader of ESP-IDF would switch
+#   to the PLL (160 or 240 MHz).
+#   From the crystal: APB_CTRL_SYSCLK_CONF (0x3FF66000) bits 9..0 PRE_DIV_CNT, the core runs at 40 / (PRE_DIV_CNT + 1)
+#   MHz, and the clock of the peripherals (APB: the UART, the timers) is the same.
+#   From the PLL: DPORT_CPU_PER_CONF (0x3FF0003C) bits 1..0 CPUPERIOD_SEL, 0 80, 1 160, 2 240 MHz; the APB 80 MHz.
+# A new clock needs a new divider of the UART (UART0_CLKDIV at 0x3FF40014: bits 19..0 the APB clock / the baud rate,
+# bits 23..20 the sixteenths; else the baud rate is wrong, also for the debug monitor of Asmonite) and of the timer
+# (it counts microseconds when its divider is the APB clock in MHz).
+#
+# watchdogs_off(): when the boot ROM starts a program from the flash, it switches the watchdogs on. WITHOUT IT A
+# BOARD THAT RUNS THE PROGRAM FROM THE FLASH RESETS AFTER A FEW SECONDS (see blink.abel). In the RAM it does no
+# harm.
+target "esp32"
+
+gpio:  u32[0x140] at 0x3FF44000     # the GPIO registers
+iomux: u32[64]    at 0x3FF49000     # IO_MUX: the function of each pin
+uart0: u32[32]    at 0x3FF40000     # UART0
+timg0: u32[64]    at 0x3FF5F000     # timer group 0
+apb:   u32[32]    at 0x3FF66000     # APB_CTRL
+dport: u32[32]    at 0x3FF00000     # DPORT
+
+GPIO_OUT_W1TS = 0x08 / 4            # a 1 sets the pin
+GPIO_OUT_W1TC = 0x0C / 4            # a 1 clears it
+GPIO_ENABLE_W1TS = 0x24 / 4         # a 1 makes it an output
+LED = 2
+
+UART_FIFO = 0x00 / 4                # takes a byte to send
+UART_CLKDIV = 0x14 / 4              # the divider of the baud rate
+UART_STATUS = 0x1C / 4              # bits 23..16: the bytes in the FIFO
+BAUD = 115200
+
+T0CONFIG = 0x00 / 4
+T0LO = 0x04 / 4
+T0UPDATE = 0x0C / 4
+
+RTC_CLK_CONF = 0x70 / 4
+SYSCLK_CONF = 0x00 / 4
+CPU_PER_CONF = 0x3C / 4
+
+# for watchdogs_off()
+
+timg1:    u32[64]    at 0x3FF60000    # timer group 1
+rtc_cntl: u32[64]    at 0x3FF48000    # RTC_CNTL
+
+WDT_KEY = 0x50D83AA1                # unlocks the registers of a watchdog
+TIMG_WDTCONFIG0 = 0x48 / 4
+TIMG_WDTWPROTECT = 0x64 / 4
+RTC_WDTCONFIG0 = 0x8C / 4
+RTC_WDTWPROTECT = 0xA4 / 4
+
+digits: char[12]
+clocks: i32[3]                      # the clocks one after the other
+
+def watchdogs_off():
+    timg0[TIMG_WDTWPROTECT] = WDT_KEY       # unlock
+    timg0[TIMG_WDTCONFIG0] = 0              # off
+    timg0[TIMG_WDTWPROTECT] = 0             # lock
+    timg1[TIMG_WDTWPROTECT] = WDT_KEY
+    timg1[TIMG_WDTCONFIG0] = 0
+    timg1[TIMG_WDTWPROTECT] = 0
+    rtc_cntl[RTC_WDTWPROTECT] = WDT_KEY
+    rtc_cntl[RTC_WDTCONFIG0] = 0
+    rtc_cntl[RTC_WDTWPROTECT] = 0
+
+# timer 0 counts up, each microsecond at an APB clock of mhz; the count goes on (the divider changes only while the
+# timer is off)
+def timer_clock(mhz):
+    timg0[T0CONFIG] = u32((1 << 30) | (mhz << 13))
+    timg0[T0CONFIG] = u32((1 << 31) | (1 << 30) | (mhz << 13))
+
+def micros() u32:
+    timg0[T0UPDATE] = 1
+    return timg0[T0LO]
+
+def wait_ms(ms):
+    start = micros()
+    while micros() - start < u32(ms * 1000): pass
+
+def put_char(c):
+    while ((uart0[UART_STATUS] >> 16) & 0xFF) >= 120: pass
+    uart0[UART_FIFO] = u32(c)
+
+def print(s: pchar):
+    n = 0
+    while s[n] != 0:
+        put_char(s[n])
+        n += 1
+
+def print_int(v):
+    if v < 0:
+        put_char('-')
+        v = 0 - v
+    p = digits + 11
+    p[0] = 0
+    while True:
+        p -= 1
+        p[0] = '0' + i32(u32(v) % 10)
+        v = i32(u32(v) / 10)
+        if v == 0: break
+    print(p)
+
+# the frequency of the core in MHz, as the registers say (the crystal: 40 MHz on the DevKit)
+def cpu_mhz() i32:
+    sel = i32(rtc_cntl[RTC_CLK_CONF] >> 27) & 3
+    if sel == 0: return 40 / (i32(apb[SYSCLK_CONF] & 0x3FF) + 1)
+    if sel == 1:
+        p = i32(dport[CPU_PER_CONF]) & 3
+        if p == 0: return 80
+        if p == 1: return 160
+        return 240
+    if sel == 2: return 8
+    return 0
+
+# the clock of the peripherals in MHz
+def apb_mhz() i32:
+    if (i32(rtc_cntl[RTC_CLK_CONF] >> 27) & 3) == 1: return 80
+    return cpu_mhz()
+
+# the core and the peripherals from the crystal at mhz (40, 20, 10); the UART and the timer follow
+def set_clock(mhz):
+    # the bytes on their way first: they would come at a wrong baud rate
+    while ((uart0[UART_STATUS] >> 16) & 0xFF) != 0: pass
+    wait_ms(2)
+    apb[SYSCLK_CONF] = (apb[SYSCLK_CONF] & ~u32(0x3FF)) | u32(40 / mhz - 1)
+    # the baud rate: mhz * 1000000 / BAUD in sixteenths
+    d = (mhz * 16000000 + BAUD / 2) / BAUD
+    uart0[UART_CLKDIV] = u32(((d & 15) << 20) | (d >> 4))
+    timer_clock(mhz)
+
+# how many turns of an empty loop the core makes in a millisecond
+def loops_per_ms() i32:
+    start = micros()
+    for i in 0..20000: pass
+    return 20000000 / i32(micros() - start)
+
+def main():
+    watchdogs_off()
+    timer_clock(apb_mhz())
+    iomux[0x40 / 4] = 0x2800              # GPIO 2: function GPIO (MCU_SEL 2), drive 2
+    gpio[(0x530 + 4 * LED) / 4] = 0x100   # FUNC2_OUT_SEL: a simple output
+    gpio[GPIO_ENABLE_W1TS] = 1 << LED
+    print("clock: the core at ")
+    print_int(cpu_mhz())
+    print(" MHz at the start\r\n")
+    clocks[0] = 40
+    clocks[1] = 20
+    clocks[2] = 10
+    k = 0
+    while True:
+        set_clock(clocks[k])
+        for r in 0..3:
+            print("CPU ")
+            print_int(cpu_mhz())
+            print(" MHz, APB ")
+            print_int(apb_mhz())
+            print(" MHz: ")
+            print_int(loops_per_ms())
+            print(" loops per ms, uptime ")
+            print_int(i32(micros() / 1000))
+            print(" ms\r\n")
+            # two seconds, the LED a quarter of a second on, a quarter off
+            for b in 0..4:
+                gpio[GPIO_OUT_W1TS] = 1 << LED
+                wait_ms(250)
+                gpio[GPIO_OUT_W1TC] = 1 << LED
+                wait_ms(250)
+        k = (k + 1) % 3

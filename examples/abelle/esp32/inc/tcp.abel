@@ -1,0 +1,252 @@
+# TCP in aBelle for the WiFi of the ESP32, for include "inc/tcp.abel" (it includes net.abel next to it): one
+# connection at a time, as a client or as a server; one segment in flight (it waits for its ACK before the next
+# one; again after 300 ms, 600 ms ... up to 7 times), received data in a buffer of TCP_RBUF bytes (the window).
+#
+#   tcp_connect(ip, port) i32         a connection to ip (4 bytes) and port: 1 when it stands, else 0
+#   tcp_listen(port)                  waits for a connection to port (a server) ...
+#   tcp_accept(ms) i32                ... up to ms milliseconds: 1 when one stands, else 0
+#   tcp_send(data, n) i32             the n bytes at data, each segment acknowledged: n, or -1 (no connection,
+#                                     no answer)
+#   tcp_recv(buf, max, ms) i32        received bytes (up to max) into buf, waiting up to ms milliseconds for some:
+#                                     their number, 0 when none came, -1 when the other side closed (and nothing
+#                                     is left) or there is no connection
+#   tcp_close()                       our end (FIN), and the other one's
+#   text_len(s) i32                   the bytes of a text up to its 0
+#
+# While a program waits in these functions the frames of the WiFi are handled (net_recv: ARP, ping); a UDP packet
+# that comes meanwhile is lost. The state in tcp_state (TCP_CLOSED ... TCP_LAST_ACK).
+include "net.abel"
+
+TCP_CLOSED = 0
+TCP_LISTEN = 1
+TCP_SYN_SENT = 2
+TCP_SYN_RCVD = 3
+TCP_ESTABLISHED = 4
+TCP_FIN_WAIT1 = 5
+TCP_FIN_WAIT2 = 6
+TCP_CLOSE_WAIT = 7
+TCP_LAST_ACK = 8
+
+TCP_FIN = 1
+TCP_SYN = 2
+TCP_RST = 4
+TCP_PSH = 8
+TCP_ACK = 16
+
+TCP_HDR = 20
+TCP_MSS = 1400                      # the most data in a segment we send (and the MSS we tell the other side)
+TCP_RBUF = 4096                     # the receive buffer: our window
+
+tcp_state: i32 = 0
+tcp_ip: char[4]                     # the other side
+tcp_mac: char[8]                    # the MAC its segments go to (it, or the router), kept for the connection: ARP
+                                    # (arp_mac) may be about another host meanwhile (a ping, UDP)
+tcp_rport: i32 = 0
+tcp_lport: i32 = 0                  # our port
+tcp_snd_una: i32 = 0                # the first byte (sequence number) not acknowledged yet
+tcp_snd_nxt: i32 = 0                # the next one we send
+tcp_rcv_nxt: i32 = 0                # the next one we expect
+tcp_win: i32 = 0                    # the window of the other side
+tcp_fin_in: i32 = 0                 # the other side closed (FIN)
+tcp_rbuf: char[4096]
+tcp_rlen: i32 = 0
+tcp_sbuf: char[1400]                # the data of the segment in flight
+
+def text_len(s: pchar) i32:
+    n = 0
+    while s[n] != 0: n += 1
+    return n
+
+# a segment to the other side: flags, its sequence number seq, n bytes of tcp_sbuf (to tcp_mac). The checksum covers a pseudo header (the addresses, 6, the length), put first where the IPv4 header goes.
+def tcp_segment(flags, seq, n):
+    t = tx + ETH_HDR + IP_HDR
+    hdr = TCP_HDR
+    if flags & TCP_SYN: hdr = TCP_HDR + 4
+    put16(t, tcp_lport)
+    put16(t + 2, tcp_rport)
+    put32(t + 4, u32(seq))
+    put32(t + 8, u32(tcp_rcv_nxt))
+    t[12] = (hdr / 4) << 4
+    t[13] = flags
+    put16(t + 14, TCP_RBUF - tcp_rlen)
+    put16(t + 16, 0)
+    put16(t + 18, 0)
+    if flags & TCP_SYN:
+        t[20] = 2                   # the option MSS
+        t[21] = 4
+        put16(t + 22, TCP_MSS)
+    copy(t + hdr, tcp_sbuf, n)
+    p = t - 12                      # the pseudo header
+    copy(p, net_ip, 4)
+    copy(p + 4, tcp_ip, 4)
+    p[8] = 0
+    p[9] = 6
+    put16(p + 10, hdr + n)
+    put16(t + 16, checksum(p, 12 + hdr + n))
+    eth_header(tcp_mac, 0x0800)
+    ip_header(tx + ETH_HDR, hdr + n, 6, net_ip, tcp_ip)
+    wifi_send(tx, ETH_HDR + IP_HDR + hdr + n)
+
+# an ACK of what came (and our window)
+def tcp_ack():
+    tcp_segment(TCP_ACK, tcp_snd_nxt, 0)
+
+# a segment came (net_recv: tcp_got, at rx + tcp_off)
+def tcp_in():
+    s = rx + tcp_off
+    src = rx + ETH_HDR + 12
+    sport = get16(s)
+    dport = get16(s + 2)
+    seq = i32(get32(s + 4))
+    ack = i32(get32(s + 8))
+    hl = (s[12] >> 4) * 4
+    flags = s[13]
+    n = tcp_n - hl
+    if dport != tcp_lport or n < 0 or tcp_state == TCP_CLOSED: return
+    if tcp_state == TCP_LISTEN:
+        if (flags & TCP_SYN) == 0 or (flags & TCP_ACK) != 0: return
+        copy(tcp_ip, src, 4)        # a new connection: its MAC is the one of this frame (no ARP here)
+        tcp_rport = sport
+        copy(tcp_mac, rx + 6, 6)
+        tcp_rcv_nxt = seq + 1
+        tcp_snd_una = wifi_millis() * 2654435
+        tcp_snd_nxt = tcp_snd_una + 1
+        tcp_win = get16(s + 14)
+        tcp_state = TCP_SYN_RCVD
+        tcp_segment(TCP_SYN | TCP_ACK, tcp_snd_una, 0)
+        return
+    if not same(src, tcp_ip, 4) or sport != tcp_rport: return
+    if flags & TCP_RST:
+        tcp_state = TCP_CLOSED
+        return
+    if tcp_state == TCP_SYN_SENT:
+        if (flags & TCP_SYN) != 0 and (flags & TCP_ACK) != 0 and ack == tcp_snd_nxt:
+            tcp_rcv_nxt = seq + 1
+            tcp_snd_una = ack
+            tcp_win = get16(s + 14)
+            tcp_state = TCP_ESTABLISHED
+            tcp_ack()
+        return
+    if tcp_state == TCP_SYN_RCVD:
+        if flags & TCP_SYN:
+            tcp_segment(TCP_SYN | TCP_ACK, tcp_snd_una, 0)      # our SYN ACK was lost
+            return
+        if (flags & TCP_ACK) == 0 or ack != tcp_snd_nxt: return
+        tcp_snd_una = ack
+        tcp_state = TCP_ESTABLISHED
+    if flags & TCP_ACK:
+        if ack - tcp_snd_una > 0 and ack - tcp_snd_nxt <= 0: tcp_snd_una = ack
+        tcp_win = get16(s + 14)
+        if tcp_state == TCP_FIN_WAIT1 and tcp_snd_una == tcp_snd_nxt: tcp_state = TCP_FIN_WAIT2
+        if tcp_state == TCP_LAST_ACK and tcp_snd_una == tcp_snd_nxt:
+            tcp_state = TCP_CLOSED
+            return
+    answer = False
+    if n > 0:
+        if seq == tcp_rcv_nxt and n <= TCP_RBUF - tcp_rlen and tcp_state != TCP_CLOSE_WAIT:
+            copy(tcp_rbuf + tcp_rlen, s + hl, n)
+            tcp_rlen += n
+            tcp_rcv_nxt += n
+        answer = True               # (data out of order or without room: our ACK says what we expect)
+    if flags & TCP_FIN:
+        if seq + n == tcp_rcv_nxt and tcp_fin_in == False:
+            tcp_rcv_nxt += 1
+            tcp_fin_in = True
+            if tcp_state == TCP_ESTABLISHED: tcp_state = TCP_CLOSE_WAIT
+            elif tcp_state == TCP_FIN_WAIT1 or tcp_state == TCP_FIN_WAIT2: tcp_state = TCP_CLOSED
+        answer = True
+    if answer: tcp_ack()
+
+# the frames of up to ms milliseconds: one frame, a TCP segment handled
+def tcp_poll(ms):
+    net_recv(ms)
+    if tcp_got: tcp_in()
+
+# the segment in flight (flags, the n bytes of tcp_sbuf from tcp_snd_una) until its ACK comes: again after 300 ms,
+# 600 ms, ... (7 times); 1, or 0 when no ACK came or the connection is gone
+def tcp_flight(flags, n) i32:
+    rto = 300
+    for attempt in 0..7:
+        if tcp_state == TCP_CLOSED: return False
+        tcp_segment(flags, tcp_snd_una, n)
+        t0 = wifi_millis()
+        while wifi_millis() - t0 < rto:
+            tcp_poll(20)
+            if tcp_snd_una == tcp_snd_nxt: return True
+            if tcp_state == TCP_CLOSED: return False
+        rto = rto * 2
+        if rto > 3000: rto = 3000
+    return False
+
+def tcp_start(port):
+    tcp_lport = port
+    tcp_rlen = 0
+    tcp_fin_in = False
+    tcp_win = 0
+
+def tcp_connect(ip: pchar, port) i32:
+    copy(tcp_ip, ip, 4)
+    tcp_rport = port
+    tcp_start(49152 + (wifi_millis() & 0x3FFF))
+    tcp_state = TCP_CLOSED
+    if not ip_hop(ip): return False
+    copy(tcp_mac, arp_mac, 6)
+    tcp_snd_una = wifi_millis() * 2654435
+    tcp_snd_nxt = tcp_snd_una + 1
+    tcp_rcv_nxt = 0
+    tcp_state = TCP_SYN_SENT
+    if tcp_flight(TCP_SYN, 0) and tcp_state == TCP_ESTABLISHED: return True
+    tcp_state = TCP_CLOSED
+    return False
+
+def tcp_listen(port):
+    tcp_start(port)
+    tcp_state = TCP_LISTEN
+
+def tcp_accept(ms) i32:
+    t0 = wifi_millis()
+    while wifi_millis() - t0 < ms:
+        tcp_poll(20)
+        if tcp_state == TCP_ESTABLISHED: return True
+    return tcp_state == TCP_ESTABLISHED
+
+def tcp_send(data: pchar, n) i32:
+    done = 0
+    while done < n:
+        if tcp_state != TCP_ESTABLISHED and tcp_state != TCP_CLOSE_WAIT: return -1
+        k = n - done
+        if k > TCP_MSS: k = TCP_MSS
+        if tcp_win > 0 and k > tcp_win: k = tcp_win
+        copy(tcp_sbuf, data + done, k)
+        tcp_snd_nxt = tcp_snd_una + k
+        if not tcp_flight(TCP_PSH | TCP_ACK, k): return -1
+        done += k
+    return n
+
+def tcp_recv(buf: pchar, max, ms) i32:
+    t0 = wifi_millis()
+    while tcp_rlen == 0:
+        if tcp_fin_in or (tcp_state != TCP_ESTABLISHED and tcp_state != TCP_FIN_WAIT1 and tcp_state != TCP_FIN_WAIT2):
+            return -1
+        if wifi_millis() - t0 >= ms: return 0
+        tcp_poll(20)
+    k = tcp_rlen
+    if k > max: k = max
+    copy(buf, tcp_rbuf, k)
+    full = TCP_RBUF - tcp_rlen < TCP_MSS
+    copy(tcp_rbuf, tcp_rbuf + k, tcp_rlen - k)
+    tcp_rlen -= k
+    if full and tcp_state == TCP_ESTABLISHED: tcp_ack()      # the window is open again
+    return k
+
+def tcp_close():
+    if tcp_state == TCP_ESTABLISHED: tcp_state = TCP_FIN_WAIT1
+    elif tcp_state == TCP_CLOSE_WAIT: tcp_state = TCP_LAST_ACK
+    else:
+        tcp_state = TCP_CLOSED
+        return
+    tcp_snd_nxt = tcp_snd_una + 1
+    tcp_flight(TCP_FIN | TCP_ACK, 0)
+    t0 = wifi_millis()              # the other side's FIN (up to 2 seconds)
+    while tcp_state == TCP_FIN_WAIT2 and wifi_millis() - t0 < 2000: tcp_poll(20)
+    tcp_state = TCP_CLOSED

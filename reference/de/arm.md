@@ -920,7 +920,7 @@ svc #0
 
 Verwandt: `bkpt`, `bl`
 
-## bkpt – Haltepunkt
+## bkpt – Breakpoint
 
 Hält das Programm im Debugger an (Breakpoint). Die Zahl wertet nur der Debugger aus.
 

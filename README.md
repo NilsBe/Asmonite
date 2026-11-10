@@ -4,10 +4,11 @@
 
 **Asmonite** is an assembler with an editor and a debugger for Windows. **Dismonite** is a disassembler
 and debugger that reads existing programs. Both are free, run on Windows without an installer, and
-work with 32-bit and 64-bit Intel code, with ARM, with RISC-V (32 and 64 bits) on the Raspberry Pi Pico 2, the ESP32-C3
-and the MangoPi MQ-Pro (Allwinner D1), and with Xtensa on the ESP32-S3 and the ESP32.
+work with 32-bit and 64-bit Intel code, with ARM, with Xtensa on the ESP32 and the ESP32-S3, and with RISC-V (32 and 64 bits) on the
+ESP32-C3, the Raspberry Pi Pico 2 and the MangoPi MQ-Pro (Allwinner D1). With them comes **aBelle**, a small
+language with the look of Python, for Windows and the ESP32, debugged in Asmonite line by line in its source.
 
-Current version: **0.11.0** | Website: [asmonite.com](https://asmonite.com) and
+Current version: **0.12.0** | Website: [asmonite.com](https://asmonite.com) and
 [dismonite.com](https://dismonite.com) | Chat: [Discord](https://discord.gg/Sj8kvqEkc)
 
 ![The Asmonite editor](assets/editor.png)
@@ -30,19 +31,29 @@ Current version: **0.11.0** | Website: [asmonite.com](https://asmonite.com) and
   **without OpenOCD**; UF2 files for the BOOTSEL drive. Guide: [docs/en/riscv-pico2.md](docs/en/riscv-pico2.md).
   The Pico (RP2040) also **without a debug probe**: a program in the RAM over its USB boot (BOOTSEL), one cable.
   Guide: [docs/en/picoboot.md](docs/en/picoboot.md).
-- **ESP32-C3:** RISC-V with `.target esp32c3`; F7 loads the program into the RAM or writes it into the flash over the
-  USB port of the chip and debugs it, **with one cable, without a debug probe**. Guide: [docs/en/esp32c3.md](docs/en/esp32c3.md).
-- **STM32F103 (Blue Pill):** Arm Cortex-M3 with `.target stm32f103`; F7 loads the program into the RAM or writes it into
-  the flash over the same debug probe as the Pico, and debugs it. Examples: `examples/stm32/`.
+- **Which board is debugged how** (over a debug probe or with the USB cable alone) and how its serial output
+  reaches the PC (the tab Serial): [docs/en/boards.md](docs/en/boards.md).
+- **ESP32:** Xtensa LX6 with `.arch xtensa` and `.target esp32`; F9 loads the program into the RAM or writes it into
+  the flash over the USB serial chip of the board and debugs it with a small monitor of Asmonite, **without a JTAG
+  probe**. Programs in aBelle too; a console with files in the flash (Debug > ESP32 Board Files); and the **WiFi**:
+  DHCP, DNS, ping, UDP, TCP and mDNS, without ESP-IDF, running on the second core while the debugger holds the
+  program at a breakpoint. Guide: [docs/en/esp32.md](docs/en/esp32.md).
+- **aBelle:** a small language with the look of Python; three compilers (Windows x86, x64, ESP32) in the ZIP, F9
+  compiles and debugs in the source, with the variables under the mouse. Language description (provisional):
+  [asmonite.com/en/abelle-lang.html](https://asmonite.com/en/abelle-lang.html); examples in
+  [examples/abelle](examples/abelle).
 - **ESP32-S3:** Xtensa LX7 with `.arch xtensa` and `.target esp32s3`; F7 loads the program into the RAM or writes it
   into the flash over the USB port of the chip and debugs it, **with one cable, without a debug probe**. Guide:
   [docs/en/esp32s3.md](docs/en/esp32s3.md).
-- **ESP32:** Xtensa LX6 with `.arch xtensa` and `.target esp32`; F9 loads the program into the RAM or writes it into
-  the flash over the USB serial chip of the board and debugs it with a small monitor of Asmonite, **without a JTAG
-  probe**. Guide: [docs/en/esp32.md](docs/en/esp32.md).
+- **ESP32-C3:** RISC-V with `.target esp32c3`; F7 loads the program into the RAM or writes it into the flash over the
+  USB port of the chip and debugs it, **with one cable, without a debug probe**. Guide: [docs/en/esp32c3.md](docs/en/esp32c3.md).
+  The **LilyGO T-PicoC3** (an RP2040 and an ESP32-C3 on one board, its display): [docs/en/t-picoc3.md](docs/en/t-picoc3.md).
+- **STM32F103 (Blue Pill):** Arm Cortex-M3 with `.target stm32f103`; F7 loads the program into the RAM or writes it into
+  the flash over the same debug probe as the Pico, and debugs it. Guide: [docs/en/stm32.md](docs/en/stm32.md).
 - **MangoPi MQ-Pro (Allwinner D1):** RISC-V with 64 bits (`.arch riscv64`, `.target d1`); F9 loads the program over USB
   (the FEL mode of the boot ROM) and debugs it, **with one cable, without JTAG**. Guide: [docs/en/d1.md](docs/en/d1.md).
-- Also compiles a small C subset (`asmonite_cc`, derived from OTCC) and debugs it line by line.
+
+![ping.abel on the ESP32 at a breakpoint while the WiFi runs](assets/esp32-wifi-debug.png)
 
 **Dismonite** (disassembler, debugger)
 - Opens Windows (PE: x86, x64, ARM, ARM64), DOS (MZ) and ARM Linux (ELF) programs.
@@ -67,7 +78,7 @@ The sums let you check that the file is the one that was published.
 |--------|---------|
 | [`docs/`](docs) | Guides and the differences to NASM, in English and German |
 | [`reference/`](reference) | The instruction help of the programs (F1) as text: x86, x64, ARM, ARM64, RISC-V, Windows API, DOS |
-| [`examples/`](examples) | Example programs: Windows (Intel, ARM), DOS, Raspberry Pi Pico 2 and Pico, ESP32-C3, ESP32-S3, STM32F103, `func` / `if` / loops, a C and a Pascal sample |
+| [`examples/`](examples) | Example programs: Windows (Intel, ARM), DOS, Raspberry Pi Pico 2 and Pico, ESP32, ESP32-S3, ESP32-C3, T-PicoC3, STM32F103, `func` / `if` / loops; in `examples/abelle` the examples in aBelle (Windows, ESP32 with WiFi) |
 | [`CHANGELOG.md`](CHANGELOG.md) | What changed in each version |
 
 The programs themselves are in the release ZIP, not in this repository.

@@ -4,10 +4,12 @@ Deutsch | [English](README.md)
 
 **Asmonite** ist ein Assembler mit Editor und Debugger für Windows. **Dismonite** ist ein Disassembler
 und Debugger, der vorhandene Programme liest. Beide sind kostenlos, laufen ohne Installation unter
-Windows und arbeiten mit 32-Bit- und 64-Bit-Intel-Code, mit ARM, mit RISC-V (32 und 64 Bit) auf dem Raspberry Pi
-Pico 2, dem ESP32-C3 und dem MangoPi MQ-Pro (Allwinner D1) und mit Xtensa auf dem ESP32-S3 und dem ESP32.
+Windows und arbeiten mit 32-Bit- und 64-Bit-Intel-Code, mit ARM, mit Xtensa auf dem ESP32 und dem ESP32-S3 und mit RISC-V
+(32 und 64 Bit) auf dem ESP32-C3, dem Raspberry Pi Pico 2 und dem MangoPi MQ-Pro (Allwinner D1). Dazu kommt
+**aBelle**, eine kleine Sprache mit der Schreibweise von Python, für Windows und den ESP32, in Asmonite Zeile für Zeile
+im Quelltext debuggt.
 
-Aktuelle Version: **0.11.0** | Website: [asmonite.com](https://asmonite.com) und
+Aktuelle Version: **0.12.0** | Website: [asmonite.com](https://asmonite.com) und
 [dismonite.com](https://dismonite.com) | Chat: [Discord](https://discord.gg/Sj8kvqEkc)
 
 ![Der Editor von Asmonite](assets/editor.png)
@@ -30,19 +32,29 @@ Aktuelle Version: **0.11.0** | Website: [asmonite.com](https://asmonite.com) und
   debuggt es, **ohne OpenOCD**; UF2-Dateien für das BOOTSEL-Laufwerk. Anleitung: [docs/de/riscv-pico2.md](docs/de/riscv-pico2.md).
   Den Pico (RP2040) auch **ohne Debug-Probe**: ein Programm im RAM über seinen USB-Boot (BOOTSEL), ein Kabel.
   Anleitung: [docs/de/picoboot.md](docs/de/picoboot.md).
-- **ESP32-C3:** RISC-V mit `.target esp32c3`; F7 lädt das Programm über den USB-Anschluss des Chips ins RAM oder
-  schreibt es in den Flash und debuggt es, **mit einem Kabel, ohne Debug-Probe**. Anleitung: [docs/de/esp32c3.md](docs/de/esp32c3.md).
-- **STM32F103 (Blue Pill):** Arm Cortex-M3 mit `.target stm32f103`; F7 lädt das Programm über dieselbe Debug-Probe wie
-  beim Pico ins RAM oder schreibt es in den Flash und debuggt es. Beispiele: `examples/stm32/`.
+- **Welches Board wie debuggt wird** (über eine Debug-Probe oder mit dem USB-Kabel allein) und wie seine serielle
+  Ausgabe zum PC kommt (der Reiter Serial): [docs/de/boards.md](docs/de/boards.md).
+- **ESP32:** Xtensa LX6 mit `.arch xtensa` und `.target esp32`; F9 lädt das Programm über den USB-Seriell-Chip des
+  Boards ins RAM oder schreibt es in den Flash und debuggt es mit einem kleinen Monitor von Asmonite, **ohne
+  JTAG-Probe**. Auch Programme in aBelle; eine Konsole mit Dateien im Flash (Debug > ESP32 Board Files); und das
+  **WLAN**: DHCP, DNS, Ping, UDP, TCP und mDNS, ohne ESP-IDF, auf dem zweiten Kern, während der Debugger das Programm
+  an einem Breakpoint anhält. Anleitung: [docs/de/esp32.md](docs/de/esp32.md).
+- **aBelle:** eine kleine Sprache mit der Schreibweise von Python; drei Compiler (Windows x86, x64, ESP32) im ZIP, F9
+  übersetzt und debuggt im Quelltext, mit den Variablen unter der Maus. Sprachbeschreibung (vorläufige Fassung):
+  [asmonite.com/de/abelle-lang.html](https://asmonite.com/de/abelle-lang.html); Beispiele in
+  [examples/abelle](examples/abelle).
 - **ESP32-S3:** Xtensa LX7 mit `.arch xtensa` und `.target esp32s3`; F7 lädt das Programm über den USB-Anschluss des
   Chips ins RAM oder schreibt es in den Flash und debuggt es, **mit einem Kabel, ohne Debug-Probe**. Anleitung:
   [docs/de/esp32s3.md](docs/de/esp32s3.md).
-- **ESP32:** Xtensa LX6 mit `.arch xtensa` und `.target esp32`; F9 lädt das Programm über den USB-Seriell-Chip des
-  Boards ins RAM oder schreibt es in den Flash und debuggt es mit einem kleinen Monitor von Asmonite, **ohne
-  JTAG-Probe**. Anleitung: [docs/de/esp32.md](docs/de/esp32.md).
+- **ESP32-C3:** RISC-V mit `.target esp32c3`; F7 lädt das Programm über den USB-Anschluss des Chips ins RAM oder
+  schreibt es in den Flash und debuggt es, **mit einem Kabel, ohne Debug-Probe**. Anleitung: [docs/de/esp32c3.md](docs/de/esp32c3.md).
+  Der **LilyGO T-PicoC3** (ein RP2040 und ein ESP32-C3 auf einem Board, sein Display): [docs/de/t-picoc3.md](docs/de/t-picoc3.md).
+- **STM32F103 (Blue Pill):** Arm Cortex-M3 mit `.target stm32f103`; F7 lädt das Programm über dieselbe Debug-Probe wie
+  beim Pico ins RAM oder schreibt es in den Flash und debuggt es. Anleitung: [docs/de/stm32.md](docs/de/stm32.md).
 - **MangoPi MQ-Pro (Allwinner D1):** RISC-V mit 64 Bit (`.arch riscv64`, `.target d1`); F9 lädt das Programm über USB
   (den FEL-Modus des Boot-ROMs) und debuggt es, **mit einem Kabel, ohne JTAG**. Anleitung: [docs/de/d1.md](docs/de/d1.md).
-- Übersetzt auch eine kleine C-Teilmenge (`asmonite_cc`, abgeleitet von OTCC) und debuggt sie zeilenweise.
+
+![ping.abel auf dem ESP32 an einem Breakpoint, während das WLAN läuft](assets/esp32-wifi-debug.png)
 
 **Dismonite** (Disassembler, Debugger)
 - Öffnet Windows- (PE: x86, x64, ARM, ARM64), DOS- (MZ) und ARM-Linux-Programme (ELF).
@@ -67,7 +79,7 @@ Mit den Prüfsummen lässt sich nachprüfen, dass die Datei die veröffentlichte
 |--------|--------|
 | [`docs/`](docs) | Anleitungen und die Unterschiede zu NASM, auf Deutsch und Englisch |
 | [`reference/`](reference) | Die Befehlsinfo der Programme (F1) als Text: x86, x64, ARM, ARM64, RISC-V, Windows-API, DOS |
-| [`examples/`](examples) | Beispielprogramme: Windows (Intel, ARM), DOS, Raspberry Pi Pico 2 und Pico, ESP32-C3, ESP32-S3, STM32F103, `func` / `if` / Schleifen, ein C- und ein Pascal-Beispiel |
+| [`examples/`](examples) | Beispielprogramme: Windows (Intel, ARM), DOS, Raspberry Pi Pico 2 und Pico, ESP32, ESP32-S3, ESP32-C3, T-PicoC3, STM32F103, `func` / `if` / Schleifen; in `examples/abelle` die Beispiele in aBelle (Windows, ESP32 mit WLAN) |
 | [`CHANGELOG.md`](CHANGELOG.md) | Was sich in welcher Version geändert hat |
 
 Die Programme selbst liegen in der ZIP-Datei der Releases, nicht in diesem Repository.

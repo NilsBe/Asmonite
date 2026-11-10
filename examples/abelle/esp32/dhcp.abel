@@ -1,0 +1,134 @@
+# The first frames of aBelle over the WiFi: the station connects to the network of inc/network.abel, sends a
+# DHCP DISCOVER and shows the OFFER of the access point (the address it would give us). It needs wlan.rom and wlansvc
+# in the files of the board (Debug > ESP32 Board Files); the program loads them itself (inc/wifi.abel): "run dhcp" in
+# the console, or F9 in Asmonite.
+target "esp32"
+include "inc/uart.abel"
+include "inc/wifi.abel"
+include "inc/network.abel"
+
+mac: char[8]
+frame: char[320]                    # the DISCOVER: 14 Ethernet, 20 IPv4, 8 UDP, 249 DHCP
+rx: char[1600]                      # a frame that came
+
+# the 16 bits v (big endian) at p
+def put16(p: pchar, v):
+    p[0] = (v >> 8) & 0xFF
+    p[1] = v & 0xFF
+
+def get16(p: pchar) i32:
+    return (p[0] << 8) | p[1]
+
+# n bytes of zeros at p
+def clear(p: pchar, n):
+    for i in 0..n: p[i] = 0
+
+# the checksum of IPv4 over the n bytes at p (n even): the ones' complement of the ones' complement sum
+def checksum(p: pchar, n) i32:
+    sum = 0
+    for i in 0..n / 2: sum += get16(p + 2 * i)
+    while sum >> 16 != 0: sum = (sum & 0xFFFF) + (sum >> 16)
+    return sum ^ 0xFFFF
+
+# the DHCP DISCOVER into frame: the Ethernet frame to all, IPv4 from 0.0.0.0 to 255.255.255.255, UDP 68 to 67,
+# DHCP: BOOTREQUEST, our MAC, the options DISCOVER and the parameters we want; its length
+def dhcp_discover() i32:
+    clear(frame, 320)
+    for i in 0..6: frame[i] = 0xFF  # to all
+    for i in 0..6: frame[6 + i] = mac[i]
+    put16(frame + 12, 0x0800)       # IPv4
+    ip = frame + 14
+    ip[0] = 0x45                    # version 4, 5 words
+    put16(ip + 2, 20 + 8 + 249)     # the length of the packet
+    put16(ip + 4, 1)                # identification
+    ip[8] = 64                      # time to live
+    ip[9] = 17                      # UDP
+    for i in 0..4: ip[16 + i] = 0xFF # to 255.255.255.255 (from 0.0.0.0)
+    put16(ip + 10, checksum(ip, 20))
+    udp = ip + 20
+    put16(udp, 68)                  # from port 68 (the client)
+    put16(udp + 2, 67)              # to port 67 (the server)
+    put16(udp + 4, 8 + 249)         # the length; no checksum
+    d = udp + 8
+    d[0] = 1                        # BOOTREQUEST
+    d[1] = 1                        # Ethernet
+    d[2] = 6                        # a MAC has 6 bytes
+    d[4] = 'a'                      # xid: "aB01"
+    d[5] = 'B'
+    d[6] = '0'
+    d[7] = '1'
+    d[10] = 0x80                    # flags: answer by broadcast
+    for i in 0..6: d[28 + i] = mac[i]
+    o = d + 236
+    o[0] = 0x63                     # the magic cookie
+    o[1] = 0x82
+    o[2] = 0x53
+    o[3] = 0x63
+    o[4] = 53                       # message type: DISCOVER
+    o[5] = 1
+    o[6] = 1
+    o[7] = 55                       # the parameters we want: subnet mask, router, DNS
+    o[8] = 3
+    o[9] = 1
+    o[10] = 3
+    o[11] = 6
+    o[12] = 255                     # the end
+    return 14 + 20 + 8 + 249
+
+# the frame at rx (n bytes) is the DHCP OFFER for our DISCOVER: IPv4, UDP to port 68, BOOTREPLY, the same xid
+def is_offer(n) i32:
+    if n < 14 + 20 + 8 + 240: return False
+    if get16(rx + 12) != 0x0800: return False
+    if rx[14 + 9] != 17: return False
+    if get16(rx + 14 + 20 + 2) != 68: return False
+    d = rx + 14 + 20 + 8
+    if d[0] != 2: return False
+    return d[4] == 'a' and d[5] == 'B' and d[6] == '0' and d[7] == '1'
+
+def main():
+    println("DHCP (aBelle)")
+    wifi_mac(mac)
+    print("mac: ")
+    print_mac(mac)
+    println("")
+    print("connecting to ")
+    println(network_name())
+    r = wifi_connect(network_name(), network_password())
+    if r != 0:
+        print("wifi_connect: error ")
+        print_int(r)
+        print(" (")
+        print(wifi_error_text(r))
+        print(")")
+        print(", status ")
+        print_int(wifi_status())
+        println("")
+    else:
+        println("connected")
+        frames = 0
+        got = 0
+        for t in 0..3:                  # the DISCOVER again after 2 seconds without an OFFER, as DHCP clients do
+            n = dhcp_discover()
+            r = wifi_send(frame, n)
+            print("discover sent: ")
+            print_int(r)
+            println("")
+            for i in 0..20:
+                n = wifi_recv(rx, 1600, 100)
+                if n == 0: continue
+                frames += 1
+                if is_offer(n):
+                    print("offer: ")
+                    print_ip(rx + 14 + 20 + 8 + 16)
+                    print(" from ")
+                    print_ip(rx + 14 + 12)
+                    println("")
+                    got = 1
+                    break
+            if got: break
+        print("frames: ")
+        print_int(frames)
+        println("")
+        wifi_disconnect()
+    println("dhcp end")
+    while True: pass

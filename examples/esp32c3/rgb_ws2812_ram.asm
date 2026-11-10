@@ -6,7 +6,8 @@
 ;   1. plug in the board at the USB port of the chip (Debug > Debug targets: ESP32-C3)
 ;   2. press F9 (Run) or F7 (Step into): the chip is reset and halted before its firmware starts,
 ;      the program is loaded to 0x40380000 and stops at _start
-;   3. open the COM port of that USB port in a terminal program to see the lines
+;   3. the tab Serial next to the output window connects to the COM port of that USB port by itself and shows
+;      the lines
 ; Nothing is written to the flash: after RESET the firmware of the board runs again.
 ;
 ; The WS2812 has no on and off: it takes 24 bits of colour on one wire (green, red, blue, 8 bits each,
