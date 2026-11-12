@@ -1,12 +1,11 @@
-# The time from the internet: the station connects to the network of inc/network.abel, gets an address by DHCP
-# (inc/net.abel), finds the time server of the PTB (Physikalisch-Technische Bundesanstalt, Braunschweig) by DNS,
-# asks it by NTP (UDP, port 123) and shows the date and the time, UTC and CET. It needs wlan.rom and wlansvc in the
-# files of the board (Debug > ESP32 Board Files); the program loads them itself (inc/wifi.abel): "run ntp" in the
+# The time from the internet: the station connects to the network the board keeps (wlan set in the console), gets an
+# address by DHCP (inc/net.abel), finds the time server of the PTB (Physikalisch-Technische Bundesanstalt, Braunschweig)
+# by DNS, asks it by NTP (UDP, port 123) and shows the date and the time, UTC and CET. It needs the WiFi package on the
+# board (F9 in Asmonite writes it there); the program loads the WiFi from it itself (inc/wifi.abel): "run ntp" in the
 # console, or F9 in Asmonite.
 target "esp32"
 include "inc/uart.abel"
 include "inc/net.abel"
-include "inc/network.abel"
 
 ntp_server: char[4]                 # the address of ntp_name()
 NTP_TO_UNIX = 0x83AA7E80            # the seconds from 1900 to 1970 (2208988800)
@@ -61,8 +60,8 @@ def main():
     print_mac(net_mac)
     println("")
     print("connecting to ")
-    println(network_name())
-    r = wifi_connect(network_name(), network_password())
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
     if r != 0:
         print("wifi_connect: error ")
         print_int(r)
@@ -89,9 +88,9 @@ def main():
         if not dns_lookup(ntp_name(), ntp_server):
             print("dns: no address for ")
             println(ntp_name())
-            wifi_disconnect()
+            wifi_done()
             println("ntp end")
-            while True: pass
+            return
         print("dns: ")
         print(ntp_name())
         print(" = ")
@@ -121,6 +120,5 @@ def main():
             print(" UTC, ")
             print_time(t + 3600)
             println(" CET")
-    wifi_disconnect()
+    wifi_done()
     println("ntp end")
-    while True: pass

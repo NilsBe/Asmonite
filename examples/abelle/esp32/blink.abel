@@ -1,7 +1,7 @@
-# Blink on the ESP32 DevKit: the LED at GPIO 2 on and off, about half a second each.
-# F9 in Asmonite translates it with abelle_esp32, loads it with the monitor over the USB cable into the RAM and runs
-# it (gone after a reset). Debug > Write to Flash and Run writes it into the flash at 0x1000 first (in place of the
-# firmware that was there): then the board runs it at every start, also without the PC.
+# Blink on the ESP32 DevKit: the LED at GPIO 2 on and off, slowly (see wait()). F9 in Asmonite translates it with
+# abelle_esp32, loads it with the monitor over the USB cable into the RAM and runs it (gone after a reset).
+# Board > Advanced > Write to Flash and Run writes it into the flash at 0x1000 first (in place of the firmware that was
+# there): then the board runs it at every start, also without the PC.
 #
 # watchdogs_off(): when the boot ROM starts a program from the flash, it switches the watchdogs on (the bootloader of
 # ESP-IDF would switch them off again). WITHOUT IT A BOARD THAT RUNS THE PROGRAM FROM THE FLASH RESETS AFTER A FEW
@@ -41,7 +41,7 @@ def watchdogs_off():
     rtc_cntl[RTC_WDTWPROTECT] = 0
 
 def wait():
-    for i in 0..500000: pass        # about half a second at 40 MHz (no timer yet)
+    for i in 0..5000000: pass       # no timer yet: about 1.25 s at 160 MHz (the console with WiFi), 5 s at 40 MHz
 
 def main():
     watchdogs_off()

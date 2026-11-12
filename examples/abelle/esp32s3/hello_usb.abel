@@ -1,0 +1,61 @@
+# Hello over the USB port of the ESP32-S3: "Hello, world!" and a counter, about once a second. The text goes to the
+# serial port of the chip's own USB port (the same cable as for the debugger; in the Device Manager "USB Serial
+# Device", 303A:1001): under the debugger (F9 in Asmonite) the tab Serial next to the output window shows it.
+# F9 translates it with abelle_esp32 (target "esp32s3"), loads it over the USB JTAG into the RAM and runs it (gone
+# after a reset).
+#
+# The peripheral USB Serial/JTAG (ESP32-S3 Technical Reference Manual, chapter "USB Serial/JTAG Controller";
+# ESP-IDF components/soc/esp32s3/include/soc/usb_serial_jtag_reg.h), base 0x60038000:
+#   EP1 (+0x00): a byte written there goes into the FIFO to the host (64 bytes)
+#   EP1_CONF (+0x04): bit 1 SERIAL_IN_EP_DATA_FREE = there is room in the FIFO; writing bit 0 (WR_DONE) sends what
+#   is in the FIFO
+# When no terminal has the port open, the FIFO stays full: after 10 ms without room the byte is dropped.
+#
+# ets_delay_us is a function of the boot ROM of the ESP32-S3 (esp32s3.rom.ld of ESP-IDF: 0x40000600; on the
+# ESP32 it is at 0x40008534).
+target "esp32s3"
+
+usb: u32[2] at 0x60038000
+def ets_delay_us(us: u32) at 0x40000600
+
+digits: char[12]
+
+# one byte into the FIFO; waits up to 10 ms for room
+def put_char(c):
+    for i in 0..1000:
+        if usb[1] & 2 != 0:
+            usb[0] = u32(c)
+            return
+        ets_delay_us(10)
+
+# what is in the FIFO goes to the host
+def flush():
+    usb[1] = 1
+
+def print(s: pchar):
+    n = 0
+    while s[n] != 0:
+        put_char(s[n])
+        n += 1
+
+# a number (0 or more) in decimal
+def print_int(v):
+    n = 0
+    while True:
+        digits[n] = '0' + v % 10
+        n += 1
+        v = v / 10
+        if v == 0: break
+    while n > 0:
+        n -= 1
+        put_char(digits[n])
+
+def main():
+    count = 0
+    while True:
+        print("Hello, world! ")
+        print_int(count)
+        print("\r\n")
+        flush()
+        count += 1
+        ets_delay_us(1000000)

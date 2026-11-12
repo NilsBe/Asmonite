@@ -301,6 +301,19 @@ instruction of the `.code` section.
 the first instruction or data, with a plain file name: the file is written next to the source, so no
 folder and no drive.
 
+## err-if – .if, .elif, .else, .endif
+
+**Message:** `.endif without .if`, `.if without .endif (the file ends)`, `.if: NAME is no constant a condition can use ...`, `.else behind the .else of this .if`, `.if needs a condition ...`, `.if: division by zero`, `.if: unexpected: ...`
+
+A block `.if` ... `.endif` assembles its lines only when the condition holds (see `.if`). The message says what is
+wrong with the block or its condition:
+- **without .if / without .endif:** every `.if` needs its `.endif`, in the same file; `.elif` and `.else` stand
+  between them, `.else` once and last.
+- **is no constant a condition can use:** a condition knows numbers and `equ` constants only, and only those that
+  stand in the lines before it (in a branch that is assembled) and are themselves made of numbers and such
+  constants. A label, `$`, or an `equ` with a label does not count. `defined(name)` asks whether a constant exists.
+- **needs a condition:** `.if` and `.elif` take an expression, `.else` and `.endif` take nothing.
+
 ## err-target – .target
 
 **Message:** `.target pico2: ...`, `unknown .target`, `second .target ...`, the warning `.arch thumb with .format binary is taken as a program for the Arm cores ...`

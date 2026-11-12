@@ -1,11 +1,10 @@
-# The first frames of aBelle over the WiFi: the station connects to the network of inc/network.abel, sends a
-# DHCP DISCOVER and shows the OFFER of the access point (the address it would give us). It needs wlan.rom and wlansvc
-# in the files of the board (Debug > ESP32 Board Files); the program loads them itself (inc/wifi.abel): "run dhcp" in
-# the console, or F9 in Asmonite.
+# The first frames of aBelle over the WiFi: the station connects to the network the board keeps (wlan set in the
+# console), sends a DHCP DISCOVER and shows the OFFER of the access point (the address it would give us). It needs the
+# WiFi package on the board (F9 in Asmonite writes it there); the program loads the WiFi from it itself (inc/wifi.abel):
+# "run dhcp" in the console, or F9 in Asmonite.
 target "esp32"
 include "inc/uart.abel"
 include "inc/wifi.abel"
-include "inc/network.abel"
 
 mac: char[8]
 frame: char[320]                    # the DISCOVER: 14 Ethernet, 20 IPv4, 8 UDP, 249 DHCP
@@ -92,8 +91,8 @@ def main():
     print_mac(mac)
     println("")
     print("connecting to ")
-    println(network_name())
-    r = wifi_connect(network_name(), network_password())
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
     if r != 0:
         print("wifi_connect: error ")
         print_int(r)
@@ -129,6 +128,5 @@ def main():
         print("frames: ")
         print_int(frames)
         println("")
-        wifi_disconnect()
+        wifi_done()
     println("dhcp end")
-    while True: pass

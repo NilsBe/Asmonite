@@ -1,12 +1,11 @@
-# A web page from the internet over TCP: the station connects to the network of inc/network.abel, gets an address by
-# DHCP, finds example.com by DNS, opens a TCP connection to its port 80 (inc/tcp.abel), sends a GET of HTTP and shows
-# what comes back: the status line, the title of the page, the number of bytes. It needs wlan.rom and wlansvc in the
-# files of the board (Debug > ESP32 Board Files); the program loads them itself (inc/wifi.abel): "run httpget" in the
-# console, or F9 in Asmonite.
+# A web page from the internet over TCP: the station connects to the network the board keeps (wlan set in the console),
+# gets an address by DHCP, finds example.com by DNS, opens a TCP connection to its port 80 (inc/tcp.abel), sends a GET
+# of HTTP and shows what comes back: the status line, the title of the page, the number of bytes. It needs the WiFi
+# package on the board (F9 in Asmonite writes it there); the program loads the WiFi from it itself (inc/wifi.abel): "run
+# httpget" in the console, or F9 in Asmonite.
 target "esp32"
 include "inc/uart.abel"
 include "inc/tcp.abel"
-include "inc/network.abel"
 
 server: char[4]
 page: char[4096]                    # the first bytes of the answer
@@ -36,8 +35,8 @@ def main():
     println("HTTP GET (aBelle)")
     net_init()
     print("connecting to ")
-    println(network_name())
-    r = wifi_connect(network_name(), network_password())
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
     if r != 0:
         print("wifi_connect: error ")
         print_int(r)
@@ -87,6 +86,5 @@ def main():
             print("tcp: closed in ")
             print_int(wifi_millis() - t0)
             println(" ms")
-    wifi_disconnect()
+    wifi_done()
     println("httpget end")
-    while True: pass

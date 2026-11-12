@@ -37,14 +37,32 @@ _start:
     ...
 ```
 
+Ist die Konsole von Asmonite auf dem Board (Board > Prepare Board) und hat das Programm keinen Breakpoint, bringt F9 es
+über die Konsole ins RAM und startet es, ohne Download-Modus und ohne Reset; die Ausgabe zeigt der Reiter Serial (siehe
+[boards.md](boards.md)). Eine Konsole von einer älteren Version von Asmonite ersetzt F9 vorher von selbst (etwa
+2 Sekunden, die Dateien und das Netz des Boards bleiben), ebenso ein anderes WLAN-Paket.
+
+Mit einem Breakpoint, mit F7 oder F8 startet der Debugger. Ist die Konsole da, geht auch er ohne Reset: Asmonite
+verbindet sich mit dem USB-JTAG, wie er ist, die Konsole ruft ihren Gastgeber `dbg_host` auf wie ein Programm, und der
+Kern hält dort an; der Debugger lädt das Programm über JTAG und startet es von dort. Nach dem Ende des Programms
+(auch mit `exit()` oder einer Ausnahme, die die Konsole fängt) oder nach Stop ist die Konsole wieder da; die nächste
+Sitzung beginnt nach einer halben Sekunde. Ohne Konsole auf dem Board, und für ein Programm für den Flash, gilt der
+Weg über das Boot-ROM:
+
 F9 (Ausführen) oder F7 (Step into) drücken. Der Debugger setzt den Chip über den USB-Seriell-Port in den Download-Modus
 seines Boot-ROMs zurück (mit den Leitungen DTR und RTS, wie esptool), hält Kern 0 dort an, lädt das Programm nach
 `0x40378000` und lässt es laufen oder hält bei `_start`. So beginnt jede Sitzung mit demselben sauberen Chip: der Kern
 mit 40 MHz, die Watchdogs aus, die Peripherie wie nach einem Reset. Dann: Schritte (F7, F8), Breakpoints (F5), die
 Register `a0` .. `a15`, `pc`, `ps`, `sar`, `windowbase`, `windowstart` und die Schleifenregister, der Speicher (auch als
-Code). Der Stackpointer `a1` beginnt bei `0x3FCD0000`. Nach RST läuft wieder die Firmware aus dem Flash.
+Code). Der Stackpointer `a1` beginnt bei `0x3FCAFFE0`, am oberen Ende des Datenfensters der Programme (32 Bytes unter
+`0x3FCB0000`, wo der WLAN-Dienst beginnt). Beginnt `_start` mit `entry`, kommt das Programm wie aus der Konsole
+(`callx8`, mit Registerfenster), und `retw` beendet die Sitzung mit seinem `a2`. Ohne `entry` kommt es wie bei call0,
+und `ret` beendet sie. In beiden Fällen zeigt `a0` auf eine Endmarke (`0x403D8000`, ein `break` im freien RAM). Nach
+RST läuft wieder die Firmware aus dem Flash.
 
-Das RAM von `0x40378000` bis `0x403BFFFF` (288 KB) ist frei für das Programm; darüber legt das Boot-ROM seine Daten ab.
+Das RAM von `0x40378000` bis `0x403BFFFF` (288 KB) nimmt der Assembler für ein Programm an; darüber liegt die Konsole.
+Das normale Fenster, das aBelle nutzt und mit dem auch das WLAN läuft: Code `0x40378000 .. 0x4038FFFF` (96 KB), Daten
+`0x3FCA0000 .. 0x3FCAFFFF` (64 KB, der Stack in den oberen 4 KB), siehe [Das WLAN](#das-wlan).
 
 ## Xtensa in Kürze
 
@@ -91,13 +109,106 @@ Der USB-Anschluss des Chips hat zwei Teile: den JTAG des Debuggers und einen ser
 `EP1`, dann `WR_DONE` in `EP1_CONF`), kommt an diesem COM-Port heraus, auch während der Debugger den JTAG hat. Der
 Reiter **Serial** neben dem Ausgabefenster verbindet sich von selbst damit, wenn der Debugger das Programm geladen hat:
 Der Reset ins Boot-ROM und das Schreiben des Flash gehen über diesen Port, deshalb gibt der Reiter ihn beim Start der
-Sitzung frei und öffnet ihn danach wieder. Connect und Disconnect bleiben benutzbar.
+Sitzung frei und öffnet ihn danach wieder. Bei der ersten Ausgabe des Programms kommt der Reiter nach vorn, wie beim
+ESP32. Connect und Disconnect bleiben benutzbar.
 `examples/esp32s3/hello_usb_ram.asm` schreibt dort einmal pro Sekunde „Hello, world!“.
 
 Das RAM des Programms ist ein Speicher an zwei Bussen. Unter seiner IRAM-Adresse (`0x40378000` ..) holt der Kern
 Befehle und liest und schreibt nur Wörter: `l8ui`, `l16ui`, `s8i` halten dort mit einem LoadStoreError an, wie beim
 ESP32. Am Datenbus liegt dasselbe Byte `0x6F0000` tiefer (`0x3FC88000` für `0x40378000`), und dort gehen Bytes: Das
 Beispiel zieht `0x6F0000` von der Adresse seines Textes ab, bevor es ihn liest.
+
+## aBelle auf dem ESP32-S3
+
+Ein Programm in aBelle mit `target "esp32s3"` übersetzt `abelle_esp32.exe` (derselbe Compiler wie für den ESP32) in
+den Code für das RAM ab `0x40378000` (bis 96 KB) und die Daten ab `0x3FCA0000` (bis 60 KB, dasselbe RAM über den
+Datenbus, hinter dem Code; dort gehen auch Bytes; darüber der Stack und das WLAN). F9 lädt es über den USB-JTAG und debuggt es **im Quelltext**: Breakpoints, F7/F8 Zeile für
+Zeile, Variablen unter der Maus und im Fenster Watch. Funktionen des Boot-ROMs werden wie beim ESP32 mit `at` und
+ihrer Adresse bekannt gemacht; sie liegen beim S3 woanders (`ets_delay_us` bei `0x40000600`, beim ESP32 bei
+`0x40008534`; `esp32s3.rom.ld` von ESP-IDF). Beispiel: `examples/abelle/esp32s3/hello_usb.abel` schreibt „Hello,
+world!“ und einen Zähler über den USB-Anschluss des Chips; `examples/abelle/esp32s3/rgb.abel` lässt die RGB-LED des
+Boards (GPIO 48) in Rot, Grün, Blau und im Farbkreis leuchten, die Impulse der WS2812 erzeugt der RMT;
+`examples/abelle/esp32s3/scan.abel` zeigt die WLAN-Netze in der Nähe (siehe [Das WLAN](#das-wlan)).
+
+## Die Konsole und ihre Dateien
+
+`examples/esp32s3/console.asm` ist die Konsole des ESP32 (siehe [esp32.md](esp32.md)) für den S3: dieselben Befehle
+(`ls`, `cat`, `put`, `rm`, `df`, `format`, `run`, `load`, `boot`, `help`), dasselbe Dateisystem im Flash ab 2 MB bis
+zu seinem Ende (bei 16 MB also gut 14 MB) und dieselben Pakete für Asmonite. Sie spricht über den USB-Anschluss des
+Chips: jedes Terminalprogramm am COM-Port des Chips, die Baudrate spielt keine Rolle.
+
+Das Menü **Board** arbeitet mit dem S3 wie mit dem ESP32 (Asmonite nimmt den S3, wenn kein Board mit
+USB-Seriell-Chip angeschlossen ist):
+
+- **Board > Prepare Board** schreibt die Konsole über das Boot-ROM in den Flash (beim S3 an die Adresse 0) und legt
+  das Dateisystem an, wenn es noch keins gibt.
+- **Board > Files** öffnet das Fenster **ESP32-S3 Board Files**: **Upload File**, **Download**, **Delete**, **Run**,
+  **Autostart**, **Reset Board** und **Format** wie beim ESP32; **Board > Set This Program as Autostart** und
+  **Board > Advanced > Erase Flash** ebenso. **Upload This Program** nimmt ein Programm mit `.target esp32s3` oder
+  `target "esp32s3"` und weist eines für den ESP32 ab.
+- Ein Programm aus der Konsole darf das ganze RAM der Programme nutzen: Code `0x40378000 .. 0x403BFFFF`, Daten im
+  selben RAM über den Datenbus `0x3FC88000 .. 0x3FCCFFFF`; ein Programm für F9 passt unverändert. Die Konsole selbst
+  liegt darüber (Code ab `0x403C0000`, Daten ab `0x3FCD8000`). Mit dem WLAN gehört der obere Teil davon dem WLAN.
+- **Board > Advanced > Install WiFi Again** schreibt das WLAN-Paket neu (selten nötig, siehe [Das WLAN](#das-wlan)).
+- **Wenn ein Programm endet, ist die Konsole wieder da**, wie beim ESP32: `retw` (Meldung `Program ended (code n)`),
+  `exit(code)` mit `callx8` auf `0x403C0800`, eine Ausnahme bzw. ein `break` (`Program stopped: …`) oder **Ctrl+C**
+  (Knopf Stop im Reiter Serial; ein Paket über den USB-Anschluss löst das NMI aus, auch bei gesperrten Interrupts). Das Programm
+  läuft auf seinem eigenen Stack (`0x3FCAFFE0`).
+- **Funktionen der Konsole für Programme** wie beim ESP32, ab `0x403C0800` (`exit`, `version`, `put_char`,
+  `get_char`, `poll_char`, `print`, `millis`, `file_size`, `file_read`, `file_write`, `flash_read`, `args`, je 4
+  Bytes; die Tabelle steht in der Seite zum ESP32). Auch Programme als Befehle wie dort: `name args` startet
+  `name` oder `name.bin` aus den Dateien. In aBelle: `include "inc/console.abel"`, Beispiel `runs.abel`. Unter dem
+  Debugger und ohne Konsole bleibt `inc/usb.abel`.
+- Nach einem Reset wartet die Konsole bei einem Autostart **3 Sekunden** (beim ESP32 eine): Mit dem Reset geht der
+  USB-Anschluss kurz weg und kommt wieder, erst dann kann ein Terminal eine Taste schicken.
+
+Ein Reset über RTS (wie Reset Board) setzt nur den Chip zurück, der USB-Anschluss bleibt: Ein Terminal darf offen
+bleiben. Manche Terminalprogramme schalten beim Öffnen des Ports RTS und setzen den Chip damit zurück; die Konsole
+startet dann neu.
+
+## Das WLAN
+
+Das WLAN des S3 kommt aus den Bibliotheken von Espressif (`wlan/`, gelinkt mit `python wlan/make_wlan.py --chip
+esp32s3`), mit einer eigenen Betriebssystem-Schicht in Assembler statt FreeRTOS, wie beim ESP32 ([esp32.md](esp32.md)).
+Ein Dienst (`wlan/wlansvc_s3.asm`) läuft auf **Kern 1**, während ein Programm oder die Konsole auf Kern 0 läuft; der
+Debugger hält nur Kern 0 an, das WLAN läuft weiter.
+
+1. Das **WLAN-Paket** liegt wie beim ESP32 im Flash von `0x100000` bis `0x1FFFFF`: die Bibliothek, bei `0x1F0000` ein
+   Kopf, dahinter die Teile von `wlan.rom` für das RAM und `wlansvc`. Startest du mit F9 ein Programm mit
+   `inc/wifi.abel`, schreibt Asmonite das Paket über die Konsole, wenn es fehlt oder nicht passt (rund 300 KB, etwa
+   8 Sekunden). Prepare Board legt es gleich mit an, **Board > Advanced > Install WiFi Again** tut es von Hand.
+2. Ein Programm in aBelle mit `include "inc/wifi.abel"` (aus `examples/abelle/esp32s3/inc/`) lädt den Dienst selbst
+   aus dem Paket, mit `run` in der Konsole wie unter dem Debugger. `examples/abelle/esp32s3/scan.abel` zeigt die
+   Netze in der Nähe. Während die Konsole den Flash benutzt, parkt sie Kern 1 wie beim ESP32 ([esp32.md](esp32.md)):
+   Dateien lassen sich bei laufendem WLAN schreiben, eine Verbindung bleibt bestehen.
+3. Mit einem Netz verbinden (offen oder WPA2): einmal `wlan set` im Reiter Serial, dann Name und Passwort, wie beim
+   ESP32 ([esp32.md](esp32.md)). Die Konsole speichert den Namen und den Schlüssel, nicht das Passwort (etwa
+   2,3 Sekunden), in den Sektoren `0xFE000` und `0xFF000`. Die Beispiele sind dieselben wie beim ESP32 ([esp32.md](esp32.md)): `dhcp.abel`, `ping.abel`, `dns.abel`,
+   `ntp.abel`, `httpget.abel`, `webserver.abel`, `udpecho.abel`, `wol.abel`, `arpscan.abel`, `telnetd.abel` (die
+   Dateien des Boards über die MMU des S3, `led` schaltet die RGB-LED WS2812 an GPIO 48); sie verbinden sich mit
+   `wifi_connect_saved()` mit dem Netz des Boards; ihren Text schreiben sie
+   über den USB-Anschluss des Chips (`inc/usb.abel` statt `inc/uart.abel`), der Reiter Serial zeigt ihn. `net.abel` und
+   `tcp.abel` sind die des ESP32. Für WPA2 entpackt der Dienst den Gruppenschlüssel selbst (AES Key Unwrap nach
+   RFC 3394): Das ROM des S3 hat dafür keine Funktion, anders als das des ESP32.
+
+Das RAM mit dem WLAN (Code- und Datenbus sind dasselbe RAM, `0x6F0000` auseinander):
+
+| Bereich | Adressen |
+|---|---|
+| Code des Programms | `0x40378000 .. 0x4038FFFF` |
+| Daten des Programms, Stack | `0x3FCA0000 .. 0x3FCAFFFF` |
+| der Dienst (`wlansvc`) | `0x403A0000 ..` (Einträge), Daten ab `0x3FCB6000` |
+| `wlan.rom` | `0x403A8000 ..` und `0x3FCBC000 ..` |
+| Heap des WLAN | `0x3FCC1000 .. 0x3FCCFFFF` |
+| Puffer des WLAN, Stack von Kern 1 | `0x3FCDF000 .. 0x3FCE7FFF`, über den Daten der Konsole |
+
+**Ein großes Programm ohne WLAN:** Braucht ein aBelle-Programm mehr als 96 KB Code oder 60 KB Daten, nimmt
+`abelle_esp32` das **große Fenster** und sagt das bei der Übersetzung („Note: … it runs without the WiFi“): Der Code
+darf dann bis `0x4039EFFF` reichen (156 KB, über das Datenfenster bis zum Stack), die Daten liegen ab `0x3FCB0000`
+(bis 128 KB, der Bereich des Dienstes, von `wlan.rom` und des Heaps). Die Konsole erkennt an den Adressen, dass das
+Programm in den Bereich des WLAN reicht, hält das WLAN vorher an und startet es nach dem Ende des Programms im
+Hintergrund wieder; mit F9, `run` und dem Debugger. Ein Programm mit `inc/wifi.abel` lehnt der Compiler im großen
+Fenster ab.
 
 ## Die Beispiele
 
@@ -122,10 +233,10 @@ Technical Reference Manual.
 
 ## Grenzen
 
-- Nur Kern 0; der zweite Kern wird nicht gestartet und nicht gedebuggt.
+- Nur Kern 0 wird gedebuggt; den zweiten Kern startet nur der WLAN-Dienst.
 - Noch nicht: die MAC16- und Vektorbefehle (`ee.*`) des ESP32-S3, Programme im externen Flash oder PSRAM (nur das
-  interne RAM), WLAN und Bluetooth.
+  interne RAM), Bluetooth.
 - Der ursprüngliche ESP32 (Xtensa LX6) hat dieselben Befehle (ohne `salt`, `saltu`), aber keinen USB-JTAG: Asmonite
-  startet und flasht ihn über den seriellen Port des Boards, ohne Debugger ([esp32.md](esp32.md)).
+  debuggt ihn über den seriellen Port des Boards mit einem eigenen Monitor ([esp32.md](esp32.md)).
 - Wie der Chip das Debuggen macht: das Protokoll von `esp_usb_jtag.c` und das Xtensa-Debug-Modul von OpenOCD
   (`src/target/xtensa`).

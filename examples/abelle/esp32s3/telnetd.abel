@@ -1,0 +1,679 @@
+# A small shell over the network: the station connects to the network the board keeps (wlan set in the console), gets an
+# address by DHCP and waits on TCP port 23 (inc/tcp.abel) for a telnet client: "telnet <the address of the board>"
+# (Windows: the feature "Telnet Client", or PuTTY with the connection type Telnet). One client at a time; "help" lists
+# the commands: the files of the board (ls, cat, hex, df), memory (mem), the network (ip, ping, dns), the LED, a reset.
+# It needs the WiFi package on the board (F9 in Asmonite writes it there); the program loads the WiFi from it itself
+# (inc/wifi.abel): "run telnetd" in the console, or F9 in Asmonite. With "boot telnetd" in the console it starts after
+# every reset.
+#
+# The ESP32-S3: the shell of abelle/examples/esp32/telnetd.abel of the ESP32; its text goes to the USB port of the
+# chip (inc/usb.abel). What differs:
+#   - the files: the flash from 2 MB to its end (the file system of the console) in the address space of the data,
+#     through the cache, at 0x3C000000 + its place in the flash: the MMU of the S3 (one table at 0x600C5000 for both
+#     caches and both cores, a word per page of 64 KB: the page of the flash) gets the pages 0x20 .. after the WiFi
+#     has set the caches up (wifi_connect: the service maps its own pages 0x10 .. 0x14 the same way). Reading the
+#     flash with the functions of the ROM while core 1 runs its code from the flash is not allowed.
+#   - the LED: the board has an RGB LED WS2812 at GPIO 48 (as examples/esp32s3/rgb_ws2812_ram.asm): 24 bits (green,
+#     red, blue), a 1 high for about 0.7 us, a 0 for 0.35 us. The times come from a loop whose turns per millisecond
+#     led measures against the timer of the service (wifi_millis) the first time.
+#   - mem: the memory of the S3.
+#
+# Telnet: the bytes of a terminal over TCP. Commands of the protocol begin with the byte IAC (255): the server says
+# WILL ECHO and WILL SUPPRESS-GO-AHEAD, so the client sends each key at once and shows only what comes back (the
+# server echoes); other options the client offers are declined (DONT, WONT).
+# It serves until Stop in the tab Serial of Asmonite (Ctrl+C); then the console is there again, its WiFi stays.
+target "esp32s3"
+include "inc/usb.abel"
+include "inc/tcp.abel"
+
+SH_PORT = 23
+SH_FS_FLASH = 0x200000              # the file system: its place in the flash
+SH_FS = 0x3C200000                  # ... and in the address space of the data (0x3C000000 + its place)
+sh_fs_bytes: i32 = 0x200000         # the file system: from 2 MB to the end of the flash (main sets it)
+SH_LINE = 120
+SH_IAC = 255
+
+sh_obuf: char[1400]                 # the output, sent as one segment
+sh_on: i32 = 0
+sh_ibuf: char[256]                  # the input of one tcp_recv
+sh_line: char[124]                  # the command line
+sh_len: i32 = 0
+sh_argv: char[8]                    # the words of the line: their places in sh_line
+sh_argc: i32 = 0
+sh_iac: i32 = 0                     # telnet: 0 text, 1 after IAC, 2 the option of WILL ..., 3 inside SB
+sh_verb: i32 = 0                    # WILL, WONT, DO, DONT
+sh_cr: i32 = 0                      # the last byte was CR (its LF or 0 is no new line)
+sh_quit: i32 = 0
+sh_ok: i32 = 0                      # sh_number: it was a number
+sh_ip: char[4]
+sh_digits: char[12]
+sh_mem: u32[0x3FFFFFFF] at 0        # any word of the memory: sh_mem[address / 4]
+sh_mmu: u32[512] at 0x600C5000      # the MMU of the flash cache: a word per page of 64 KB
+sh_gpio: u32[0x200] at 0x60004000   # GPIO: OUT1_W1TS +0x14, OUT1_W1TC +0x18, ENABLE1_W1TS +0x30, FUNC48_OUT_SEL +0x614
+sh_pad48: u32[1] at 0x600090C4      # IO_MUX_GPIO48
+sh_rtc: u32[64] at 0x60008000       # RTC_CNTL: OPTIONS0 bit 31 SW_SYS_RST
+SH_LED = 0x10000                    # GPIO 48 in the registers of GPIO 32 .. 48
+sh_led_t0: i32 = 0                  # the turns of the loop for a 0 (0.35 us) and a 1 (0.7 us); 0: not measured yet
+sh_led_t1: i32 = 0
+
+# ---------- the output ----------
+
+def sh_flush():
+    if sh_on > 0: tcp_send(sh_obuf, sh_on)
+    sh_on = 0
+
+def sh_put(c):
+    if sh_on == 1400: sh_flush()
+    sh_obuf[sh_on] = c
+    sh_on += 1
+
+def sh_text(s: pchar):
+    k = 0
+    while s[k] != 0:
+        sh_put(s[k])
+        k += 1
+
+def sh_nl():
+    sh_put(13)
+    sh_put(10)
+
+def sh_textln(s: pchar):
+    sh_text(s)
+    sh_nl()
+
+def sh_int(v):
+    if v < 0:
+        sh_put('-')
+        v = 0 - v
+    k = 0
+    while True:
+        sh_digits[k] = '0' + i32(u32(v) % 10)
+        k += 1
+        v = i32(u32(v) / 10)
+        if v == 0: break
+    while k > 0:
+        k -= 1
+        sh_put(sh_digits[k])
+
+# a number in w places, right-aligned
+def sh_int_w(v, w):
+    k = 1
+    t = v
+    while t >= 10:
+        t = t / 10
+        k += 1
+    while k < w:
+        sh_put(' ')
+        k += 1
+    sh_int(v)
+
+def sh_hexd(d):
+    if d < 10: sh_put('0' + d)
+    else: sh_put('a' + d - 10)
+
+# v in hexadecimal, digits places
+def sh_hex(v, digits):
+    k = digits
+    while k > 0:
+        k -= 1
+        sh_hexd((v >> (4 * k)) & 15)
+
+def sh_ipout(p: pchar):
+    for k in 0..4:
+        if k > 0: sh_put('.')
+        sh_int(p[k])
+
+# ---------- the words of a line ----------
+
+def sh_arg(k) pchar:
+    return sh_line + sh_argv[k]
+
+def sh_split():
+    sh_argc = 0
+    k = 0
+    while k < sh_len and sh_argc < 8:
+        while k < sh_len and sh_line[k] == ' ': k += 1
+        if k >= sh_len: break
+        sh_argv[sh_argc] = k
+        sh_argc += 1
+        while k < sh_len and sh_line[k] != ' ': k += 1
+        sh_line[k] = 0
+        k += 1
+
+def sh_eq(a: pchar, b: pchar) i32:
+    k = 0
+    while a[k] == b[k]:
+        if a[k] == 0: return True
+        k += 1
+    return False
+
+# a number: decimal, or hexadecimal with 0x; sh_ok says whether it was one
+def sh_number(s: pchar) i32:
+    v = 0
+    k = 0
+    sh_ok = s[0] != 0
+    if s[0] == '0' and (s[1] == 'x' or s[1] == 'X'):
+        k = 2
+        sh_ok = s[2] != 0
+        while s[k] != 0:
+            c = s[k]
+            if c >= '0' and c <= '9': v = v * 16 + c - '0'
+            elif c >= 'a' and c <= 'f': v = v * 16 + c - 'a' + 10
+            elif c >= 'A' and c <= 'F': v = v * 16 + c - 'A' + 10
+            else: sh_ok = False
+            k += 1
+        return v
+    while s[k] != 0:
+        if s[k] < '0' or s[k] > '9': sh_ok = False
+        v = v * 10 + s[k] - '0'
+        k += 1
+    return v
+
+# "192.168.178.1" into sh_ip; 1 or 0
+def sh_dotted(s: pchar) i32:
+    k = 0
+    for part in 0..4:
+        if s[k] < '0' or s[k] > '9': return False
+        v = 0
+        while s[k] >= '0' and s[k] <= '9':
+            v = v * 10 + s[k] - '0'
+            k += 1
+        if v > 255: return False
+        sh_ip[part] = v
+        if part < 3:
+            if s[k] != '.': return False
+            k += 1
+    return s[k] == 0
+
+# an address or a name (DNS) into sh_ip; 1 or 0
+def sh_host(s: pchar) i32:
+    if sh_dotted(s): return True
+    return dns_lookup(s, sh_ip)
+
+# ---------- the files (through the cache) ----------
+
+# the file system into the address space of the data: the pages of the flash from 2 MB to its end, each page at its
+# own place (0x3C000000 + the place in the flash)
+def sh_fs_map():
+    for k in 0..sh_fs_bytes / 0x10000:
+        sh_mmu[SH_FS_FLASH / 0x10000 + k] = u32(SH_FS_FLASH / 0x10000 + k)
+
+def sh_le32(p: pchar) i32:
+    return p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24)
+
+# a directory (0 or 1) valid: "AFS1", the CRC of its entries and of its word of boot
+def sh_dir_ok(p: pchar) i32:
+    if sh_le32(p) != 0x31534641: return False
+    c = wl_crc(0, p + 32, 2048)
+    c = wl_crc(c, p + 12, 4)
+    return i32(c) == sh_le32(p + 8)
+
+# the valid directory with the higher number, 0 when there is none
+def sh_dir() pchar:
+    d0 = pchar(SH_FS)
+    d1 = pchar(SH_FS + 4096)
+    ok0 = sh_dir_ok(d0)
+    ok1 = sh_dir_ok(d1)
+    if ok0 and ok1:
+        if u32(sh_le32(d1)) > u32(sh_le32(d0)): return d1
+        return d0
+    if ok0: return d0
+    if ok1: return d1
+    return pchar(0)
+
+# the entry of the file s (32 bytes: the name, +20 its first sector, +24 its length), 0 when there is none
+def sh_find(d: pchar, s: pchar) pchar:
+    for k in 0..64:
+        e = d + 32 + 32 * k
+        if e[0] != 0 and sh_eq(e, s): return e
+    return pchar(0)
+
+# where the bytes of the file of entry e are
+def sh_data(e: pchar) pchar:
+    return pchar(SH_FS + sh_le32(e + 20) * 4096 - SH_FS_FLASH)
+
+def cmd_ls():
+    d = sh_dir()
+    if d == pchar(0):
+        sh_textln("no file system (format in the console)")
+        return
+    boot = sh_le32(d + 12)
+    for k in 0..64:
+        e = d + 32 + 32 * k
+        if e[0] != 0:
+            sh_text("  ")
+            sh_text(e)
+            w = 0
+            while e[w] != 0: w += 1
+            while w < 20:
+                sh_put(' ')
+                w += 1
+            sh_int_w(sh_le32(e + 24), 8)
+            if boot == k + 1: sh_text("  starts after a reset")
+            sh_nl()
+
+def cmd_df():
+    d = sh_dir()
+    if d == pchar(0):
+        sh_textln("no file system")
+        return
+    files = 0
+    used = 0
+    for k in 0..64:
+        e = d + 32 + 32 * k
+        if e[0] != 0:
+            files += 1
+            used += (sh_le32(e + 24) + 4095) / 4096 * 4096
+    sh_int(files)
+    sh_text(" file(s), ")
+    sh_int(used)
+    sh_text(" bytes in use, ")
+    sh_int(sh_fs_bytes - 8192 - used)
+    sh_textln(" bytes free")
+
+# the file of the first word, 0 (and why) when there is none
+def sh_file() pchar:
+    if sh_argc < 2:
+        sh_textln("which file?")
+        return pchar(0)
+    d = sh_dir()
+    if d == pchar(0):
+        sh_textln("no file system")
+        return pchar(0)
+    e = sh_find(d, sh_arg(1))
+    if e == pchar(0): sh_textln("no such file")
+    return e
+
+def cmd_cat():
+    e = sh_file()
+    if e == pchar(0): return
+    p = sh_data(e)
+    n = sh_le32(e + 24)
+    for k in 0..n:
+        c = p[k]
+        if c == 10:
+            if k == 0 or p[k - 1] != 13: sh_put(13)
+            sh_put(10)
+        elif c == 13 or c == 9 or (c >= 32 and c < 127): sh_put(c)
+        else: sh_put('.')
+    if n > 0 and p[n - 1] != 10: sh_nl()
+
+# n bytes at p as lines of 16: the address (shown as addr), hex, text
+def sh_dump(addr, p: pchar, n):
+    k = 0
+    while k < n:
+        sh_hex(addr + k, 8)
+        sh_text("  ")
+        for j in 0..16:
+            if k + j < n:
+                sh_hex(p[k + j], 2)
+                sh_put(' ')
+            else: sh_text("   ")
+        sh_put(' ')
+        for j in 0..16:
+            if k + j < n:
+                c = p[k + j]
+                if c >= 32 and c < 127: sh_put(c)
+                else: sh_put('.')
+        sh_nl()
+        k += 16
+
+def cmd_hex():
+    e = sh_file()
+    if e == pchar(0): return
+    n = sh_le32(e + 24)
+    off = 0
+    if sh_argc >= 3: off = sh_number(sh_arg(2))
+    if off < 0 or off >= n:
+        sh_textln("the file is shorter")
+        return
+    m = n - off
+    if m > 256: m = 256
+    sh_dump(off, sh_data(e) + off, m)
+
+# ---------- memory ----------
+
+# a (up to a + n) lies in RAM or ROM that may be read: the ROM (and its constants), the RAM on the bus of the
+# instructions and of the data, the RTC fast memory, the file system through the cache; not the registers of the
+# devices (reading some of them changes something)
+def sh_readable(a, n) i32:
+    e = a + n
+    if a >= 0x40000000 and e <= 0x40060000: return True
+    if a >= 0x3FF00000 and e <= 0x3FF20000: return True
+    if a >= 0x40370000 and e <= 0x403E0000: return True
+    if a >= 0x3FC88000 and e <= 0x3FD00000: return True
+    if a >= 0x600FE000 and e <= 0x60100000: return True
+    if a >= SH_FS and e <= SH_FS + sh_fs_bytes: return True
+    return False
+
+def cmd_mem():
+    if sh_argc < 2:
+        sh_textln("mem address [bytes]")
+        return
+    a = sh_number(sh_arg(1)) & ~3
+    n = 64
+    if sh_argc >= 3: n = sh_number(sh_arg(2))
+    if n < 4: n = 4
+    if n > 256: n = 256
+    n = (n + 3) & ~3
+    if not sh_readable(a, n):
+        sh_textln("not readable here: ROM 0x40000000.., IRAM 0x40370000.., DRAM 0x3FC88000.., RTC 0x600FE000.., files 0x3C200000..")
+        return
+    # word by word (the IRAM takes no byte loads) into sh_ibuf, then shown
+    for k in 0..n / 4:
+        w = sh_mem[(a + 4 * k) / 4]
+        sh_ibuf[4 * k] = i32(w) & 0xFF
+        sh_ibuf[4 * k + 1] = i32(w >> 8) & 0xFF
+        sh_ibuf[4 * k + 2] = i32(w >> 16) & 0xFF
+        sh_ibuf[4 * k + 3] = i32(w >> 24) & 0xFF
+    sh_dump(a, sh_ibuf, n)
+
+# ---------- the network, the board ----------
+
+def cmd_ip():
+    sh_text("ip ")
+    sh_ipout(net_ip)
+    sh_text("  mask ")
+    sh_ipout(net_mask)
+    sh_text("  router ")
+    sh_ipout(net_gw)
+    sh_text("  dns ")
+    sh_ipout(net_dns)
+    sh_nl()
+    sh_text("mac ")
+    for k in 0..6:
+        if k > 0: sh_put(':')
+        sh_hex(net_mac[k], 2)
+    sh_text("  client ")
+    sh_ipout(tcp_ip)
+    sh_nl()
+
+def cmd_dns():
+    if sh_argc < 2:
+        sh_textln("dns name")
+        return
+    if dns_lookup(sh_arg(1), sh_ip):
+        sh_text(sh_arg(1))
+        sh_text(" = ")
+        sh_ipout(sh_ip)
+        sh_nl()
+    else: sh_textln("no address")
+
+# four pings, each line at once
+def cmd_ping():
+    if sh_argc < 2:
+        sh_textln("ping address-or-name")
+        return
+    if not sh_host(sh_arg(1)):
+        sh_textln("no address for it")
+        return
+    got = 0
+    for seq in 1..5:
+        ping_got = -1
+        t0 = wifi_millis()
+        if ping_send(sh_ip, seq, 32) != 0:
+            sh_textln("no answer to ARP")
+            return
+        t = 0
+        # tcp_poll: the frames of the WiFi and of the telnet connection both
+        while ping_got != seq and t < 2000:
+            tcp_poll(10)
+            t = wifi_millis() - t0
+        if ping_got == seq:
+            sh_text("reply from ")
+            sh_ipout(ping_from)
+            sh_text(": seq ")
+            sh_int(seq)
+            sh_text(", ttl ")
+            sh_int(ping_ttl)
+            sh_text(", ")
+            sh_int(t)
+            sh_textln(" ms")
+            got += 1
+        else: sh_textln("no reply within 2 s")
+        sh_flush()
+        while wifi_millis() - t0 < 1000: tcp_poll(10)
+    sh_int(got)
+    sh_textln(" of 4 replies")
+
+# GPIO 48 an output (low), and the turns of the wait loop for a 0 and a 1 of the WS2812: 2000000 turns of the same
+# loop, timed by the timer of the service
+def sh_led_init():
+    sh_pad48[0] = 0x1800                            # MCU_SEL 1 (GPIO), FUN_DRV 2
+    sh_gpio[0x614 / 4] = 0x100                      # GPIO_FUNC48_OUT_SEL_CFG: the bit of GPIO_OUT1
+    sh_gpio[0x18 / 4] = SH_LED                      # low
+    sh_gpio[0x30 / 4] = SH_LED                      # an output
+    t0 = wifi_millis()
+    n = 2000000
+    j = 0
+    while j < n: j += 1
+    dt = wifi_millis() - t0
+    if dt < 1: dt = 1
+    sh_led_t0 = 700 / dt                            # 0.35 us: 2000 turns per ms / dt, times 0.35
+    sh_led_t1 = 1400 / dt                           # 0.7 us
+    if sh_led_t0 < 1: sh_led_t0 = 1
+    if sh_led_t1 <= sh_led_t0: sh_led_t1 = sh_led_t0 + 1
+
+# the colour (green << 16 | red << 8 | blue) to the WS2812: 24 bits, the high one first, then low for 1 ms
+def sh_led_send(grb):
+    n0 = sh_led_t0
+    n1 = sh_led_t1
+    for k in 0..24:
+        n = n0
+        if (grb >> (23 - k)) & 1: n = n1
+        sh_gpio[0x14 / 4] = SH_LED                  # high
+        j = 0
+        while j < n: j += 1
+        sh_gpio[0x18 / 4] = SH_LED                  # low
+    t0 = wifi_millis()
+    while wifi_millis() - t0 < 2: pass
+
+# led on (white, not bright), led off, led r g b (0 .. 255 each)
+def cmd_led():
+    r = 0
+    g = 0
+    b = 0
+    if sh_argc == 2 and sh_eq(sh_arg(1), "on"):
+        r = 16
+        g = 16
+        b = 16
+    elif sh_argc == 2 and sh_eq(sh_arg(1), "off"): r = 0
+    elif sh_argc == 4:
+        r = sh_number(sh_arg(1)) & 255
+        g = sh_number(sh_arg(2)) & 255
+        b = sh_number(sh_arg(3)) & 255
+    else:
+        sh_textln("led on / led off / led r g b (0 .. 255 each)")
+        return
+    if sh_led_t0 == 0: sh_led_init()
+    sh_led_send((g << 16) | (r << 8) | b)
+    sh_textln("ok")
+
+def cmd_uptime():
+    s = wifi_millis() / 1000
+    sh_int(s / 3600)
+    sh_put(':')
+    sh_put('0' + s / 600 % 6)
+    sh_put('0' + s / 60 % 10)
+    sh_put(':')
+    sh_put('0' + s % 60 / 10)
+    sh_put('0' + s % 10)
+    sh_textln(" since the WiFi started")
+
+def cmd_help():
+    sh_textln("  ls                  the files of the board")
+    sh_textln("  cat name            a file as text")
+    sh_textln("  hex name [offset]   256 bytes of a file")
+    sh_textln("  df                  the room in the flash")
+    sh_textln("  mem address [n]     n bytes of the memory (RAM, ROM)")
+    sh_textln("  ip                  the addresses of the board")
+    sh_textln("  ping host           four pings (an address or a name)")
+    sh_textln("  dns name            the address of a name")
+    sh_textln("  led on|off|r g b    the RGB LED at GPIO 48")
+    sh_textln("  uptime              the time since the WiFi started")
+    sh_textln("  reset               starts the board again (the console, or its autostart)")
+    sh_textln("  quit                ends the connection")
+
+def sh_prompt():
+    sh_text("esp32s3> ")
+
+# a whole line: its command
+def sh_command():
+    sh_split()
+    if sh_argc == 0: return
+    c = sh_arg(0)
+    print("command: ")
+    println(c)
+    if sh_eq(c, "help") or sh_eq(c, "?"): cmd_help()
+    elif sh_eq(c, "ls"): cmd_ls()
+    elif sh_eq(c, "cat"): cmd_cat()
+    elif sh_eq(c, "hex"): cmd_hex()
+    elif sh_eq(c, "df"): cmd_df()
+    elif sh_eq(c, "mem"): cmd_mem()
+    elif sh_eq(c, "ip"): cmd_ip()
+    elif sh_eq(c, "dns"): cmd_dns()
+    elif sh_eq(c, "ping"): cmd_ping()
+    elif sh_eq(c, "led"): cmd_led()
+    elif sh_eq(c, "uptime"): cmd_uptime()
+    elif sh_eq(c, "quit") or sh_eq(c, "exit"):
+        sh_textln("bye")
+        sh_quit = True
+    elif sh_eq(c, "reset"):
+        sh_textln("reset")
+        sh_flush()
+        tcp_close()
+        sh_rtc[0] = sh_rtc[0] | 0x80000000          # RTC_CNTL_SW_SYS_RST
+    else:
+        sh_text(c)
+        sh_textln(": no such command (help)")
+
+# telnet: the answer to WILL / DO x of the client (ECHO 1 and SUPPRESS-GO-AHEAD 3 are ours: their DO is fine)
+def sh_option(x):
+    if sh_verb == 253 and x != 1 and x != 3:        # DO x: we won't
+        sh_put(SH_IAC)
+        sh_put(252)
+        sh_put(x)
+    elif sh_verb == 251:                            # WILL x: please don't
+        sh_put(SH_IAC)
+        sh_put(254)
+        sh_put(x)
+
+# one byte from the client
+def sh_byte(c):
+    if sh_iac == 1:
+        if c >= 251 and c <= 254:
+            sh_verb = c
+            sh_iac = 2
+        elif c == 250: sh_iac = 3                   # SB ... IAC SE
+        else: sh_iac = 0                            # IAC IAC (a byte 255) or a command of one byte
+        return
+    if sh_iac == 2:
+        sh_option(c)
+        sh_iac = 0
+        return
+    if sh_iac == 3:
+        if c == SH_IAC: sh_iac = 4
+        return
+    if sh_iac == 4:
+        if c == 240: sh_iac = 0                     # SE
+        else: sh_iac = 3
+        return
+    if c == SH_IAC:
+        sh_iac = 1
+        return
+    if (c == 10 or c == 0) and sh_cr:
+        sh_cr = False
+        return
+    sh_cr = c == 13
+    if c == 13 or c == 10:
+        sh_nl()
+        sh_command()
+        sh_len = 0
+        if not sh_quit: sh_prompt()
+    elif c == 8 or c == 127:
+        if sh_len > 0:
+            sh_len -= 1
+            sh_put(8)
+            sh_put(' ')
+            sh_put(8)
+    elif c == 3:                                    # Ctrl+C: the line away
+        sh_textln("^C")
+        sh_len = 0
+        sh_prompt()
+    elif c >= 32 and c < 127 and sh_len < SH_LINE:
+        sh_line[sh_len] = c
+        sh_len += 1
+        sh_put(c)
+
+# one client, until quit, its end, or 10 minutes without a key
+def sh_session():
+    sh_on = 0
+    sh_len = 0
+    sh_iac = 0
+    sh_cr = False
+    sh_quit = False
+    sh_put(SH_IAC)
+    sh_put(251)
+    sh_put(1)                                       # WILL ECHO
+    sh_put(SH_IAC)
+    sh_put(251)
+    sh_put(3)                                       # WILL SUPPRESS-GO-AHEAD
+    sh_textln("aBelle telnetd on the ESP32-S3 (help: the commands)")
+    sh_prompt()
+    sh_flush()
+    idle = wifi_millis()
+    while not sh_quit:
+        k = tcp_recv(sh_ibuf, 256, 1000)
+        if k < 0: break
+        if k == 0:
+            if wifi_millis() - idle > 600000:
+                sh_textln("")
+                sh_textln("10 minutes without a key: bye")
+                break
+            continue
+        idle = wifi_millis()
+        for j in 0..k: sh_byte(sh_ibuf[j])
+        sh_flush()
+    sh_flush()
+
+def main():
+    println("telnetd (aBelle, ESP32-S3)")
+    # first the service out of the files (by the ROM, core 1 is not on yet) and the size of the flash; the files
+    # through the cache once the service has set the caches up (wifi_connect)
+    if wifi_start() != 0:
+        println(wifi_error_text(WIFI_E_FILES))
+        return
+    sh_fs_bytes = i32(wl_flash_size()) - SH_FS_FLASH    # (wifi_start attached the flash)
+    net_init()
+    net_set_name("esp32s3")                         # telnet esp32s3.local (mDNS); with more boards: one name each
+    print("connecting to ")
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
+    if r != 0:
+        print("wifi_connect: error ")
+        print_int(r)
+        print(" (")
+        print(wifi_error_text(r))
+        print(")")
+        println("")
+    elif not dhcp_run(): println("dhcp: no answer")
+    else:
+        sh_fs_map()
+        mdns_start()
+        print("telnet ")
+        print_ip(net_ip)
+        println("  (port 23)")
+        print("or telnet ")
+        print(net_name)
+        println(".local")
+        while True:
+            tcp_listen(SH_PORT)
+            if not tcp_accept(60000): continue
+            print("client ")
+            print_ip(tcp_ip)
+            println("")
+            sh_session()
+            tcp_close()
+            println("client gone")
+    wifi_done()
+    println("telnetd end")

@@ -1,0 +1,112 @@
+# The WiFi networks near the board, found by the WiFi service of the ESP32-S3 (wlan/wlansvc_s3.asm; its entries in
+# inc/wifi.abel). It needs the WiFi package on the board (F9 in Asmonite writes it there); the program loads the WiFi
+# from it itself (inc/wifi.abel): "run scan" in the console (examples/esp32s3/console.asm), or F9 in Asmonite. The text
+# goes to the serial port of the chip's own USB port (as in hello_usb.abel).
+#
+# Each network: its signal (dBm), its channel, how it is protected (open, WPA2, WPA3, ...), its BSSID (the MAC of the
+# access point), its name.
+target "esp32s3"
+include "inc/wifi.abel"
+
+usb: u32[2] at 0x60038000               # USB Serial/JTAG: EP1 (a byte to the host), EP1_CONF (bit 1 room, bit 0 send)
+def ets_delay_us(us: u32) at 0x40000600
+
+NETS = 20
+nets: char[960]                     # NETS * WIFI_REC
+digits: char[12]
+
+# one byte into the FIFO of the USB port (waits up to 10 ms for room); a line end sends what is in it
+def put_char(c):
+    for i in 0..1000:
+        if usb[1] & 2 != 0:
+            usb[0] = u32(c)
+            if c == 10: usb[1] = 1
+            return
+        ets_delay_us(10)
+
+# a text up to its 0
+def print(s: pchar):
+    n = 0
+    while s[n] != 0:
+        put_char(s[n])
+        n += 1
+
+# a number in decimal
+def print_int(v):
+    if v < 0:
+        put_char('-')
+        v = 0 - v
+    p = digits + 11
+    p[0] = 0
+    while True:
+        p -= 1
+        p[0] = '0' + i32(u32(v) % 10)
+        v = i32(u32(v) / 10)
+        if v == 0: break
+    print(p)
+
+# a hex digit (0 .. 15)
+def put_hex(d):
+    if d < 10: put_char('0' + d)
+    else: put_char('A' + d - 10)
+
+# a byte as two hex digits
+def print_byte(b):
+    put_hex((b >> 4) & 15)
+    put_hex(b & 15)
+
+# the name of an authmode (WIFI_AUTH of a network), 12 places
+def auth_name(a) pchar:
+    if a == 0: return "  open      "
+    if a == 1: return "  WEP       "
+    if a == 2: return "  WPA       "
+    if a == 3: return "  WPA2      "
+    if a == 4: return "  WPA/WPA2  "
+    if a == 5: return "  WPA2-ENT  "
+    if a == 6: return "  WPA3      "
+    if a == 7: return "  WPA2/WPA3 "
+    if a == 9: return "  OWE       "
+    return "  other     "
+
+# one network: "  -64 dBm  ch 11  WPA2        02:00:00:12:34:56  my-network"
+def show(p: pchar):
+    rssi = p[WIFI_RSSI]
+    if rssi >= 128: rssi -= 256
+    print("  ")
+    print_int(rssi)
+    print(" dBm  ch ")
+    if p[WIFI_CHANNEL] < 10: put_char(' ')
+    print_int(p[WIFI_CHANNEL])
+    print(auth_name(p[WIFI_AUTH]))
+    put_char(' ')
+    for i in 0..6:
+        if i > 0: put_char(':')
+        print_byte(p[WIFI_BSSID + i])
+    print("  ")
+    if p[WIFI_SSID] == 0: print("(hidden)")
+    else: print(p + WIFI_SSID)
+    print("\r\n")
+
+def main():
+    print("WiFi scan (aBelle, ESP32-S3)\r\n")
+    r = wifi_on()
+    if r != 0:
+        print("wifi_on: error ")
+        print_int(r)
+        print(" (")
+        print(wifi_error_text(r))
+        print(")")
+        print("\r\n")
+    n = wifi_scan(nets, NETS)
+    if n < 0:
+        print("wifi_scan: error ")
+        print_int(0 - n)
+        print(" (")
+        print(wifi_error_text(0 - n))
+        print(")")
+        print("\r\n")
+    for i in 0..n: show(nets + i * WIFI_REC)
+    print_int(n)
+    print(" networks\r\n")
+    wifi_done()
+    print("scan end\r\n")

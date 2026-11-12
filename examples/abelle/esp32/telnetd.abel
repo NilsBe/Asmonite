@@ -1,10 +1,10 @@
-# A small shell over the network: the station connects to the network of inc/network.abel, gets an address by DHCP
-# and waits on TCP port 23 (inc/tcp.abel) for a telnet client: "telnet <the address of the board>" (Windows: the
-# feature "Telnet Client", or PuTTY with the connection type Telnet). One client at a time; "help" lists the
-# commands: the files of the board (ls, cat, hex, df), memory (mem), the network (ip, ping, dns), the LED, a reset.
-# It needs wlan.rom and wlansvc in the files of the board (Debug > ESP32 Board Files, Install WiFi); the program
-# loads them itself (inc/wifi.abel): "run telnetd" in the console, or F9 in Asmonite. With "boot telnetd" in the
-# console it starts after every reset.
+# A small shell over the network: the station connects to the network the board keeps (wlan set in the console), gets an
+# address by DHCP and waits on TCP port 23 (inc/tcp.abel) for a telnet client: "telnet <the address of the board>"
+# (Windows: the feature "Telnet Client", or PuTTY with the connection type Telnet). One client at a time; "help" lists
+# the commands: the files of the board (ls, cat, hex, df), memory (mem), the network (ip, ping, dns), the LED, a reset.
+# It needs the WiFi package on the board (F9 in Asmonite writes it there); the program loads the WiFi from it itself
+# (inc/wifi.abel): "run telnetd" in the console, or F9 in Asmonite. With "boot telnetd" in the console it starts after
+# every reset.
 #
 # Telnet: the bytes of a terminal over TCP. Commands of the protocol begin with the byte IAC (255): the server says
 # WILL ECHO and WILL SUPPRESS-GO-AHEAD, so the client sends each key at once and shows only what comes back (the
@@ -13,10 +13,10 @@
 # The files: the file system of the console (0x200000 .. 0x3FFFFF of the flash) is read through the cache of core 0
 # (its MMU maps it at 0x3F400000, set up at the start, before the WiFi runs on core 1): reading the flash with the
 # functions of the ROM while core 1 runs its code from the flash is not allowed.
+# It serves until Stop in the tab Serial of Asmonite (Ctrl+C); then the console is there again, its WiFi stays.
 target "esp32"
 include "inc/uart.abel"
 include "inc/tcp.abel"
-include "inc/network.abel"
 
 SH_PORT = 23
 SH_FS = 0x3F400000                  # the file system of the flash, through the cache
@@ -606,14 +606,14 @@ def main():
     # core 0, then the first call of the service (net_init: wifi_mac) starts core 1
     if wifi_start() != 0:
         println(wifi_error_text(WIFI_E_FILES))
-        while True: pass
+        return
     sh_fs_bytes = i32(wl_flash_size()) - SH_FS_FLASH    # (wifi_start attached the flash)
     sh_fs_map()
     net_init()
     net_set_name("esp32")                           # telnet esp32.local (mDNS); with more boards: one name each
     print("connecting to ")
-    println(network_name())
-    r = wifi_connect(network_name(), network_password())
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
     if r != 0:
         print("wifi_connect: error ")
         print_int(r)
@@ -639,6 +639,5 @@ def main():
             sh_session()
             tcp_close()
             println("client gone")
-    wifi_disconnect()
+    wifi_done()
     println("telnetd end")
-    while True: pass

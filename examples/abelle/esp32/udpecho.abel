@@ -1,12 +1,12 @@
-# A UDP echo server on the board: the station connects to the network of inc/network.abel, gets an address by
-# DHCP and sends every UDP packet that comes to port 7777 back to its sender; each one is shown. From a PC in the
-# same network: python udpecho.py <address of the board> (next to this file), or any program that sends UDP.
-# It needs wlan.rom and wlansvc in the files of the board (Debug > ESP32 Board Files); the program loads them itself
+# A UDP echo server on the board: the station connects to the network the board keeps (wlan set in the console), gets an
+# address by DHCP and sends every UDP packet that comes to port 7777 back to its sender; each one is shown. From a PC in
+# the same network: python udpecho.py <address of the board> (next to this file), or any program that sends UDP. It
+# needs the WiFi package on the board (F9 in Asmonite writes it there); the program loads the WiFi from it itself
 # (inc/wifi.abel): "run udpecho" in the console, or F9 in Asmonite.
+# It serves until Stop in the tab Serial of Asmonite (Ctrl+C); then the console is there again, its WiFi stays.
 target "esp32"
 include "inc/uart.abel"
 include "inc/net.abel"
-include "inc/network.abel"
 
 PORT = 7777
 peer: char[4]                       # the sender of the last packet
@@ -16,8 +16,8 @@ def main():
     println("UDP echo (aBelle)")
     net_init()
     print("connecting to ")
-    println(network_name())
-    r = wifi_connect(network_name(), network_password())
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
     if r != 0:
         print("wifi_connect: error ")
         print_int(r)
@@ -66,4 +66,3 @@ def main():
                 print_int(r)
                 println("")
     println("udpecho end")
-    while True: pass

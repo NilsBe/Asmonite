@@ -302,6 +302,20 @@ des `.code`-Abschnitts.
 vor dem ersten Befehl oder den ersten Daten, mit einem reinen Dateinamen: Die Datei wird neben der Quelle
 geschrieben, also ohne Ordner und Laufwerk.
 
+## err-if – .if, .elif, .else, .endif
+
+**Meldung:** `.endif without .if`, `.if without .endif (the file ends)`, `.if: NAME is no constant a condition can use ...`, `.else behind the .else of this .if`, `.if needs a condition ...`, `.if: division by zero`, `.if: unexpected: ...`
+
+Ein Block `.if` ... `.endif` übersetzt seine Zeilen nur, wenn die Bedingung gilt (siehe `.if`). Die Meldung sagt,
+was am Block oder seiner Bedingung nicht stimmt:
+- **without .if / without .endif:** Jedes `.if` braucht sein `.endif`, in derselben Datei; `.elif` und `.else`
+  stehen dazwischen, `.else` einmal und zuletzt.
+- **is no constant a condition can use:** Eine Bedingung kennt nur Zahlen und `equ`-Konstanten, und nur solche, die
+  in den Zeilen davor stehen (in einem Zweig, der übersetzt wird) und selbst aus Zahlen und solchen Konstanten
+  bestehen. Ein Label, `$` oder ein `equ` mit einem Label zählt nicht. `defined(name)` fragt, ob es eine Konstante
+  gibt.
+- **needs a condition:** `.if` und `.elif` nehmen einen Ausdruck, `.else` und `.endif` nichts.
+
 ## err-target – .target
 
 **Meldung:** `.target pico2: ...`, `unknown .target`, `second .target ...`, die Warnung `.arch thumb with .format binary is taken as a program for the Arm cores ...`

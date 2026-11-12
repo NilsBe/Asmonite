@@ -1,10 +1,9 @@
-# The clock of the ESP32: the program says at what frequency the core runs, measures how fast a loop goes, and every
-# six seconds switches the core to the next of 40, 20 and 10 MHz (the crystal, divided). The LED blinks at the same
-# speed at every clock (the timer follows it), the loops per millisecond halve. Every two seconds a line over UART0
-# (under the debugger in the tab Serial, else in a terminal on the COM port, 115200 baud).
-# F9 in Asmonite runs it in the RAM (gone after a reset); Debug > Write to Flash and Run writes it into the flash
-# at 0x1000 first (in place of the firmware that was there): then the board runs it at every start, also without
-# the PC.
+# The clock of the ESP32: the program says at what frequency the core runs, measures how fast a loop goes, and every six
+# seconds switches the core to the next of 40, 20 and 10 MHz (the crystal, divided). The LED blinks at the same speed at
+# every clock (the timer follows it), the loops per millisecond halve. Every two seconds a line over UART0 (under the
+# debugger in the tab Serial, else in a terminal on the COM port, 115200 baud). F9 in Asmonite runs it in the RAM (gone
+# after a reset); Board > Advanced > Write to Flash and Run writes it into the flash at 0x1000 first (in place of the
+# firmware that was there): then the board runs it at every start, also without the PC.
 #
 # The clock (ESP32 Technical Reference Manual, chapter "Reset and Clock"; ESP-IDF rtc_clk.c):
 #   RTC_CNTL_CLK_CONF (0x3FF48070) bits 28..27 SOC_CLK_SEL: 0 the crystal (40 MHz on the DevKit), 1 the PLL, 2 the

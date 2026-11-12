@@ -4,8 +4,8 @@
 ; a terminal on the COM port, 115200 baud).
 ;
 ;   1. plug in the board (its USB port goes to a USB serial chip: CP2102, CH340 ...)
-;   2. press F9: the program goes into the RAM under the debug monitor of Asmonite and runs; Debug > Write to Flash
-;      and Run writes it into the flash first, then the board runs it at every start
+;   2. press F9: the program goes into the RAM and runs (over the console, or under the debug monitor of Asmonite);
+;      Board > Advanced > Write to Flash and Run writes it into the flash first, then the board runs it at every start
 ;
 ; The boot ROM leaves the core at the crystal; the bootloader of ESP-IDF switches it to the PLL. This program does
 ; what ESP-IDF does (components/esp_hw_support/port/esp32/rtc_clk.c, the values for a crystal of 40 MHz):
@@ -38,6 +38,7 @@
 .imagebase 0x40080000
 
 lit_uart0:    dd 0x3FF40000          ; UART0
+lit_uart_ahb: dd 0x60000000          ; its FIFO on the AHB (see hello_uart_ram.asm)
 lit_timg0:    dd 0x3FF5F000          ; timer group 0
 lit_timg1:    dd 0x3FF60000          ; timer group 1
 lit_rtc:      dd 0x3FF48000          ; RTC_CNTL
@@ -382,7 +383,9 @@ fifo_full:
   l32i  a4, a3, 0x1C
   extui a4, a4, 16, 8                ; TXFIFO_CNT
   bgeu  a4, a5, fifo_full
-  s32i  a2, a3, 0                    ; UART_FIFO
+  l32r  a3, lit_uart_ahb
+  s32i  a2, a3, 0                    ; UART_FIFO (AHB)
+  memw
   retw
 
 ; the text at a2 (up to its 0) to UART0

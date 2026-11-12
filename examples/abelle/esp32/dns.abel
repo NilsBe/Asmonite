@@ -1,9 +1,8 @@
-# Names into addresses: the station connects to the network of inc/network.abel, gets an address by DHCP
-# (inc/net.abel), then asks the DNS server the router gave for the IPv4 address (the A record) of some names and
+# Names into addresses: the station connects to the network the board keeps (wlan set in the console), gets an address
+# by DHCP (inc/net.abel), then asks the DNS server the router gave for the IPv4 address (the A record) of some names and
 # shows each with the time its answer took. One name has a CNAME before its address (www.wikipedia.org), one does not
-# exist (.invalid is never a real name). It needs wlan.rom and wlansvc in the files of the board (Debug > ESP32
-# Board Files, Install WiFi); the program loads them itself (inc/wifi.abel): "run dns" in the console, or F9 in
-# Asmonite.
+# exist (.invalid is never a real name). It needs the WiFi package on the board (F9 in Asmonite writes it there); the
+# program loads the WiFi from it itself (inc/wifi.abel): "run dns" in the console, or F9 in Asmonite.
 #
 # How a question looks (dns_lookup in inc/net.abel): a UDP packet to port 53 with a number, the flag "recursion
 # desired" and the name as labels ("example.com" is 7 example 3 com 0), type A, class IN. The answer has the same
@@ -12,7 +11,6 @@
 target "esp32"
 include "inc/uart.abel"
 include "inc/net.abel"
-include "inc/network.abel"
 
 found: char[4]
 
@@ -45,8 +43,8 @@ def main():
     println("DNS (aBelle)")
     net_init()
     print("connecting to ")
-    println(network_name())
-    r = wifi_connect(network_name(), network_password())
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
     if r != 0:
         print("wifi_connect: error ")
         print_int(r)
@@ -65,6 +63,5 @@ def main():
         # the second time: the server has the names in its cache, its answers come faster
         println("once more:")
         for i in 0..NAMES: lookup(query_name(i))
-    wifi_disconnect()
+    wifi_done()
     println("dns end")
-    while True: pass

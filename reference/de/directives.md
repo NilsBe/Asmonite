@@ -165,6 +165,40 @@ Funktionen und Daten auf mehrere Dateien verteilen.
 
 Verwandt: `equ`
 
+## .if, .elif, .else, .endif – Zeilen nur unter einer Bedingung übersetzen
+
+Übersetzt die Zeilen bis `.elif`, `.else` oder `.endif` nur, wenn die Bedingung nicht 0 ist. So kann ein Quelltext
+die Varianten für zwei Boards oder Chips enthalten, und eine Konstante am Anfang wählt: `CHIP equ 3` und
+`.if CHIP == 3` hier, `.if CHIP == 9` dort.
+
+- Die Bedingung ist ein Ausdruck aus Zahlen und Konstanten (`equ`), die in den Zeilen davor stehen: `+ - * / %`,
+  `<< >>`, `& ^ | ~`, Vergleiche `== != < <= > >=` (auch `=` und `<>`), `&& || !`, Klammern und `defined(name)`
+  (1, wenn davor eine Konstante dieses Namens steht). Ein Vergleich ergibt 1 oder 0. Labels und `$` sind hier keine
+  Konstanten. `&&` und `||` arbeiten wie in C: Entscheidet die linke Seite, wird die rechte nicht geprüft, also geht
+  `defined(TRACE) && TRACE > 1` auch ohne TRACE.
+- Die Konstante muss ein `equ` mit einer Zahl sein (oder mit anderen solchen Konstanten); sie muss vor dem `.if`
+  stehen, in einer Zeile, die übersetzt wird.
+- Blöcke dürfen verschachtelt sein. Ein Block, der in einer Datei beginnt, endet in dieser Datei. `.elif` darf
+  mehrmals kommen, `.else` einmal am Ende.
+- Die weggelassenen Zeilen behalten ihre Zeilennummern: Fehler und Debugger zählen wie bisher.
+- Ein `.include` in einem weggelassenen Zweig wird ebenfalls weggelassen.
+
+**Syntax:** `.if Bedingung` ... `.elif Bedingung` ... `.else` ... `.endif`
+
+```asm
+CHIP    equ 9                  ; 0 = ESP32, 9 = ESP32-S3
+.if CHIP == 9
+UART    equ 0x60000000
+.else
+UART    equ 0x3FF40000
+.endif
+.if defined(TRACE) && TRACE > 1
+    call  trace_all
+.endif
+```
+
+Verwandt: `equ`, `.include`, `err-if`
+
 ## .target – das Gerät
 
 Sagt, für welches Gerät das Programm ist. Die Ausgabe ist dann eine reine Binärdatei (wie `.format binary`,

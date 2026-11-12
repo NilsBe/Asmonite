@@ -1,10 +1,9 @@
-# Hello over UART0 on the ESP32 DevKit: "Hello, world!" and a counter, about once a second.
-# UART0 is the serial port of the board: its TX (GPIO 1) goes to the USB serial chip, so a terminal on the COM port
-# shows the text (115200 baud, 8N1; the boot ROM has set UART0 up). Under the debugger (F9 in Asmonite) the debug
-# monitor has the port: the text shows in the tab Serial next to the output window.
-# F9 in Asmonite runs it in the RAM (gone after a reset); Debug > Write to Flash and Run writes it into the flash
-# at 0x1000 first (in place of the firmware that was there): then the board runs it at every start, also without
-# the PC.
+# Hello over UART0 on the ESP32 DevKit: "Hello, world!" and a counter, about once a second. UART0 is the serial port of
+# the board: its TX (GPIO 1) goes to the USB serial chip, so a terminal on the COM port shows the text (115200 baud,
+# 8N1; the boot ROM has set UART0 up). Under the debugger (F9 in Asmonite) the debug monitor has the port: the text
+# shows in the tab Serial next to the output window. F9 in Asmonite runs it in the RAM (gone after a reset);
+# Board > Advanced > Write to Flash and Run writes it into the flash at 0x1000 first (in place of the firmware that was
+# there): then the board runs it at every start, also without the PC.
 #
 # watchdogs_off(): when the boot ROM starts a program from the flash, it switches the watchdogs on. WITHOUT IT A
 # BOARD THAT RUNS THE PROGRAM FROM THE FLASH RESETS AFTER A FEW SECONDS (see blink.abel). In the RAM it does no

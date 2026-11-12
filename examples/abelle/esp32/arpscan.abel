@@ -1,8 +1,8 @@
-# Who is in the network? The station connects to the network of inc/network.abel, gets an address by DHCP
-# (inc/net.abel), then asks by ARP for every address of its network (x.x.x.1 .. x.x.x.254 of a /24 network), one
-# request every 15 ms, and lists each device that answers with its MAC. It needs wlan.rom and wlansvc in the files of
-# the board (Debug > ESP32 Board Files, Install WiFi); the program loads them itself (inc/wifi.abel): "run arpscan" in
-# the console, or F9 in Asmonite.
+# Who is in the network? The station connects to the network the board keeps (wlan set in the console), gets an address
+# by DHCP (inc/net.abel), then asks by ARP for every address of its network (x.x.x.1 .. x.x.x.254 of a /24 network), one
+# request every 15 ms, and lists each device that answers with its MAC. It needs the WiFi package on the board (F9 in
+# Asmonite writes it there); the program loads the WiFi from it itself (inc/wifi.abel): "run arpscan" in the console, or
+# F9 in Asmonite.
 #
 # ARP (address resolution protocol) asks all of the network "who has 192.168.178.20? tell 192.168.178.173"; the
 # device with this address answers with its MAC. Each device answers, even one that ignores pings, as long as it is
@@ -11,7 +11,6 @@
 target "esp32"
 include "inc/uart.abel"
 include "inc/net.abel"
-include "inc/network.abel"
 
 MAX_HOSTS = 254
 hosts_n: i32 = 0
@@ -62,8 +61,8 @@ def main():
     println("ARP scan (aBelle)")
     net_init()
     print("connecting to ")
-    println(network_name())
-    r = wifi_connect(network_name(), network_password())
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
     if r != 0:
         print("wifi_connect: error ")
         print_int(r)
@@ -117,6 +116,5 @@ def main():
         print(" devices, ")
         print_int((wifi_millis() - t0) / 1000)
         println(" s")
-    wifi_disconnect()
+    wifi_done()
     println("arpscan end")
-    while True: pass

@@ -1,0 +1,396 @@
+# The WiFi of the ESP32-S3 for aBelle programs, for include "inc/wifi.abel": the entries of the WiFi service
+# (wlan/wlansvc.asm, assembled as wlansvc_s3.asm), which runs next to wlan.rom on core 1 (the second core) while the
+# program runs on core 0. Each entry is called windowed, as the ROM's functions: 0 or an error (an esp_err_t of
+# ESP-IDF, or WIFI_E_* below). The functions are the ones of abelle/examples/esp32/inc/wifi.abel (the ESP32); the
+# addresses are the ones of the S3.
+#
+# The program loads the service itself: its first wifi_ call reads the WiFi package in the flash of the board (from
+# 0x100000: the library, the parts of wlan.rom for the RAM and wlansvc, which Asmonite writes there when a program with
+# this file starts, or Board > Advanced > Install WiFi Again) and puts the parts for the RAM into their place
+# (wifi_start). Not when the service runs already (core 1 has its clock and the service its mark "WSVC" at
+# 0x403A001C: a program before it in the console started it). So a program runs alike by run or boot in the console
+# and under the debugger (F9): the debugger stops core 0 only, the WiFi on core 1 goes on. The program must end below
+# 0x403A0000 (its code) and 0x3FCB0000 (its data), where the service, wlan.rom and the heap of the WiFi start.
+#
+# The WiFi runs on core 1 all the time: frames that come go into a ring of the service (6 frames) until wifi_recv
+# takes them.
+#
+# The names of the parameters and local variables here begin with wl_: in aBelle a local name may not be the one of a
+# global of the program that includes this file.
+
+# the entries of the service (wifi_start loads it first)
+def wsvc_on() i32 at 0x403A0008
+def wsvc_off() i32 at 0x403A000C
+def wsvc_scan(buf: pchar, max: i32) i32 at 0x403A0010
+def wsvc_trace(on: i32) i32 at 0x403A0014
+def wsvc_wait(ms: i32) i32 at 0x403A0018
+def wsvc_connect(ssid: pchar, password: pchar) i32 at 0x403A0024
+def wsvc_status() i32 at 0x403A0028
+def wsvc_send(frame: pchar, n: i32) i32 at 0x403A002C
+def wsvc_recv(buf: pchar, max: i32, ms: i32) i32 at 0x403A0030
+def wsvc_mac(buf: pchar) i32 at 0x403A0034
+def wsvc_disconnect() i32 at 0x403A0038
+def wsvc_summary() i32 at 0x403A003C
+def wsvc_millis() i32 at 0x403A0040
+
+WIFI_E_LINK = 0x7F6     # wifi_connect: the access point said no (the reason in wifi_status)
+WIFI_E_TIME = 0x7F7     # wifi_connect: nothing came in 15 seconds
+WIFI_E_CORE1 = 0x7F8    # core 1 did not start
+WIFI_E_FILES = 0x7F9    # the WiFi package is not on the board (or it is damaged)
+WIFI_E_NONET = 0x7FA    # wifi_connect_saved: the board keeps no network (wlan set in the console)
+
+# a network of wifi_scan
+WIFI_REC = 48
+WIFI_BSSID = 0          # 6 bytes
+WIFI_CHANNEL = 6
+WIFI_RSSI = 7           # signed: 0xC0 is -64 dBm
+WIFI_AUTH = 8           # 0 open, 1 WEP, 2 WPA, 3 WPA2, 4 WPA/WPA2, 5 WPA2 Enterprise, 6 WPA3, 7 WPA2/WPA3, ...
+WIFI_SSID = 12          # up to 32 bytes and a 0
+
+# ---------- the entries for the program ----------
+
+# the WiFi on as a station (the first time it sets everything up: about a second)
+def wifi_on() i32:
+    if wifi_start() != 0: return WIFI_E_FILES
+    return wsvc_on()
+
+# the WiFi off (the radio sleeps)
+def wifi_off() i32:
+    if wifi_start() != 0: return WIFI_E_FILES
+    return wsvc_off()
+
+# a scan of all channels (the WiFi on if it is not): up to wl_max networks into wl_buf, WIFI_REC bytes each; the
+# number found, or minus the error
+def wifi_scan(wl_buf: pchar, wl_max: i32) i32:
+    if wifi_start() != 0: return -WIFI_E_FILES
+    return wsvc_scan(wl_buf, wl_max)
+
+# 1: the service shows each call of its OS layer over the USB port of the chip, 0: it says nothing; the value before
+def wifi_trace(wl_on: i32) i32:
+    if wifi_start() != 0: return 0
+    return wsvc_trace(wl_on)
+
+# waits wl_ms milliseconds (the WiFi runs on core 1 meanwhile, as always)
+def wifi_wait(wl_ms: i32) i32:
+    if wifi_start() != 0: return WIFI_E_FILES
+    return wsvc_wait(wl_ms)
+
+# a connection to the network wl_ssid (the WiFi on if it is not): open (password "") or WPA2 (the password; first
+# its key, about 1.5 seconds): 0 when the station is connected, WIFI_E_LINK when the access point said no (the
+# reason in wifi_status), WIFI_E_TIME when nothing came in 15 seconds, else the error
+def wifi_connect(wl_ssid: pchar, wl_password: pchar) i32:
+    if wifi_start() != 0: return WIFI_E_FILES
+    return wsvc_connect(wl_ssid, wl_password)
+
+# bit 0: the station is connected; bits 15..8: the reason of the last disconnection (wifi_err_reason_t of ESP-IDF);
+# bits 23..16: the state of WPA2 (4: the keys are in); bit 24: the console keeps it connected in the background (it
+# connects again after a loss), bit 25: it is trying now
+def wifi_status() i32:
+    if wifi_start() != 0: return 0
+    return wsvc_status()
+
+# an Ethernet frame (destination, source, type, data; no FCS) of wl_n bytes through the station; 0 or the error
+def wifi_send(wl_frame: pchar, wl_n: i32) i32:
+    if wifi_start() != 0: return WIFI_E_FILES
+    return wsvc_send(wl_frame, wl_n)
+
+# the next frame the station received (up to wl_max bytes of it into wl_buf), waiting for one up to wl_ms
+# milliseconds; its length (it may be more than wl_max), 0 when none came
+def wifi_recv(wl_buf: pchar, wl_max: i32, wl_ms: i32) i32:
+    if wifi_start() != 0: return 0
+    return wsvc_recv(wl_buf, wl_max, wl_ms)
+
+# the MAC of the station into the 6 bytes at wl_buf; 0
+def wifi_mac(wl_buf: pchar) i32:
+    if wifi_start() != 0: return WIFI_E_FILES
+    return wsvc_mac(wl_buf)
+
+# the connection ended; 0 or the error
+def wifi_disconnect() i32:
+    if wifi_start() != 0: return WIFI_E_FILES
+    return wsvc_disconnect()
+
+# at the end of a program: when the console keeps the station connected in the background (bit 24 of wifi_status:
+# wlan set, not wlan off), nothing: the connection stays for the console and the next program; else the WiFi off
+# (wifi_off). 0 or the error
+def wifi_done() i32:
+    if wifi_start() != 0: return 0
+    if (wsvc_status() & 0x1000000) != 0: return 0
+    return wsvc_off()
+
+# over the USB port of the chip: how often each function of the OS layer was called, the free heap, the interrupts; 0
+def wifi_summary() i32:
+    if wifi_start() != 0: return WIFI_E_FILES
+    return wsvc_summary()
+
+# the milliseconds since the WiFi was on the first time (the timer of the service; after 49 days 0 again). Without
+# the service (WIFI_E_FILES) they come from the cycles of the core, so a loop that waits on them still ends.
+def wifi_millis() i32:
+    if wifi_start() != 0: return wl_soft_millis()
+    return wsvc_millis()
+
+# a connection to the network the board keeps (wlan set in the console keeps its name and its key, not the
+# password): 0 when the station is connected, else as wifi_connect; WIFI_E_NONET when the board keeps none. When the
+# console connects to it in the background already (it does so from its start, unless wlan off), the program waits
+# for that connection, up to 60 s (after a reset of the board the access point may take 30 to 40 s)
+def wifi_connect_saved() i32:
+    if wifi_saved(wl_name_buf, wl_key_buf) == 0: return WIFI_E_NONET
+    if wifi_start() != 0: return WIFI_E_FILES
+    if (wifi_status() & 0x1000000) != 0: return wifi_wait_connected(60000)
+    return wifi_connect(wl_name_buf, wl_key_buf)
+
+# waits up to wl_ms milliseconds until the station is connected (the console connects in the background): 0, else
+# WIFI_E_TIME
+def wifi_wait_connected(wl_ms: i32) i32:
+    if wifi_start() != 0: return WIFI_E_FILES
+    wl_t0 = wifi_millis()
+    while (wifi_status() & 1) == 0:
+        if wifi_millis() - wl_t0 > wl_ms: return WIFI_E_TIME
+        wifi_wait(20)
+    return 0
+
+# the name of the network the board keeps, "(none: wlan set in the console)" when it keeps none
+def wifi_saved_name() pchar:
+    if wifi_saved(wl_name_buf, wl_key_buf) == 0: return "(none: wlan set in the console)"
+    return wl_name_buf
+
+# the network the board keeps: its name into wl_name (up to 32 characters and a 0: 33 bytes), its key for WPA2 into
+# wl_key as 64 hex digits and a 0 (65 bytes; wifi_connect takes them in place of the password), "" for an open
+# network; 1 when the board keeps one, else 0
+def wifi_saved(wl_name: pchar, wl_key: pchar) i32:
+    wl_best: u32 = 0
+    for wl_s in 0..2:
+        wl_no = wl_record(0xFE000 + wl_s * 4096)
+        if wl_no > wl_best:
+            wl_best = wl_no
+            for wl_i in 0..128: wl_rec_in_use[wl_i] = wl_rec[wl_i]
+    if wl_best == 0: return 0
+    wl_n = wl_rec_in_use[12]
+    if wl_n > 32: return 0
+    for wl_i in 0..wl_n: wl_name[wl_i] = wl_rec_in_use[16 + wl_i]
+    wl_name[wl_n] = 0
+    wl_key[0] = 0
+    if (wl_rec_in_use[8] & 1) != 0: return 1
+    for wl_i in 0..32:
+        wl_key[2 * wl_i] = wl_hex_digit(wl_rec_in_use[48 + wl_i] >> 4)
+        wl_key[2 * wl_i + 1] = wl_hex_digit(wl_rec_in_use[48 + wl_i] & 15)
+    wl_key[64] = 0
+    return 1
+
+# a sentence for an error of the functions above (for the output of a program)
+def wifi_error_text(wl_r: i32) pchar:
+    if wl_r < 0: wl_r = 0 - wl_r
+    if wl_r == 0: return "no error"
+    if wl_r == WIFI_E_FILES: return "the WiFi package is not on the board: F9 in Asmonite writes it (by hand: Board > Advanced > Install WiFi Again)"
+    if wl_r == WIFI_E_NONET: return "the board keeps no WiFi network: wlan set in the console"
+    if wl_r == WIFI_E_LINK: return "the access point said no (the password? the reason in wifi_status)"
+    if wl_r == WIFI_E_TIME: return "no answer of the access point within 15 s (its name? in reach?)"
+    if wl_r == WIFI_E_CORE1: return "the second core of the ESP32-S3 did not start"
+    if wl_r == 0x101: return "no memory left (ESP_ERR_NO_MEM)"
+    if wl_r == 0x300A: return "the name of the network is not valid (ESP_ERR_WIFI_SSID)"
+    if wl_r == 0x300B: return "the password is not valid (ESP_ERR_WIFI_PASSWORD; WPA2: 8 to 63 characters)"
+    if wl_r >= 0x3000 and wl_r < 0x3100: return "an error of the WiFi (ESP_ERR_WIFI_..., see esp_wifi.h)"
+    return "an error (esp_err_t of ESP-IDF)"
+
+# ---------- the service out of the WiFi package of the board ----------
+
+wifi_ready: i32 = 0                     # wifi_start was done: 1 the service runs, 2 the package is not there
+
+# the service runs already, or its parts are loaded out of the WiFi package now: 0, else WIFI_E_FILES. A failure is
+# kept: the next calls do not look into the flash again (each look checks the CRC of the parts)
+def wifi_start() i32:
+    if wifi_ready == 1: return 0
+    if wifi_ready == 2: return WIFI_E_FILES
+    if wl_running() == 0:
+        wl_flash_init()
+        if wl_package() != 0:
+            wifi_ready = 2
+            return WIFI_E_FILES
+    wifi_ready = 1
+    return 0
+
+# milliseconds from the cycles of the core (CCOUNT, which wraps after 2^32 cycles: about 27 s at 160 MHz; each call
+# adds what passed since the one before) and the cycles in a microsecond the ROM knows (esp32s3.rom.ld of ESP-IDF)
+def wl_ccount() u32 at 0x40001BCC                       # xthal_get_ccount
+def wl_cpu_mhz() u32 at 0x40001A40                      # ets_get_cpu_frequency
+wl_cc_last: u32 = 0
+wl_cc_rest: u32 = 0
+wl_cc_ms: i32 = 0
+
+def wl_soft_millis() i32:
+    wl_now = wl_ccount()
+    wl_mhz = wl_cpu_mhz()
+    if wl_mhz == 0: wl_mhz = 40
+    wl_cc_rest = wl_cc_rest + (wl_now - wl_cc_last)
+    wl_cc_last = wl_now
+    wl_cc_ms = wl_cc_ms + i32(wl_cc_rest / (wl_mhz * 1000))
+    wl_cc_rest = wl_cc_rest % (wl_mhz * 1000)
+    return wl_cc_ms
+
+wl_core1: u32[1] at 0x600C0000         # SYSTEM_CORE_1_CONTROL_0: bit 1 the clock of core 1
+wl_svc: u32[16] at 0x3FCB0000          # the head of the service (0x403A0000 on the bus of the instructions): [7] "WSVC"
+wl_legacy: u32[1] at 0x3FCEFFE4        # rom_spiflash_legacy_data of the ROM: the address of the data of the flash
+wl_mem: u32[0x3FFFFFFF] at 0           # all of the memory, in words (for the data of the flash)
+wl_ram: u32[0x12000] at 0x3FC88000     # the room of the programs up to the console (0x3FCD0000 = 0x403C0000)
+# buffers while the service is not there: in its buffers (WLAN_RAM of wlansvc_s3.asm, 0x3FCDF000, above the console)
+WL_HEAD = 0x3FCDF800                    # the head of the WiFi package (56 bytes)
+WL_HDR = 0x3FCDF900                     # the head of a program (24 bytes) and of a segment (8 bytes)
+WL_CHUNK = 0x3FCDFA00                   # a piece of a segment (1 KB)
+wl_head: u32[14] at 0x3FCDF800
+wl_hdr: u32[8] at 0x3FCDF900
+wl_chunk: u32[256] at 0x3FCDFA00
+# the WiFi package in the flash (Asmonite writes it: src\asmonite\WifiPackage.pas). Its head at 0x1F0000: "AWP1", the
+# chip (9 the ESP32-S3), the hash, 3 parts, for each part its address, length and CRC-32 (the library at 0x100000, the
+# parts of wlan.rom for the RAM, wlansvc; the last two are images as Asmonite writes programs), the CRC-32 of the head
+WL_PACK = 0x1F0000
+WL_CHIP = 9
+
+def wl_flash_attach(spiconfig: i32, legacy: i32) i32 at 0x40000AEC     # esp_rom_spiflash_attach
+def wl_flash_read(addr: i32, buf: pchar, n: i32) i32 at 0x40000A20     # esp_rom_spiflash_read: 0 = done
+
+def wl_running() i32:
+    return (wl_core1[0] & 2) != 0 and wl_svc[7] == 0x43565357
+
+# the flash ready for the functions of the ROM (as the console does it): attached, its size as its JEDEC id tells it
+# (4 to 16 MB, else 4 MB): the file system reaches to the end of the flash, its files may lie above 4 MB. The ROM
+# keeps the size in its data of the flash, the word at +4
+def wl_flash_init():
+    wl_size_at = i32(wl_legacy[0] + 4) / 4
+    if wl_mem[wl_size_at] < 0x400000: wl_mem[wl_size_at] = 0x400000
+    wl_flash_attach(0, 0)
+    wl_size = wl_flash_size()
+    if wl_mem[wl_size_at] < wl_size: wl_mem[wl_size_at] = wl_size
+
+# the size of the flash from its JEDEC id (the command 0x9F through SPI1, as esptool flash_id and the console do it):
+# 4 to 16 MB, else 4 MB
+wl_spi1: u32[32] at 0x60002000
+def wl_flash_size() u32:
+    wl_user = wl_spi1[0x18 / 4]
+    wl_user2 = wl_spi1[0x20 / 4]
+    wl_ctrl = wl_spi1[0x08 / 4]
+    wl_spi1[0x08 / 4] = u32(1 << 21)                    # SPI_MEM_CTRL: WP_REG only (not the DIO mode of the reads)
+    wl_spi1[0x28 / 4] = 24 - 1                          # SPI_MEM_MISO_DLEN: 24 bits
+    wl_spi1[0x18 / 4] = u32((1 << 31) | (1 << 28))      # SPI_MEM_USER: COMMAND, MISO
+    wl_spi1[0x20 / 4] = u32((7 << 28) | 0x9F)           # SPI_MEM_USER2: 8 bits of command, 0x9F
+    wl_spi1[0x58 / 4] = 0
+    wl_spi1[0] = u32(1 << 18)                           # SPI_MEM_CMD: USR
+    wl_n = 0
+    while (wl_spi1[0] & u32(1 << 18)) != 0 and wl_n < 100000: wl_n += 1
+    wl_pow = i32(wl_spi1[0x58 / 4] >> 16) & 255
+    wl_spi1[0x18 / 4] = wl_user
+    wl_spi1[0x20 / 4] = wl_user2
+    wl_spi1[0x08 / 4] = wl_ctrl
+    if wl_pow < 0x16 or wl_pow > 0x18: return 0x400000
+    return u32(1) << wl_pow
+
+# the CRC-32 (as zlib) of wl_n bytes at wl_p, going on from wl_crc0 (0 at the start)
+def wl_crc(wl_crc0: u32, wl_p: pchar, wl_n: i32) u32:
+    wl_c = wl_crc0 ^ 0xFFFFFFFF
+    for wl_i in 0..wl_n:
+        wl_c = wl_c ^ u32(wl_p[wl_i])
+        for wl_k in 0..8:
+            if (wl_c & 1) != 0:
+                wl_c = (wl_c >> 1) ^ 0xEDB88320
+            else:
+                wl_c = wl_c >> 1
+    return wl_c ^ 0xFFFFFFFF
+
+# the head of the WiFi package valid (for this chip), and its two parts for the RAM (wlan.rom, wlansvc) checked by
+# their CRC-32 and in their place: 0, else 1
+def wl_package() i32:
+    if wl_flash_read(WL_PACK, pchar(WL_HEAD), 56) != 0: return 1
+    if wl_head[0] != 0x31505741 or wl_head[1] != WL_CHIP or wl_head[3] != 3: return 1
+    if wl_crc(0, pchar(WL_HEAD), 52) != wl_head[13]: return 1
+    for wl_p in 1..3:
+        wl_at = i32(wl_head[4 + 3 * wl_p])
+        wl_len = i32(wl_head[5 + 3 * wl_p])
+        if wl_flash_crc(wl_at, wl_len) != wl_head[6 + 3 * wl_p]: return 1
+        if wl_load(wl_at, wl_len) != 0: return 1
+    return 0
+
+# the CRC-32 of wl_n bytes of the flash from wl_src (0 when the flash could not be read)
+def wl_flash_crc(wl_src: i32, wl_n: i32) u32:
+    wl_c: u32 = 0
+    wl_done = 0
+    while wl_done < wl_n:
+        wl_k = wl_n - wl_done
+        if wl_k > 1024: wl_k = 1024
+        if wl_flash_read(wl_src + wl_done, pchar(WL_CHUNK), (wl_k + 3) / 4 * 4) != 0: return 0
+        wl_c = wl_crc(wl_c, pchar(WL_CHUNK), wl_k)
+        wl_done += wl_k
+    return wl_c
+
+# wl_n bytes of the flash from wl_src into the room of the programs, from its word wl_idx; 0, or 1 when the flash
+# could not be read
+def wl_copy(wl_src: i32, wl_n: i32, wl_idx: i32) i32:
+    wl_done = 0
+    while wl_done < wl_n:
+        wl_k = wl_n - wl_done
+        if wl_k > 1024: wl_k = 1024
+        if wl_flash_read(wl_src + wl_done, pchar(WL_CHUNK), wl_k) != 0: return 1
+        for wl_w in 0..wl_k / 4: wl_ram[wl_idx + wl_w] = wl_chunk[wl_w]
+        wl_idx += wl_k / 4
+        wl_done += wl_k
+    return 0
+
+# a part of the WiFi package (wl_size bytes of the flash from wl_start), a program (as Asmonite writes it: 0xE9, the
+# number of the segments, the entry, then each segment with its address and length): its segments for the RAM into
+# their place, whether on the bus of the instructions (0x40378000 .. 0x403BFFFF) or of the data (the same RAM as
+# 0x3FC88000 .. 0x3FCCFFFF); the ones for the flash (IROM 0x42000000 .., DROM 0x3C000000 ..) left out, they are in the
+# flash already. 0, or 1 when it is not such a program
+def wl_load(wl_start: i32, wl_size: i32) i32:
+    if wl_size < 24: return 1
+    if wl_flash_read(wl_start, pchar(WL_HDR), 24) != 0: return 1
+    if (wl_hdr[0] & 0xFF) != 0xE9: return 1
+    wl_segs = i32(wl_hdr[0] >> 8) & 0xFF
+    wl_pos = 24
+    wl_a: u32 = 0
+    for wl_s in 0..wl_segs:
+        if wl_pos + 8 > wl_size: return 1
+        if wl_flash_read(wl_start + wl_pos, pchar(WL_HDR + 24), 8) != 0: return 1
+        wl_a = wl_hdr[6]
+        wl_n = i32(wl_hdr[7])
+        wl_pos += 8
+        if (wl_n & 3) != 0 or wl_pos + wl_n > wl_size: return 1
+        if wl_a >= 0x40378000 and wl_a + u32(wl_n) <= 0x403C0000:
+            if wl_copy(wl_start + wl_pos, wl_n, i32(wl_a - 0x40378000) / 4) != 0: return 1
+        else:
+            if wl_a >= 0x3FC88000 and wl_a + u32(wl_n) <= 0x3FCD0000:
+                if wl_copy(wl_start + wl_pos, wl_n, i32(wl_a - 0x3FC88000) / 4) != 0: return 1
+            else:
+                if wl_a < 0x3C000000 or (wl_a >= 0x3E000000 and wl_a < 0x42000000) or wl_a >= 0x44000000: return 1
+        wl_pos += wl_n
+    return 0
+
+# ---------- the network the board keeps (wlan set in the console) ----------
+
+# The console keeps it in two sectors below the WiFi package, 0xFE000 and 0xFF000 (examples/esp32s3/console.asm,
+# cred_load): the valid record with the higher number counts. A record (128 bytes): +0 "AWN1", +4 the number, +8 bit 0:
+# an open network, +12 the length of the name, +16 the name (32 bytes), +48 the key (32 bytes), +124 the CRC-32 of the
+# bytes before it
+def wl_con_flash_read(wl_address: u32, wl_buf: pchar, wl_count: i32) i32 at 0x403C0828    # flash_read of the console
+wl_rec: char[128]                       # a record read from the flash
+wl_rec_in_use: char[128]                # the one with the higher number
+wl_name_buf: char[36]
+wl_key_buf: char[68]
+
+# the record in the sector at wl_at: its number when it is valid, else 0. While the service runs on core 1 through the
+# console (it parks core 1 for the flash), else by the ROM
+def wl_record(wl_at: i32) u32:
+    if wl_running():
+        if wl_con_flash_read(u32(wl_at), wl_rec, 128) != 0: return 0
+    else:
+        wl_flash_init()
+        if wl_flash_read(wl_at, wl_rec, 128) != 0: return 0
+    if wl_word(wl_rec, 0) != 0x314E5741: return 0
+    if wl_crc(0, wl_rec, 124) != wl_word(wl_rec, 124): return 0
+    return wl_word(wl_rec, 4)
+
+# the word at wl_p + wl_i (little-endian)
+def wl_word(wl_p: pchar, wl_i: i32) u32:
+    return u32(wl_p[wl_i]) | (u32(wl_p[wl_i + 1]) << 8) | (u32(wl_p[wl_i + 2]) << 16) | (u32(wl_p[wl_i + 3]) << 24)
+
+# the hex digit of wl_d (0 .. 15)
+def wl_hex_digit(wl_d: i32) i32:
+    if wl_d < 10: return 48 + wl_d
+    return 87 + wl_d

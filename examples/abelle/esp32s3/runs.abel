@@ -1,0 +1,68 @@
+# How often this program has run: a number in the file runs.txt of the console, one more at each start. Then it
+# shows the keys that come from the terminal, with the milliseconds since its start: q ends it (main ends, the
+# console says "Program ended (code 0)"), x ends it with exit(7) from deep in a function ("code 7"), Ctrl+C (Stop in
+# the tab Serial) at any time ("Program stopped (Ctrl+C)").
+# A program for the console (inc/console.abel): F9 without a breakpoint runs it over the console (the text and the
+# keys in the tab Serial); or Board > Files, upload it and Run, or run runs.bin in a terminal. With a breakpoint it
+# runs under the debugger, where only exit() of the console is tried so far.
+target "esp32s3"
+
+include "inc/console.abel"
+
+text: char[16]
+
+# the number at the start of t (its digits), 0 if there are none
+def number(t: pchar) i32:
+    n = 0
+    i = 0
+    while t[i] >= '0' and t[i] <= '9':
+        n = n * 10 + (t[i] - '0')
+        i += 1
+    return n
+
+# n (0 or more) as digits into t, a 0 behind them: how many digits
+def digits_of(n, t: pchar) i32:
+    k = 1
+    m = n
+    while m >= 10:
+        m = m / 10
+        k += 1
+    t[k] = 0
+    for i in 0..k:
+        t[k - 1 - i] = '0' + n % 10
+        n = n / 10
+    return k
+
+# exit ends the program from any depth: the calls in between do not come back
+def deep(level):
+    if level == 0: exit(7)
+    deep(level - 1)
+    println("not reached")
+
+def main():
+    start = millis()
+    runs = 0
+    got = file_read("runs.txt", text, 0, 15)
+    if got > 0:
+        text[got] = 0
+        runs = number(text)
+    runs += 1
+    k = digits_of(runs, text)
+    r = file_write("runs.txt", text, k)
+    print("This program has run ")
+    print_int(runs)
+    println(" time(s) (the file runs.txt of the console).")
+    if r != 0:
+        print("file_write: error ")
+        print_int(r)
+        println("")
+    println("Keys: q ends it, x ends it with exit(7) from 5 calls deep, any other key is shown.")
+    while True:
+        c = get_char()
+        if c == 'q': break
+        if c == 'x': deep(5)
+        print("key ")
+        print_int(c)
+        print(" after ")
+        print_int(millis() - start)
+        println(" ms")

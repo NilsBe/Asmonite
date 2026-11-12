@@ -1,0 +1,93 @@
+# A web page from the internet over TCP: the station connects to the network the board keeps (wlan set in the console),
+# gets an address by DHCP, finds example.com by DNS, opens a TCP connection to its port 80 (inc/tcp.abel), sends a GET
+# of HTTP and shows what comes back: the status line, the title of the page, the number of bytes. It needs the WiFi
+# package on the board (F9 in Asmonite writes it there); the program loads the WiFi from it itself (inc/wifi.abel): "run
+# httpget" in the console, or F9 in Asmonite.
+#
+# The ESP32-S3: the same program as abelle/examples/esp32/httpget.abel of the ESP32; its text goes to the USB port of
+# the chip (inc/usb.abel), the WiFi needs its package on the board (F9 writes it).
+target "esp32s3"
+include "inc/usb.abel"
+include "inc/tcp.abel"
+
+server: char[4]
+page: char[4096]                    # the first bytes of the answer
+part: char[512]
+
+def host_name() pchar:
+    return "example.com"
+
+def request() pchar:
+    return "GET / HTTP/1.1\r\nHost: example.com\r\nUser-Agent: aBelle on the ESP32\r\nConnection: close\r\n\r\n"
+
+# the place of the text s in the n bytes at p, -1 if it is not there
+def find(p: pchar, n, s: pchar) i32:
+    k = text_len(s)
+    for i in 0..n - k + 1:
+        if same(p + i, s, k): return i
+    return -1
+
+# the bytes at p up to the byte c (or n of them) as a line
+def print_until(p: pchar, n, c):
+    for i in 0..n:
+        if p[i] == c: break
+        put_char(p[i])
+    println("")
+
+def main():
+    println("HTTP GET (aBelle)")
+    net_init()
+    print("connecting to ")
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
+    if r != 0:
+        print("wifi_connect: error ")
+        print_int(r)
+        print(" (")
+        print(wifi_error_text(r))
+        print(")")
+        println("")
+    elif not dhcp_run(): println("dhcp: no answer")
+    elif not dns_lookup(host_name(), server): println("dns: no address")
+    else:
+        print("ip: ")
+        print_ip(net_ip)
+        print("  server: ")
+        print(host_name())
+        print(" = ")
+        print_ip(server)
+        println("")
+        t0 = wifi_millis()
+        if not tcp_connect(server, 80): println("tcp: no connection")
+        else:
+            print("tcp: connected in ")
+            print_int(wifi_millis() - t0)
+            println(" ms")
+            n = tcp_send(request(), text_len(request()))
+            print("tcp: sent ")
+            print_int(n)
+            println(" bytes")
+            total = 0
+            have = 0
+            while True:
+                k = tcp_recv(part, 512, 5000)
+                if k <= 0: break
+                if have + k <= 4096:
+                    copy(page + have, part, k)
+                    have += k
+                total += k
+            print("status: ")
+            print_until(page, have, 13)
+            i = find(page, have, "<title>")
+            if i >= 0:
+                print("title: ")
+                print_until(page + i + 7, have - i - 7, '<')
+            print("bytes: ")
+            print_int(total)
+            println("")
+            tcp_close()
+            print("tcp: closed in ")
+            print_int(wifi_millis() - t0)
+            println(" ms")
+    wifi_done()
+    println("httpget end")

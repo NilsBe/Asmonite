@@ -33,6 +33,36 @@ von selbst, was das Programm schreibt:
   UART zeigt sie der Reiter nach Connect.
 - **Der RP2040 des T-PicoC3:** keine (sein UART geht zum ESP32-C3 des Boards).
 
+**Ohne Debugger verbindet sich der Reiter von selbst** mit einem Board von Espressif (ein ESP32 hinter seinem
+USB-Seriell-Chip zuerst, sonst der USB-Anschluss eines ESP32-S3 oder ESP32-C3): beim Start von Asmonite und sobald du
+es einsteckst. Er hält den Port; das Menü Board, der Debugger und das Boot-ROM bekommen ihn, solange sie ihn brauchen,
+danach verbindet sich der Reiter wieder. **Disconnect** gibt den Port frei, etwa für ein anderes Terminal; dann bleibt
+der Reiter weg, bis du das Board abziehst oder Connect drückst. Meldet sich die Konsole von Asmonite nach einem Reset
+(„Asmonite console 2 for the ESP32 …“), zeigt der Kopf des Reiters den Chip, die Konsole und die Uhrzeit des Starts. Bis dahin zeigt er, was die
+USB-Angaben sagen („ESP32 at COM14 (Silicon Labs CP210x …)“, „ESP32-S3 or ESP32-C3 at COM21“: beide haben dieselbe
+USB-Kennung); um mehr zu erfahren, sendet der Reiter nichts, ein laufendes Programm bekäme es sonst als Eingabe.
+Ging eine Debug-Sitzung auf dem ESP32 über das Boot-ROM (ohne Konsole auf dem Board), setzt der Reiter das Board
+danach zurück; über die Konsole ist sie ohnehin wieder da. **Stop**
+schickt Ctrl+C: Die Konsole beendet das Programm, das sie gestartet hat.
+
+**F9 über die Konsole (ESP32, ESP32-S3):** Ist der Reiter mit dem Board des Programms verbunden (`target "esp32"` bzw.
+`.target esp32`, für das S3 `esp32s3`) und hat das Programm keinen Breakpoint, bringt F9 es über die Konsole ins RAM
+und startet es dort: ohne Download-Modus, ohne BOOT-Taste, ohne Reset. Was es schreibt, erscheint im Reiter, Stop
+beendet es, und die Konsole meldet sein Ende. Läuft gerade ein Programm, beendet F9 es zuerst mit Ctrl+C. Mit einem
+Breakpoint startet F9 den Debugger wie bisher; ein Programm für den Flash (`.target esp32 flash`) ebenso.
+
+**Updates von selbst:** Vor dem Start vergleicht Asmonite die Konsole im Flash mit seiner eigenen (über ihre CRC-32,
+in wenigen Millisekunden). Stammt sie von einer anderen Version von Asmonite, schreibt es seine eigene über das
+Boot-ROM (ESP32 etwa 11 Sekunden, S3 etwa 2), danach ein anderes WLAN-Paket, und startet dann das Programm. Die
+Dateien und das Netz des Boards bleiben.
+
+**Keine Konsole:** Der Kopf des Reiters sagt es, wenn das Boot-ROM kein Programm im Flash findet (ein leeres Board)
+oder nach dem Start drei Sekunden lang keine Konsole grüßt (eine andere Firmware wie MicroPython, ein Programm von
+Write to Flash and Run), und zeigt den Knopf **Prepare Board**. Antwortet bei F9 keine Konsole, fragt Asmonite nach:
+Prepare Board, oder das Programm wie bisher mit dem Debugger starten. Prepare Board (auch im Menü Board) schreibt die
+Konsole über das Boot-ROM in den Flash und legt ihr Dateisystem an, wenn noch keins da ist; Dateien der Konsole
+bleiben.
+
 Die Boards mit serieller Ausgabe haben ein Beispiel, das auf diesem Weg „Hello, world!“ schreibt: `examples/esp32/hello_uart_ram.asm`,
 `examples/esp32s3/hello_usb_ram.asm`, `examples/esp32c3/blink_ram.asm` (eine Zeile bei jedem Wechsel der LEDs),
 `examples/pico2/hello_uart_ram.asm` und `hello_uart_arm_ram.asm`, `examples/pico/hello_uart_ram.asm`,

@@ -1,8 +1,7 @@
 # Chip info of the ESP32 on the DevKit: the MAC address, the package and the revision from the eFuses, every five
-# seconds over UART0 (under the debugger in the tab Serial, else in a terminal on the COM port, 115200 baud).
-# F9 in Asmonite runs it in the RAM (gone after a reset); Debug > Write to Flash and Run writes it into the flash
-# at 0x1000 first (in place of the firmware that was there): then the board runs it at every start, also without
-# the PC.
+# seconds over UART0 (under the debugger in the tab Serial, else in a terminal on the COM port, 115200 baud). F9 in
+# Asmonite runs it in the RAM (gone after a reset); Board > Advanced > Write to Flash and Run writes it into the flash
+# at 0x1000 first (in place of the firmware that was there): then the board runs it at every start, also without the PC.
 #
 # The eFuses are bits that are burnt once in the factory. Block 0 can be read as words at 0x3FF5A000 (esptool,
 # targets/esp32.py: EFUSE_RD_REG_BASE): word 1 holds the low four bytes of the MAC address, word 2 in its bits 15..0

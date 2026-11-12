@@ -12,16 +12,21 @@
 ; UART0 (ESP32 Technical Reference Manual, chapter "UART Controller"; ESP-IDF
 ; components/soc/esp32/include/soc/uart_reg.h): UART_FIFO_REG at 0x3FF40000 takes a byte to send,
 ; UART_STATUS_REG at 0x3FF4001C has in bits 23..16 (TXFIFO_CNT) how many bytes wait in the FIFO of 128.
+;
+; The bytes go into the FIFO at its address on the AHB bus, 0x60000000, as ESP-IDF and the console do it: written
+; through 0x3FF40000 they came garbled while the other core worked (the WiFi of the console on core 1).
 .target esp32
 .arch xtensa
 .imagebase 0x40080000
 
 lit_uart0:    dd 0x3FF40000
+lit_uart_ahb: dd 0x60000000          ; UART_FIFO_REG on the AHB
 lit_message:  dd message
 lit_second:   dd 40000000            ; one second in cycles (40 MHz)
 
 _start:
   l32r  a2, lit_uart0
+  l32r  a4, lit_uart_ahb
   l32r  a7, lit_second
   movi  a6, 120                      ; room for one more byte while fewer than 120 wait
 
@@ -34,7 +39,8 @@ fifo_full:
   l32i  a11, a2, 0x1C                ; UART_STATUS_REG
   extui a11, a11, 16, 8              ; TXFIFO_CNT
   bgeu  a11, a6, fifo_full
-  s32i  a5, a2, 0                    ; UART_FIFO_REG
+  s32i  a5, a4, 0                    ; UART_FIFO_REG (AHB)
+  memw
   addi  a3, a3, 1
   j     next_byte
 

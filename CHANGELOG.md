@@ -5,6 +5,83 @@ What changed from version to version. German: [docs/de/aenderungen.md](docs/de/a
 Version numbers: MAJOR.MINOR.PATCH. While MAJOR is 0, a MINOR step may change what
 existing sources mean; such changes are listed under "Changed" and marked **(sources)**.
 
+## 0.13.0 – 2026-11-12
+
+### New
+- **The ESP32-S3 as a second board for aBelle, the console and the WiFi.** Everything the original ESP32 has since
+  0.12.0 now works on the ESP32-S3 too, over the USB port of the chip (no USB serial chip needed):
+  - aBelle with `target "esp32s3"` (the compiler `abelle_esp32.exe`): F9 runs a program, breakpoints, steps and
+    variables in the source. Examples in `examples/abelle/esp32s3/`, among them `hello_usb.abel` and `rgb.abel` (the
+    RGB LED of the board, a WS2812 at GPIO 48, driven by the RMT).
+  - The console with its file system (`examples/esp32s3/console.asm`, the file system up to the end of the flash).
+  - The WiFi: scan, open networks and WPA2, DHCP, DNS, ping, TCP. The WiFi examples of the ESP32 (`dhcp`, `ping`,
+    `dns`, `ntp`, `httpget`, `webserver`, `udpecho`, `wol`, `arpscan`, `telnetd` and others) are there for the S3 as
+    well. The WiFi libraries of Espressif are linked by `ablink --chip esp32s3`; the S3 has no `aes_unwrap` in its
+    ROM, so the WPA2 code of Asmonite brings its own (AES-128 key unwrap, RFC 3394).
+- **The console is the home of the programs** (ESP32 and ESP32-S3):
+  - **F9 runs a program over the console:** into the RAM, started there, its output in the tab **Serial**. No
+    download mode, no BOOT button, no reset, nothing of the output lost. **Stop** (or Ctrl+C) ends it, also an
+    endless loop with the interrupts off; then the console is back.
+  - **Debugging over the console:** with a breakpoint F9 starts the debugger without a reset of the board; after the
+    session the console is there again.
+  - A program returns to the console when `main` ends, by `exit(code)` from any depth, or after an exception (the
+    console says why).
+  - **Functions of the console for programs:** a table at a fixed place (ESP32 `0x4009C800`, S3 `0x403C0800`):
+    `exit`, `version`, `put_char`, `get_char`, `poll_char`, `print`, `millis`, `args`, `file_size`, `file_read`,
+    `file_write`, `flash_read`. aBelle: `include "inc/console.abel"`, example `runs.abel`.
+  - **Programs as commands:** a word the console does not know starts the file of that name; the rest of the line
+    are its arguments.
+  - The tab **Serial** connects by itself when Asmonite starts or the board is plugged in, and shows the chip and the
+    console in its header.
+- **The WiFi as a service of the console** (ESP32 and ESP32-S3):
+  - `wlan set` stores the network on the board (the password is asked without echo; the board keeps only the WPA2
+    key derived from it), `wlan`, `wlan on`, `wlan off`, `wlan clear`.
+  - With a stored network the console connects at its start in the background. Programs use that connection at once
+    (`wifi_connect_saved()` in `inc/wifi.abel`) and leave it for the next program (`wifi_done()`). The WiFi examples
+    end and return to the console; the servers run until Stop.
+  - The WiFi library and the service lie in a fixed part of the flash (the WiFi package). F9 puts it there when a
+    program needs it.
+  - The flash can be written while the WiFi runs (the console parks core 1 for it).
+  - A program too large for the space beside the WiFi gets that space too (ESP32: 112 KB of code instead of 76;
+    S3: 156 KB of code and 128 KB of data); the console stops the WiFi for it and starts it again afterwards.
+    `abelle_esp32` says so ("it runs without the WiFi").
+- **The menu Board** (between Debug and Help): **Files...** (the window Board Files), **Set This Program as
+  Autostart**, **Prepare Board...** and **Advanced**: **Write to Flash and Run...** (with a warning: it takes the place
+  of the console), **Erase Flash...**, **Install WiFi Again...**.
+- **Prepare Board:** a board without the console of Asmonite (new, erased, MicroPython) is recognised; Prepare Board
+  writes the console and makes the file system. Asmonite offers it at F9.
+- **Updates by themselves:** before F9 and before debugging, Asmonite compares the console on the board with its own
+  and writes its own when they differ (the files and the network of the board stay), then the WiFi package if needed.
+- **`.if`, `.elif`, `.else`, `.endif`** in the assembler: conditions on constants (`equ`, numbers, comparisons, `&&`,
+  `||`, `!`, `defined(name)`); one source for several chips. A constant may now stand before `.format`, `.target`
+  and `.output`.
+
+### Fixed
+- **ESP32-S3 boards that reset at the start of the WiFi:** on some boards (chip v0.2) the clock glitch detector reset
+  the chip about 0.3 s after the radio started, and the USB port went away. The WiFi service and the console switch
+  that reset off before the radio starts; Asmonite brings the new WiFi package onto a board by itself.
+- **The window Debug targets** cut the last lines of longer texts; it measures its texts now and grows with them.
+- ESP32: UART0 with the WiFi running: the console counts the bytes in the FIFO as ESP-IDF does and switches the clock
+  before its hello, so packets of Asmonite no longer come garbled. The examples `hello_uart_ram.asm`,
+  `hello_uart_flash.asm` and `clock_ram.asm` write UART0 over `0x60000000`, as the console does.
+- Pause while a program waits in a function of the boot ROM (for example `ets_delay_us`) stops in the source after
+  the return (Xtensa).
+
+### Changed
+- **(sources)** Fixed windows of memory for programs, the same on every way (F9, the console, with or without the
+  WiFi):
+  - ESP32: aBelle code up to 76 KB (`0x40080000 .. 0x40092FFF`); the assembler and the debugger take a program up to
+    `0x4009BFFF` (above it lies the console).
+  - ESP32-S3: aBelle code up to 96 KB (`0x40378000 .. 0x4038FFFF`), the data from `0x3FCA0000` up to 60 KB, above
+    them 4 KB of stack. `.data` of the assembler without an address starts at `0x3FCA0000` (before `0x3FCA8000`).
+- **Write to Flash and Run** is in the menu Board under Advanced; Shift+F9 is gone. The window Board Files keeps only
+  the files, Reset Board and Format.
+- The debug monitor of the ESP32 lies in the RTC FAST memory (`0x400C0000`), so the IRAM stays for the programs and the
+  console.
+- ESP32-S3: the debugger sets the data cache as a start from the flash does (32 KB).
+- Known: on the ESP32 DevKit, while the station is connected, about one byte in 500 000 over UART0 comes wrong;
+  packets have a CRC and are sent again.
+
 ## 0.12.0 – 2026-11-10
 
 ### New

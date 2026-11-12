@@ -1,12 +1,12 @@
-# A web server on the board: the station connects to the network of inc/network.abel, gets an address by DHCP and
-# answers each request on TCP port 80 (inc/tcp.abel) with a small page (the number of the request, the seconds since
-# the start, the first line of the request). A browser in the same network (the phone of the hotspot, a PC) shows it
-# at http://<the address of the board>/. It needs wlan.rom and wlansvc in the files of the board (Debug > ESP32 Board
-# Files); the program loads them itself (inc/wifi.abel): "run webserver" in the console, or F9 in Asmonite.
+# A web server on the board: the station connects to the network the board keeps (wlan set in the console), gets an
+# address by DHCP and answers each request on TCP port 80 (inc/tcp.abel) with a small page (the number of the request,
+# the seconds since the start, the first line of the request). A browser in the same network (the phone of the hotspot,
+# a PC) shows it at http://<the address of the board>/. It needs the WiFi package on the board (F9 in Asmonite writes it
+# there); the program loads the WiFi from it itself (inc/wifi.abel): "run webserver" in the console, or F9 in Asmonite.
+# It serves until Stop in the tab Serial of Asmonite (Ctrl+C); then the console is there again, its WiFi stays.
 target "esp32"
 include "inc/uart.abel"
 include "inc/tcp.abel"
-include "inc/network.abel"
 
 PORT = 80
 req: char[1024]                     # the request
@@ -53,8 +53,8 @@ def main():
     net_init()
     net_set_name("esp32")           # http://esp32.local/ (mDNS); with more boards: one name each
     print("connecting to ")
-    println(network_name())
-    r = wifi_connect(network_name(), network_password())
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
     if r != 0:
         print("wifi_connect: error ")
         print_int(r)
@@ -105,6 +105,5 @@ def main():
             p = add_text(p, "</p></body></html>\r\n")
             tcp_send(out, p - out)
             tcp_close()
-    wifi_disconnect()
+    wifi_done()
     println("webserver end")
-    while True: pass

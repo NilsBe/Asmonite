@@ -1,9 +1,8 @@
-# A die with the random number generator of the ESP32: first 600 throws and how often each number came (about 100
-# each), then one throw every second, over UART0 (under the debugger in the tab Serial, else in a terminal on the COM
-# port, 115200 baud).
-# F9 in Asmonite runs it in the RAM (gone after a reset); Debug > Write to Flash and Run writes it into the flash
-# at 0x1000 first (in place of the firmware that was there): then the board runs it at every start, also without
-# the PC.
+# A die with the random number generator of the ESP32: first 600 throws and how often each number came (about 100 each),
+# then one throw every second, over UART0 (under the debugger in the tab Serial, else in a terminal on the COM port,
+# 115200 baud). F9 in Asmonite runs it in the RAM (gone after a reset); Board > Advanced > Write to Flash and Run writes
+# it into the flash at 0x1000 first (in place of the firmware that was there): then the board runs it at every start,
+# also without the PC.
 #
 # RNG_DATA at 0x3FF75144 (ESP32 Technical Reference Manual, chapter "Random Number Generator") gives a new number of
 # 32 bits at each read. Its noise comes from the radio (WiFi, Bluetooth) or the SAR ADC; with both off, as here, the

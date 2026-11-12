@@ -1,6 +1,6 @@
 # The WiFi networks near the board, found by the WiFi service of the ESP32 (wlan/wlansvc.asm; its entries in
-# inc/wifi.abel). It needs wlan.rom and wlansvc in the files of the board (Debug > ESP32 Board Files); the program
-# loads them itself (inc/wifi.abel): "run scan" in the console, or F9 in Asmonite.
+# inc/wifi.abel). It needs the WiFi package on the board (F9 in Asmonite writes it there); the program loads the WiFi
+# from it itself (inc/wifi.abel): "run scan" in the console, or F9 in Asmonite.
 #
 # Each network: its signal (dBm), its channel, how it is protected (open, WPA2, WPA3, ...), its BSSID (the MAC of the access point), its name.
 target "esp32"
@@ -103,6 +103,5 @@ def main():
     for i in 0..n: show(nets + i * WIFI_REC)
     print_int(n)
     print(" networks\r\n")
-    wifi_off()
+    wifi_done()
     print("scan end\r\n")
-    while True: pass

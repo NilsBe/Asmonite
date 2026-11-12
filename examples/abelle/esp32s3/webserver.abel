@@ -1,0 +1,112 @@
+# A web server on the board: the station connects to the network the board keeps (wlan set in the console), gets an
+# address by DHCP and answers each request on TCP port 80 (inc/tcp.abel) with a small page (the number of the request,
+# the seconds since the start, the first line of the request). A browser in the same network (the phone of the hotspot,
+# a PC) shows it at http://<the address of the board>/. It needs the WiFi package on the board (F9 in Asmonite writes it
+# there); the program loads the WiFi from it itself (inc/wifi.abel): "run webserver" in the console, or F9 in Asmonite.
+#
+# The ESP32-S3: the same program as abelle/examples/esp32/webserver.abel of the ESP32; its text goes to the USB port of
+# the chip (inc/usb.abel), the WiFi needs its package on the board (F9 writes it).
+# It serves until Stop in the tab Serial of Asmonite (Ctrl+C); then the console is there again, its WiFi stays.
+target "esp32s3"
+include "inc/usb.abel"
+include "inc/tcp.abel"
+
+PORT = 80
+req: char[1024]                     # the request
+out: char[1400]                     # the answer
+digits10: char[12]
+
+# the text s at p: the place behind it
+def add_text(p: pchar, s: pchar) pchar:
+    i = 0
+    while s[i] != 0:
+        p[i] = s[i]
+        i += 1
+    return p + i
+
+# the number v (0 or more) at p in decimal: the place behind it
+def add_int(p: pchar, v) pchar:
+    k = 0
+    while True:
+        digits10[k] = '0' + v % 10
+        k += 1
+        v = v / 10
+        if v == 0: break
+    for i in 0..k: p[i] = digits10[k - 1 - i]
+    return p + k
+
+# the first line of the request (up to 200 bytes of it) at p, its characters as they are but < and >
+def add_line(p: pchar, n) pchar:
+    for i in 0..n:
+        c = req[i]
+        if c == 13 or c == 10 or i == 200: break
+        if c == '<' or c == '>': c = '?'
+        p[0] = c
+        p = p + 1
+    return p
+
+# the end of the head of the request (an empty line) in its n bytes
+def head_done(n) i32:
+    for i in 0..n - 3:
+        if req[i] == 13 and req[i + 1] == 10 and req[i + 2] == 13 and req[i + 3] == 10: return True
+    return False
+
+def main():
+    println("web server (aBelle)")
+    net_init()
+    net_set_name("esp32")           # http://esp32.local/ (mDNS); with more boards: one name each
+    print("connecting to ")
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
+    if r != 0:
+        print("wifi_connect: error ")
+        print_int(r)
+        print(" (")
+        print(wifi_error_text(r))
+        print(")")
+        println("")
+    elif not dhcp_run(): println("dhcp: no answer")
+    else:
+        mdns_start()
+        print("also http://")
+        print(net_name)
+        println(".local/")
+        start = wifi_millis()
+        print("listening on http://")
+        print_ip(net_ip)
+        print("/  (mask ")
+        print_ip(net_mask)
+        println(")")
+        count = 0
+        while True:
+            tcp_listen(PORT)
+            if not tcp_accept(60000): continue
+            n = 0
+            while n < 1024:
+                k = tcp_recv(req + n, 1024 - n, 3000)
+                if k <= 0: break
+                n += k
+                if head_done(n): break
+            count += 1
+            print("request ")
+            print_int(count)
+            print(" from ")
+            print_ip(tcp_ip)
+            print(": ")
+            for i in 0..n:
+                if req[i] == 13 or req[i] == 10: break
+                put_char(req[i])
+            println("")
+            p = add_text(out, "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n")
+            p = add_text(p, "<html><head><title>aBelle on the ESP32</title></head><body><h1>aBelle on the ESP32</h1>")
+            p = add_text(p, "<p>Request ")
+            p = add_int(p, count)
+            p = add_text(p, ", ")
+            p = add_int(p, (wifi_millis() - start) / 1000)
+            p = add_text(p, " seconds since the start.</p><p>")
+            p = add_line(p, n)
+            p = add_text(p, "</p></body></html>\r\n")
+            tcp_send(out, p - out)
+            tcp_close()
+    wifi_done()
+    println("webserver end")

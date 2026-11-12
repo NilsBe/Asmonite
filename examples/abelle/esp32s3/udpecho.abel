@@ -1,0 +1,71 @@
+# A UDP echo server on the board: the station connects to the network the board keeps (wlan set in the console), gets an
+# address by DHCP and sends every UDP packet that comes to port 7777 back to its sender; each one is shown. From a PC in
+# the same network: python udpecho.py <address of the board> (next to this file), or any program that sends UDP. It
+# needs the WiFi package on the board (F9 in Asmonite writes it there); the program loads the WiFi from it itself
+# (inc/wifi.abel): "run udpecho" in the console, or F9 in Asmonite.
+#
+# The ESP32-S3: the same program as abelle/examples/esp32/udpecho.abel of the ESP32; its text goes to the USB port of
+# the chip (inc/usb.abel), the WiFi needs its package on the board (F9 writes it).
+# It serves until Stop in the tab Serial of Asmonite (Ctrl+C); then the console is there again, its WiFi stays.
+target "esp32s3"
+include "inc/usb.abel"
+include "inc/net.abel"
+
+PORT = 7777
+peer: char[4]                       # the sender of the last packet
+text: char[64]                      # its first bytes as a text
+
+def main():
+    println("UDP echo (aBelle)")
+    net_init()
+    print("connecting to ")
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
+    if r != 0:
+        print("wifi_connect: error ")
+        print_int(r)
+        print(" (")
+        print(wifi_error_text(r))
+        print(")")
+        print(", status ")
+        print_int(wifi_status())
+        println("")
+    elif not dhcp_run(): println("dhcp: no answer")
+    else:
+        print("listening on ")
+        print_ip(net_ip)
+        put_char(':')
+        print_int(PORT)
+        print("  (mask ")
+        print_ip(net_mask)
+        println(")")
+        count = 0
+        while True:
+            n = net_recv(100)
+            if n == 0 or udp_dport != PORT: continue
+            count += 1
+            copy(peer, rx + udp_from, 4)
+            port = udp_sport
+            copy(udp_payload(), rx + udp_off, n)
+            k = n
+            if k > 60: k = 60
+            copy(text, rx + udp_off, k)
+            text[k] = 0
+            for i in 0..k:
+                if text[i] < 32 or text[i] > 126: text[i] = '.'
+            print("echo ")
+            print_int(count)
+            print(": ")
+            print_int(n)
+            print(" bytes from ")
+            print_ip(peer)
+            put_char(':')
+            print_int(port)
+            print(" ")
+            println(text)
+            r = udp_send(peer, PORT, port, n)
+            if r != 0:
+                print("udp_send: ")
+                print_int(r)
+                println("")
+    println("udpecho end")

@@ -6,10 +6,10 @@ Deutsch | [English](README.md)
 und Debugger, der vorhandene Programme liest. Beide sind kostenlos, laufen ohne Installation unter
 Windows und arbeiten mit 32-Bit- und 64-Bit-Intel-Code, mit ARM, mit Xtensa auf dem ESP32 und dem ESP32-S3 und mit RISC-V
 (32 und 64 Bit) auf dem ESP32-C3, dem Raspberry Pi Pico 2 und dem MangoPi MQ-Pro (Allwinner D1). Dazu kommt
-**aBelle**, eine kleine Sprache mit der Schreibweise von Python, für Windows und den ESP32, in Asmonite Zeile für Zeile
-im Quelltext debuggt.
+**aBelle**, eine kleine Sprache mit der Schreibweise von Python, für Windows, den ESP32 und den ESP32-S3, in Asmonite
+Zeile für Zeile im Quelltext debuggt.
 
-Aktuelle Version: **0.12.0** | Website: [asmonite.com](https://asmonite.com) und
+Aktuelle Version: **0.13.0** | Website: [asmonite.com](https://asmonite.com) und
 [dismonite.com](https://dismonite.com) | Chat: [Discord](https://discord.gg/Sj8kvqEkc)
 
 ![Der Editor von Asmonite](assets/editor.png)
@@ -34,18 +34,17 @@ Aktuelle Version: **0.12.0** | Website: [asmonite.com](https://asmonite.com) und
   Anleitung: [docs/de/picoboot.md](docs/de/picoboot.md).
 - **Welches Board wie debuggt wird** (über eine Debug-Probe oder mit dem USB-Kabel allein) und wie seine serielle
   Ausgabe zum PC kommt (der Reiter Serial): [docs/de/boards.md](docs/de/boards.md).
-- **ESP32:** Xtensa LX6 mit `.arch xtensa` und `.target esp32`; F9 lädt das Programm über den USB-Seriell-Chip des
-  Boards ins RAM oder schreibt es in den Flash und debuggt es mit einem kleinen Monitor von Asmonite, **ohne
-  JTAG-Probe**. Auch Programme in aBelle; eine Konsole mit Dateien im Flash (Debug > ESP32 Board Files); und das
-  **WLAN**: DHCP, DNS, Ping, UDP, TCP und mDNS, ohne ESP-IDF, auf dem zweiten Kern, während der Debugger das Programm
-  an einem Breakpoint anhält. Anleitung: [docs/de/esp32.md](docs/de/esp32.md).
-- **aBelle:** eine kleine Sprache mit der Schreibweise von Python; drei Compiler (Windows x86, x64, ESP32) im ZIP, F9
-  übersetzt und debuggt im Quelltext, mit den Variablen unter der Maus. Sprachbeschreibung (vorläufige Fassung):
-  [asmonite.com/de/abelle-lang.html](https://asmonite.com/de/abelle-lang.html); Beispiele in
+- **ESP32 und ESP32-S3:** Xtensa (`.arch xtensa`, `.target esp32` / `.target esp32s3`), auch in aBelle. Eine kleine
+  **Konsole** von Asmonite liegt im Flash des Boards, mit Dateien: F9 führt ein Programm über sie aus und debuggt es,
+  **ohne JTAG-Probe, ohne BOOT-Taste, ohne Reset**; Ausgabe und Stop im Reiter Serial. Das Menü **Board** richtet ein
+  neues Board ein (Prepare Board) und hält die Konsole selbst aktuell. Das **WLAN** (offene Netze und WPA2, DHCP,
+  DNS, Ping, UDP, TCP, mDNS) läuft ohne ESP-IDF als Dienst der Konsole auf dem zweiten Kern, auch während der
+  Debugger das Programm an einem Breakpoint anhält; `wlan set` speichert das Netz auf dem Board. Anleitungen:
+  [docs/de/esp32.md](docs/de/esp32.md), [docs/de/esp32s3.md](docs/de/esp32s3.md).
+- **aBelle:** eine kleine Sprache mit der Schreibweise von Python; drei Compiler (Windows x86, x64, ESP32 und
+  ESP32-S3) im ZIP, F9 übersetzt und debuggt im Quelltext, mit den Variablen unter der Maus. Sprachbeschreibung
+  (vorläufige Fassung): [asmonite.com/de/abelle-lang.html](https://asmonite.com/de/abelle-lang.html); Beispiele in
   [examples/abelle](examples/abelle).
-- **ESP32-S3:** Xtensa LX7 mit `.arch xtensa` und `.target esp32s3`; F7 lädt das Programm über den USB-Anschluss des
-  Chips ins RAM oder schreibt es in den Flash und debuggt es, **mit einem Kabel, ohne Debug-Probe**. Anleitung:
-  [docs/de/esp32s3.md](docs/de/esp32s3.md).
 - **ESP32-C3:** RISC-V mit `.target esp32c3`; F7 lädt das Programm über den USB-Anschluss des Chips ins RAM oder
   schreibt es in den Flash und debuggt es, **mit einem Kabel, ohne Debug-Probe**. Anleitung: [docs/de/esp32c3.md](docs/de/esp32c3.md).
   Der **LilyGO T-PicoC3** (ein RP2040 und ein ESP32-C3 auf einem Board, sein Display): [docs/de/t-picoc3.md](docs/de/t-picoc3.md).
@@ -79,7 +78,7 @@ Mit den Prüfsummen lässt sich nachprüfen, dass die Datei die veröffentlichte
 |--------|--------|
 | [`docs/`](docs) | Anleitungen und die Unterschiede zu NASM, auf Deutsch und Englisch |
 | [`reference/`](reference) | Die Befehlsinfo der Programme (F1) als Text: x86, x64, ARM, ARM64, RISC-V, Windows-API, DOS |
-| [`examples/`](examples) | Beispielprogramme: Windows (Intel, ARM), DOS, Raspberry Pi Pico 2 und Pico, ESP32, ESP32-S3, ESP32-C3, T-PicoC3, STM32F103, `func` / `if` / Schleifen; in `examples/abelle` die Beispiele in aBelle (Windows, ESP32 mit WLAN) |
+| [`examples/`](examples) | Beispielprogramme: Windows (Intel, ARM), DOS, Raspberry Pi Pico 2 und Pico, ESP32, ESP32-S3, ESP32-C3, T-PicoC3, STM32F103, `func` / `if` / Schleifen; in `examples/abelle` die Beispiele in aBelle (Windows, ESP32 und ESP32-S3 mit WLAN) |
 | [`CHANGELOG.md`](CHANGELOG.md) | Was sich in welcher Version geändert hat |
 
 Die Programme selbst liegen in der ZIP-Datei der Releases, nicht in diesem Repository.

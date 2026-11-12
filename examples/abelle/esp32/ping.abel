@@ -1,7 +1,7 @@
-# Ping: the station connects to the network of inc/network.abel, gets an address by DHCP (inc/net.abel), then sends
-# four ICMP echo requests, one a second, to the router and to a server in the internet (found by DNS) and shows each
-# reply with the time it took, at the end the count and the times as the ping of a PC does. It needs wlan.rom and
-# wlansvc in the files of the board (Debug > ESP32 Board Files, Install WiFi); the program loads them itself
+# Ping: the station connects to the network the board keeps (wlan set in the console), gets an address by DHCP
+# (inc/net.abel), then sends four ICMP echo requests, one a second, to the router and to a server in the internet (found
+# by DNS) and shows each reply with the time it took, at the end the count and the times as the ping of a PC does. It
+# needs the WiFi package on the board (F9 in Asmonite writes it there); the program loads the WiFi from it itself
 # (inc/wifi.abel): "run ping" in the console, or F9 in Asmonite.
 #
 # An echo request (ping_send in inc/net.abel) is an IPv4 packet of protocol 1 (ICMP): type 8, code 0, a checksum,
@@ -11,7 +11,6 @@
 target "esp32"
 include "inc/uart.abel"
 include "inc/net.abel"
-include "inc/network.abel"
 
 PINGS = 4                           # echo requests to each host
 PING_DATA = 32                      # bytes of data in each
@@ -82,8 +81,8 @@ def main():
     println("Ping (aBelle)")
     net_init()
     print("connecting to ")
-    println(network_name())
-    r = wifi_connect(network_name(), network_password())
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
     if r != 0:
         print("wifi_connect: error ")
         print_int(r)
@@ -112,6 +111,5 @@ def main():
         else:
             print("dns: no address for ")
             println(server_name())
-    wifi_disconnect()
+    wifi_done()
     println("ping end")
-    while True: pass

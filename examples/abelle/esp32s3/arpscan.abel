@@ -1,0 +1,123 @@
+# Who is in the network? The station connects to the network the board keeps (wlan set in the console), gets an address
+# by DHCP (inc/net.abel), then asks by ARP for every address of its network (x.x.x.1 .. x.x.x.254 of a /24 network), one
+# request every 15 ms, and lists each device that answers with its MAC. It needs the WiFi package on the board (F9 in
+# Asmonite writes it there); the program loads the WiFi from it itself (inc/wifi.abel): "run arpscan" in the console, or
+# F9 in Asmonite.
+#
+# ARP (address resolution protocol) asks all of the network "who has 192.168.178.20? tell 192.168.178.173"; the
+# device with this address answers with its MAC. Each device answers, even one that ignores pings, as long as it is
+# awake (a phone that sleeps may not). A MAC whose first byte has the bit 0x02 set is "locally administered": not the
+# one of the maker of the card but one the device made up, as phones and laptops do for each WiFi network.
+#
+# The ESP32-S3: the same program as abelle/examples/esp32/arpscan.abel of the ESP32; its text goes to the USB port of
+# the chip (inc/usb.abel), the WiFi needs its package on the board (F9 writes it).
+target "esp32s3"
+include "inc/usb.abel"
+include "inc/net.abel"
+
+MAX_HOSTS = 254
+hosts_n: i32 = 0
+hosts_ip: char[1016]                # 4 bytes each
+hosts_mac: char[1524]               # 6 bytes each
+scan_ip: char[4]
+
+# the address ip is in the list
+def known(ip: pchar) i32:
+    for i in 0..hosts_n:
+        if same(hosts_ip + i * 4, ip, 4): return True
+    return False
+
+# an answer that net_recv got: into the list, once for each address
+def remember():
+    if not arp_heard: return
+    arp_heard = False
+    if known(arp_heard_ip) or hosts_n >= MAX_HOSTS: return
+    copy(hosts_ip + hosts_n * 4, arp_heard_ip, 4)
+    copy(hosts_mac + hosts_n * 6, arp_heard_mac, 6)
+    hosts_n += 1
+
+# frames for ms milliseconds, the ARP answers among them into the list
+def listen(ms):
+    t0 = wifi_millis()
+    while wifi_millis() - t0 < ms:
+        net_recv(5)
+        remember()
+
+# one line: "192.168.178.1     dc:15:c8:12:34:56  router"
+def show(ip: pchar, mac: pchar, what: pchar):
+    print_ip(ip)
+    # the address in 18 places
+    w = 7
+    for i in 0..4:
+        if ip[i] >= 10: w += 1
+        if ip[i] >= 100: w += 1
+    while w < 18:
+        put_char(' ')
+        w += 1
+    print_mac(mac)
+    print("  ")
+    print(what)
+    if mac[0] & 2: print(" (locally administered MAC)")
+    println("")
+
+def main():
+    println("ARP scan (aBelle)")
+    net_init()
+    print("connecting to ")
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
+    if r != 0:
+        print("wifi_connect: error ")
+        print_int(r)
+        print(" (")
+        print(wifi_error_text(r))
+        print(")")
+        println("")
+    elif not dhcp_run(): println("dhcp: no answer")
+    else:
+        print("ip: ")
+        print_ip(net_ip)
+        print("  mask: ")
+        print_ip(net_mask)
+        println("")
+        # the /24 network of our address (in a bigger network only this part of it)
+        copy(scan_ip, net_ip, 3)
+        print("asking ")
+        scan_ip[3] = 1
+        print_ip(scan_ip)
+        print(" .. ")
+        scan_ip[3] = 254
+        print_ip(scan_ip)
+        println(" ...")
+        t0 = wifi_millis()
+        for h in 1..255:
+            if h == net_ip[3]: continue
+            scan_ip[3] = h
+            arp_send(1, scan_ip, zeros)
+            listen(15)
+        listen(500)
+        print_int(hosts_n)
+        println(" answers; once more to the others ...")
+        # a second round for the ones without an answer (an answer may get lost in the air, or among many at once)
+        for h in 1..255:
+            if h == net_ip[3]: continue
+            scan_ip[3] = h
+            if not known(scan_ip):
+                arp_send(1, scan_ip, zeros)
+                listen(15)
+        # the late answers
+        listen(2000)
+        # the list in the order of the addresses
+        for h in 1..255:
+            if h == net_ip[3]: show(net_ip, net_mac, "this board")
+            for i in 0..hosts_n:
+                p = hosts_ip + i * 4
+                if p[3] == h and same(p, net_ip, 3):
+                    if same(p, net_gw, 4): show(p, hosts_mac + i * 6, "router")
+                    else: show(p, hosts_mac + i * 6, "")
+        print_int(hosts_n + 1)
+        print(" devices, ")
+        print_int((wifi_millis() - t0) / 1000)
+        println(" s")
+    wifi_done()
+    println("arpscan end")

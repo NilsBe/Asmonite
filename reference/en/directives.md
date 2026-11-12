@@ -162,6 +162,40 @@ data can be spread over several files.
 
 Related: `equ`
 
+## .if, .elif, .else, .endif – assemble lines only under a condition
+
+Assembles the lines up to `.elif`, `.else` or `.endif` only when the condition is not 0. So one source can hold
+the variants for two boards or chips, and a constant at its top chooses: `CHIP equ 3` and `.if CHIP == 3` here,
+`.if CHIP == 9` there.
+
+- The condition is an expression of numbers and constants (`equ`) that stand in the lines before it: `+ - * / %`,
+  `<< >>`, `& ^ | ~`, comparisons `== != < <= > >=` (also `=` and `<>`), `&& || !`, brackets, and `defined(name)`
+  (1 when a constant of that name stands before). A comparison gives 1 or 0. Labels and `$` are no constants here.
+  `&&` and `||` work as in C: when the left side decides, the right one is not judged, so
+  `defined(TRACE) && TRACE > 1` is fine without TRACE.
+- The constant must be an `equ` with a number (or with other such constants); it must stand before the `.if`, in a
+  line that is assembled.
+- Blocks nest. A block that starts in a file ends in that file. `.elif` may come several times, `.else` once at the
+  end.
+- The lines left out keep their line numbers: errors and the debugger count as before.
+- A `.include` in a branch that is left out is left out too.
+
+**Syntax:** `.if condition` ... `.elif condition` ... `.else` ... `.endif`
+
+```asm
+CHIP    equ 9                  ; 0 = ESP32, 9 = ESP32-S3
+.if CHIP == 9
+UART    equ 0x60000000
+.else
+UART    equ 0x3FF40000
+.endif
+.if defined(TRACE) && TRACE > 1
+    call  trace_all
+.endif
+```
+
+Related: `equ`, `.include`, `err-if`
+
 ## .target – the device
 
 Says which device the program is for. The output is then a flat binary (like `.format binary`, which can

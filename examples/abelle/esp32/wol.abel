@@ -1,9 +1,8 @@
-# Wake-on-LAN: the station connects to the network of inc/network.abel, gets an address by DHCP (inc/net.abel) and
-# sends the "magic packet" for the PC with the MAC of wol_target() to all of the network (a UDP broadcast to port 9),
-# three times. A PC whose network card is set up for it (in the BIOS / UEFI and in the driver: "Wake on Magic
-# Packet") starts from sleep or from off. It needs wlan.rom and wlansvc in the files of the board (Debug > ESP32
-# Board Files, Install WiFi); the program loads them itself (inc/wifi.abel): "run wol" in the console, or F9 in
-# Asmonite.
+# Wake-on-LAN: the station connects to the network the board keeps (wlan set in the console), gets an address by DHCP
+# (inc/net.abel) and sends the "magic packet" for the PC with the MAC of wol_target() to all of the network (a UDP
+# broadcast to port 9), three times. A PC whose network card is set up for it (in the BIOS / UEFI and in the driver:
+# "Wake on Magic Packet") starts from sleep or from off. It needs the WiFi package on the board (F9 in Asmonite writes
+# it there); the program loads the WiFi from it itself (inc/wifi.abel): "run wol" in the console, or F9 in Asmonite.
 #
 # The magic packet: 6 bytes FF, then the MAC of the PC 16 times (102 bytes). The network card looks for this pattern
 # in every frame it gets, whatever the protocol around it: UDP to port 9 ("discard") is only the usual way. A PC on
@@ -11,7 +10,6 @@
 target "esp32"
 include "inc/uart.abel"
 include "inc/net.abel"
-include "inc/network.abel"
 
 WOL_PORT = 9
 wol_mac: char[8]
@@ -47,11 +45,11 @@ def main():
         print("not a MAC: ")
         println(wol_target())
         println("wol end")
-        while True: pass
+        return
     net_init()
     print("connecting to ")
-    println(network_name())
-    r = wifi_connect(network_name(), network_password())
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
     if r != 0:
         print("wifi_connect: error ")
         print_int(r)
@@ -81,6 +79,5 @@ def main():
             # a little time between them; frames that come meanwhile are handled
             t0 = wifi_millis()
             while wifi_millis() - t0 < 300: net_recv(10)
-    wifi_disconnect()
+    wifi_done()
     println("wol end")
-    while True: pass

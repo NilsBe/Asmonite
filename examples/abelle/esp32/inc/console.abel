@@ -1,0 +1,79 @@
+# The functions of the console for a program that it starts (run in the console, Run in the window ESP32 Board
+# Files), for include "inc/console.abel": text to the terminal and from it, milliseconds, the files of the console,
+# the flash, and exit. They lie at fixed places in the console (from 0x4009C800, each 4 bytes after the one before;
+# examples/esp32/console.asm, jt_exit) and are called as the functions of the ROM.
+# Only with the console: a program under the debugger (F9) or one that the board starts from the flash by itself
+# has no console; there inc/uart.abel does the text (the same functions put_char, print, println, print_int, ...).
+# The names of the parameters and local variables here begin with c_: in aBelle a local name may not be the one of a
+# global of the program that includes this file (an assignment would change that global).
+
+# the program ends at once, from any depth: the console says "Program ended (code n)"
+def exit(c_code) at 0x4009C800
+# which functions the console has: 2 (the ones here; 1: without args)
+def console_version() i32 at 0x4009C804
+# a byte to the terminal
+def put_char(c_c) at 0x4009C808
+# the next byte from the terminal: waits for it
+def get_char() i32 at 0x4009C80C
+# the next byte from the terminal, -1 if none came
+def poll_char() i32 at 0x4009C810
+# a text up to its 0
+def print(c_s: pchar) at 0x4009C814
+# milliseconds; call it at least once in 100 seconds (it counts the cycles of the core)
+def millis() i32 at 0x4009C818
+# the length of a file of the console, -1 if there is none
+def file_size(c_name: pchar) i32 at 0x4009C81C
+# up to c_count bytes of the file from c_offset on into c_buf: how many (0 from its end on), -1 no such file
+def file_read(c_name: pchar, c_buf: pchar, c_offset, c_count) i32 at 0x4009C820
+# a file with c_count bytes from c_buf (a new one, or a new text for one): 0 done, -1 the directory is full (64
+# files), -2 no room in the flash, -3 the flash cannot be written, -4 not a valid name (1 to 19 characters, no
+# spaces), -5 no file system (format in the console)
+def file_write(c_name: pchar, c_buf: pchar, c_count) i32 at 0x4009C824
+# c_count bytes of the flash from c_address on into c_buf: 0 done, -1 the flash cannot be read there
+def flash_read(c_address: u32, c_buf: pchar, c_count) i32 at 0x4009C828
+# the arguments of the program: the rest of the line when the console started it as a command ("runs 5" in the
+# console starts runs.bin with "5"), "" for run
+def args() pchar at 0x4009C82C
+
+con_digits: char[12]
+
+# a text and a line end
+def println(c_s: pchar):
+    print(c_s)
+    print("\r\n")
+
+# a number in decimal
+def print_int(c_v):
+    if c_v < 0:
+        put_char('-')
+        c_v = 0 - c_v
+    c_p = con_digits + 11
+    c_p[0] = 0
+    while True:
+        c_p -= 1
+        c_p[0] = '0' + i32(u32(c_v) % 10)
+        c_v = i32(u32(c_v) / 10)
+        if c_v == 0: break
+    print(c_p)
+
+# a hex digit (0 .. 15)
+def put_hex(c_d):
+    if c_d < 10: put_char('0' + c_d)
+    else: put_char('A' + c_d - 10)
+
+# a byte as two hex digits
+def print_byte(c_b):
+    put_hex((c_b >> 4) & 15)
+    put_hex(c_b & 15)
+
+# the 6 bytes at c_p as a MAC: "CC:50:E3:95:3E:78"
+def print_mac(c_p: pchar):
+    for c_i in 0..6:
+        if c_i > 0: put_char(':')
+        print_byte(c_p[c_i])
+
+# the 4 bytes at c_p as an IPv4 address: "192.168.43.17"
+def print_ip(c_p: pchar):
+    for c_i in 0..4:
+        if c_i > 0: put_char('.')
+        print_int(c_p[c_i])

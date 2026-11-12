@@ -12,17 +12,40 @@
 ;   load name     puts the parts of a program for the RAM into their place, without starting it
 ;   boot name     starts the program after every reset (boot alone: which one)
 ;   noboot        no program after a reset
+;   wlan          the WiFi network of the board (wlan set: its name and password; wlan on, wlan off; wlan clear:
+;                 none; see cmd_wlan). With a network and not wlan off the WiFi starts at the start of the
+;                 console, in the background (wlan_boot)
 ;   help          the commands
+;   name [args]   any other word: the program name or name.bin of the files, the rest of the line its arguments (in
+;                 its a2 and by args()); no "Running" before it, no "Program ended (code 0)" after it
 ;
 ; Backspace (BS or DEL) takes back a character, Ctrl+C drops the line (in put: the whole file). A line ends with CR,
 ; LF or CR LF, whatever the terminal sends.
 ;
 ; A program is a file as Asmonite writes it into the flash (the image of the boot ROM: 0xE9, the number of segments,
 ; the entry, then each segment with its address and length). The console checks the CRC-32 of the file and the
-; addresses of the segments, copies them to their place and calls the entry, as the boot ROM does at a start from
-; the flash: the program runs until the next reset. Its code may take the IRAM 0x40080000 .. 0x40097FFF (96 KB), its
+; addresses of the segments, copies them to their place and calls the entry with callx8, as the boot ROM calls a
+; function: on a stack of its own (sp 0x3FFC0000, the top of its data, as under the debugger), the frames of the
+; console in the console's stack first (spill), with the vectors of the console (VECBASE 0x4009C400). The program ends
+;   - with retw (it begins with entry): "Program ended (code n)", n its a2;
+;   - with exit(code) from any depth: callx8 to 0x4009C800 (the first of the functions of the console for programs,
+;     each 4 bytes after the one before: exit, version, put_char, get_char, poll_char, print, millis, file_size,
+;     file_read, file_write, flash_read, args; see jt_exit; for aBelle: abelle/examples/esp32/inc/console.abel);
+;   - by an exception or a break: "Program stopped: exception c at pc p, address v" (c is exccause; 0x10n an
+;     interrupt of level n, 0x106 a break; 0x200 + exccause a double exception);
+;   - by Ctrl+C from the terminal (Stop in the tab Serial of Asmonite): "Program stopped (Ctrl+C)", also in an endless
+;     loop with the interrupts off: while the program runs, UART0 raises the NMI for each byte (nmi_key); the bytes
+;     go into the ring for get_char, Ctrl+C is not passed on;
+; and the console goes on (its stack, ps, vecbase and intenable as before; the peripherals and the WiFi service on
+; core 1 stay as the program leaves them). An interrupt of level 1 and alloca (exccause 4, 5) go on to the vector of
+; the boot ROM, as without the console (its handlers: the WiFi on core 0). A program without entry (as the old
+; examples) runs until a reset. Its code may take the IRAM 0x40080000 .. 0x40092FFF (76 KB), its
 ; data the DRAM 0x3FFB0000 .. 0x3FFCFFFF (128 KB): above them the console lies, which loads it. A program written for
 ; F9 (.imagebase 0x40080000, .data from 0x3FFB0000) fits. The watchdogs are off already.
+; The large window: a program may take the IRAM up to 0x4009BFFF (112 KB), the room of the WiFi (the service from
+; 0x40093000, wlan.rom from 0x40098000). The console stops the WiFi then before it puts the program there (wlan_yield:
+; a segment of run or X, a packet R, a packet T with flag 1) and starts it again in the background when the program
+; ends (wlan_back), as at its start.
 ; load takes also the room between the programs and the console, IRAM 0x40098000 .. 0x4009BFFF and DRAM
 ; 0x3FFD8000 .. 0x3FFDFFFF (for a part that stays while programs come and go), and leaves out the segments for the
 ; flash (0x400C2000 .. 0x40BFFFFF, 0x3F400000 .. 0x3F7FFFFF), which the console does not map yet.
@@ -38,7 +61,7 @@
 ; the sign for it; a second without a packet, and the console takes commands from a terminal again.
 ;
 ;   1. plug in the board (its USB port goes to a USB serial chip: CP2102, CH340 ...)
-;   2. Debug > Write to Flash and Run: the program goes into the flash, the board runs it at every start
+;   2. Board > Prepare Board (Asmonite also offers it at F9, and updates the console by itself later)
 ;   3. a terminal on the COM port of the board; the first time: format
 ;
 ; Some terminal programs switch the lines DTR and RTS when they open the port: on most boards these reach EN and
@@ -84,12 +107,14 @@ LINE     equ 0x3FFD1000              ; the line that is typed (256 bytes)
 USED     equ 0x3FFD6000              ; a byte for each sector of the files: 1 = in use (up to 4 KB: a flash of 16 MB)
 NAME     equ 0x3FFD1300              ; the name after the command (put reads the text into LINE)
 SMALL    equ 0x3FFD1400              ; 256 bytes: what is read back to check a write, a part of a program
+CHUNK    equ 0x3FFD1600              ; 256 bytes and a word: a piece of a file on its way into the flash
 RING     equ 0x3FFD2000              ; what came in over UART0 and is not read yet (4 KB)
 DIRBUF   equ 0x3FFD3000              ; the directory (4 KB)
 PKT      equ 0x3FFD4000              ; a packet that came: +1 the command, +2 the length, +4 the data
 OUT      equ 0x3FFD5000              ; a packet that goes: the same
 FILEBUF  equ 0x3FFC0000              ; a file of put (64 KB)
 EXT      equ 0x40094000              ; a part with commands of its own (see ext_command)
+CRED     equ 0x3FFD1800              ; the WiFi network (wlan): +0 the record in use (128 bytes), +128 one read
 
 lit_uart0:    dd 0x3FF40000          ; UART0
 lit_uart_ahb: dd 0x60000000          ; its FIFO on the AHB bus
@@ -115,6 +140,7 @@ lit_line:     dd LINE
 lit_used:     dd USED
 lit_name:     dd NAME
 lit_small:    dd SMALL
+lit_chunk:    dd CHUNK
 lit_ring:     dd RING
 lit_dirbuf:   dd DIRBUF
 lit_filebuf:  dd FILEBUF
@@ -132,8 +158,10 @@ lit_e_nofile: dd e_nofile
 lit_e_notopen: dd e_notopen
 lit_e_place:  dd e_place
 lit_e_fcrc:   dd e_fcrc
-lit_iram_lo: dd 0x40080000          ; the room of a program: its code
-lit_iram_hi: dd 0x40098000
+lit_iram_lo: dd 0x40080000          ; the room of a program: its code (the large window: up to the console)
+lit_iram_hi: dd 0x4009C000
+lit_wroom_lo: dd 0x40093000         ; the room of the WiFi in it (the service, wlan.rom): a program there stops the
+lit_wroom_hi: dd 0x4009C000         ; WiFi while it runs (wlan_yield)
 lit_dram_lo: dd 0x3FFB0000          ; its data
 lit_dram_hi: dd 0x3FFD0000
 lit_kiram_lo: dd 0x40098000         ; the room that load takes too: IRAM
@@ -201,6 +229,75 @@ lit_c_rm:     dd c_rm
 lit_c_df:     dd c_df
 lit_c_format: dd c_format
 lit_c_help:   dd c_help
+lit_pstack:   dd 0x3FFC0000          ; the stack of a program: the top of its data (as under the debugger)
+lit_vectors:  dd vectors
+lit_rf_exc:   dd rf_exc
+lit_rf_dexc:  dd rf_dexc
+lit_s_ended:  dd s_ended
+lit_s_ended2: dd s_ended2
+lit_s_stopped: dd s_stopped
+lit_s_at:     dd s_at
+lit_s_addr:   dd s_addr
+lit_intmap:   dd 0x3FF0018C          ; DPORT_PRO_UART_INTR_MAP_REG: UART0 (source 34) to a CPU interrupt of core 0
+lit_nmibit:   dd 0x00004000          ; the CPU interrupt 14 (the NMI) in INTENABLE
+lit_rf_key:   dd rf_key
+lit_s_empty:  dd s_empty
+lit_s_bin:    dd s_bin
+lit_s_keystop: dd s_keystop
+lit_monvec:   dd 0x400C0000         ; the debug monitor of Asmonite in the RTC FAST memory (8 KB): its vectors
+lit_rtc_hi:   dd 0x400C2000         ; behind the RTC FAST memory
+lit_s_dbgstop: dd s_dbgstop
+lit_rom_uvec: dd 0x40000347         ; the UserExceptionVector of the boot ROM behind its first three instructions
+                                     ; (addmi a1, a1, -256; s32i.n a2, a1, 16; s32i.n a3, a1, 20)
+lit_wifi_lo:  dd 0x100000           ; the WiFi package in the flash (packets A and Y): from 1 MB
+lit_wifi_hi:  dd 0x200000           ; up to the file system
+lit_appclk:   dd 0x3FF00030         ; DPORT_APPCPU_CTRL_B_REG: bit 0 the clock of core 1
+lit_svcmark:  dd 0x4009401C         ; the mark "WSVC" of the WiFi service (wlan\wlansvc.asm)
+lit_svcmagic: dd 0x43565357         ; "WSVC"
+lit_svchead:  dd 0x40094000         ; the table of the WiFi service: +32 its version, +68 its svc_pblock (version 6)
+lit_fromcpu:  dd 0x3FF000E8         ; DPORT_CPU_INTR_FROM_CPU_3_REG: the bell of the park of core 1 (core1_park)
+lit_e_wifiruns: dd e_wifiruns
+lit_e_area:   dd e_area
+lit_cred:     dd 0xFE000            ; the two sectors of the WiFi network (wlan): 0xFE000 and 0xFF000
+lit_credmagic: dd 0x314E5741        ; "AWN1"
+lit_credbuf:  dd CRED
+lit_credrd:   dd CRED + 128
+lit_wifihead: dd 0x1F0000           ; the head of the WiFi package
+lit_wifimagic: dd 0x31505741        ; "AWP1"
+lit_svcpmk:   dd 0x40094048         ; wifi_pmk of the WiFi service (version 7)
+lit_svcstat:  dd 0x40094028         ; wifi_status of the WiFi service
+lit_c_wlan:   dd c_wlan
+lit_c_set:    dd c_set
+lit_c_clear:  dd c_clear
+lit_s_wnuse:  dd s_wnuse
+lit_s_wnnone: dd s_wnnone
+lit_s_wnnet:  dd s_wnnet
+lit_s_wnwpa:  dd s_wnwpa
+lit_s_wnopen: dd s_wnopen
+lit_s_wnoff:  dd s_wnoff
+lit_s_wnnot:  dd s_wnnot
+lit_s_wnconn: dd s_wnconn
+lit_s_wnask1: dd s_wnask1
+lit_s_wnask2: dd s_wnask2
+lit_s_wnkey:  dd s_wnkey
+lit_s_wnbadpw: dd s_wnbadpw
+lit_s_wnsaved: dd s_wnsaved
+lit_s_wnsaved2: dd s_wnsaved2
+lit_s_wncleared: dd s_wncleared
+lit_e_nowifi: dd e_nowifi
+lit_e_wifiold: dd e_wifiold
+lit_svckeep:  dd 0x4009404C         ; wifi_keep of the WiFi service (version 8)
+lit_svchalt:  dd 0x40094050         ; wifi_halt
+lit_svcclock: dd 0x4009405C         ; wifi_clock (version 9)
+lit_parkms:   dd 1000               ; core1_park: ms to wait for core 1 at most
+lit_c_on:     dd c_on
+lit_c_off:    dd c_off
+lit_s_wnbg1:  dd s_wnbg1
+lit_s_wnbg2:  dd s_wnbg2
+lit_s_wnwifi: dd s_wnwifi
+lit_s_wnisoff: dd s_wnisoff
+lit_s_wnconnecting: dd s_wnconnecting
+lit_s_wnoffnow: dd s_wnoffnow
 
 _start:
   call8 watchdogs_off
@@ -209,8 +306,10 @@ _start:
   s32i  a3, a2, 0
   memw
   call8 flash_init
+  call8 wlan_clock_boot              ; the core at 160 MHz before the hello, when the WiFi will start
   l32r  a10, lit_s_hello
   call8 print
+  call8 wlan_boot                    ; the WiFi in the background (a network kept, not wlan off)
   call8 dir_load
   beqz  a10, no_fs
   call8 autostart
@@ -227,6 +326,462 @@ main_loop:
   bltz  a10, main_loop               ; Ctrl+C
   call8 command
   j     main_loop
+
+; ---------- the vectors while a program runs (VECBASE; the boot ROM's again when it ends) ----------
+; The handlers of the windows as every Xtensa program needs them. Every other exception, interrupt or break of the
+; program ends it: the cause, its pc and excvaddr into vars, then out of the exception to rf_exc, which goes back to
+; the console (the registers of the program are not needed any more). The console has no interrupts on (INTENABLE 0).
+  align 1024
+vectors:
+_WindowOverflow4:                     ; 0x000
+  s32e  a0, a5, -16
+  s32e  a1, a5, -12
+  s32e  a2, a5, -8
+  s32e  a3, a5, -4
+  rfwo
+  align 64
+_WindowUnderflow4:                    ; 0x040
+  l32e  a0, a5, -16
+  l32e  a1, a5, -12
+  l32e  a2, a5, -8
+  l32e  a3, a5, -4
+  rfwu
+  align 64
+_WindowOverflow8:                     ; 0x080
+  s32e  a0, a9, -16
+  l32e  a0, a1, -12
+  s32e  a1, a9, -12
+  s32e  a2, a9, -8
+  s32e  a3, a9, -4
+  s32e  a4, a0, -32
+  s32e  a5, a0, -28
+  s32e  a6, a0, -24
+  s32e  a7, a0, -20
+  rfwo
+  align 64
+_WindowUnderflow8:                    ; 0x0C0
+  l32e  a1, a9, -12
+  l32e  a0, a9, -16
+  l32e  a7, a1, -12
+  l32e  a2, a9, -8
+  l32e  a4, a7, -32
+  l32e  a3, a9, -4
+  l32e  a5, a7, -28
+  l32e  a6, a7, -24
+  l32e  a7, a7, -20
+  rfwu
+  align 64
+_WindowOverflow12:                    ; 0x100
+  s32e  a0, a13, -16
+  l32e  a0, a1, -12
+  s32e  a1, a13, -12
+  s32e  a2, a13, -8
+  s32e  a3, a13, -4
+  s32e  a4, a0, -48
+  s32e  a5, a0, -44
+  s32e  a6, a0, -40
+  s32e  a7, a0, -36
+  s32e  a8, a0, -32
+  s32e  a9, a0, -28
+  s32e  a10, a0, -24
+  s32e  a11, a0, -20
+  rfwo
+  align 64
+_WindowUnderflow12:                   ; 0x140
+  l32e  a1, a13, -12
+  l32e  a0, a13, -16
+  l32e  a11, a1, -12
+  l32e  a2, a13, -8
+  l32e  a4, a11, -48
+  l32e  a8, a11, -32
+  l32e  a3, a13, -4
+  l32e  a5, a11, -44
+  l32e  a6, a11, -40
+  l32e  a7, a11, -36
+  l32e  a9, a11, -28
+  l32e  a10, a11, -24
+  l32e  a11, a11, -20
+  rfwu
+  align 64
+_Level2Vector:                        ; 0x180: the cause 0x102 (an interrupt of level 2)
+  l32r  a0, lit_vars
+  rsr   a2, epc2
+  movi  a3, 0x102
+  l32r  a4, lit_rf_exc
+  wsr   a4, epc2
+  j     vec_high2
+  align 64
+_Level3Vector:                        ; 0x1C0
+  l32r  a0, lit_vars
+  rsr   a2, epc3
+  movi  a3, 0x103
+  l32r  a4, lit_rf_exc
+  wsr   a4, epc3
+  j     vec_high3
+  align 64
+_Level4Vector:                        ; 0x200
+  l32r  a0, lit_vars
+  rsr   a2, epc4
+  movi  a3, 0x104
+  l32r  a4, lit_rf_exc
+  wsr   a4, epc4
+  j     vec_high4
+  align 64
+_Level5Vector:                        ; 0x240
+  l32r  a0, lit_vars
+  rsr   a2, epc5
+  movi  a3, 0x105
+  l32r  a4, lit_rf_exc
+  wsr   a4, epc5
+  j     vec_high5
+  align 64
+_DebugExceptionVector:                ; 0x280: a break in a program that runs without the debugger (0x106)
+  l32r  a0, lit_vars
+  rsr   a2, epc6
+  movi  a3, 0x106
+  l32r  a4, lit_rf_exc
+  wsr   a4, epc6
+  j     vec_high6
+  align 64
+_NMIExceptionVector:                  ; 0x2C0: a byte came over UART0 (Ctrl+C stops the program; see nmi_key)
+  wsr   a0, excsave7
+  j     nmi_key
+  align 64
+_KernelExceptionVector:               ; 0x300
+  j     vec_exc
+  align 64
+_UserExceptionVector:                 ; 0x340
+  wsr   a0, excsave1
+  rsr   a0, exccause
+  beqi  a0, 4, uv_rom                ; an interrupt of level 1, or alloca (movsp): the boot ROM's handler, as for a
+  beqi  a0, 5, uv_rom                ; program without the console (its interrupts, the WiFi libraries)
+  j     vec_exc
+uv_rom:                              ; the first three instructions of the ROM's vector (0x40000340), then on there
+  rsr   a0, excsave1
+  addmi a1, a1, -256
+  s32i  a2, a1, 16
+  s32i  a3, a1, 20
+  l32r  a2, lit_rom_uvec
+  jx    a2
+  align 64
+_Unused:                              ; 0x380
+  j     vec_exc
+  align 64
+_DoubleExceptionVector:               ; 0x3C0: the cause 0x200 + exccause
+  l32r  a0, lit_vars
+  rsr   a3, exccause
+  addmi a3, a3, 0x200
+  rsr   a2, depc
+  s32i  a3, a0, 112
+  s32i  a2, a0, 116
+  l32r  a4, lit_rf_dexc
+  wsr   a4, depc
+  rfde
+  align 1024
+
+; ---------- the functions of the console for programs: at fixed places (VECBASE + 0x400 = 0x4009C800), each a jump
+; of 4 bytes, called with callx8 (windowed, as the functions of the ROM) ----------
+jt_exit:                              ; 0x4009C800  exit(code): the program ends, the console goes on
+  j     api_exit
+  align 4
+jt_version:                           ; 0x4009C804  version() i32: 2 (the functions up to args; 1: up to flash_read)
+  j     api_version
+  align 4
+jt_put_char:                          ; 0x4009C808  put_char(c): a byte to the terminal
+  j     put_char
+  align 4
+jt_get_char:                          ; 0x4009C80C  get_char() i32: the next byte from the terminal (waits for it)
+  j     get_char
+  align 4
+jt_poll_char:                         ; 0x4009C810  poll_char() i32: the next byte, -1 if none came
+  j     api_poll_char
+  align 4
+jt_print:                             ; 0x4009C814  print(text): a text up to its 0
+  j     print
+  align 4
+jt_millis:                            ; 0x4009C818  millis() i32: milliseconds (see api_millis)
+  j     api_millis
+  align 4
+jt_file_size:                         ; 0x4009C81C  file_size(name) i32: the length of a file, -1 none
+  j     api_file_size
+  align 4
+jt_file_read:                         ; 0x4009C820  file_read(name, buffer, offset, count) i32: bytes read, -1
+  j     api_file_read
+  align 4
+jt_file_write:                        ; 0x4009C824  file_write(name, buffer, count) i32: 0 done, < 0 an error
+  j     api_file_write
+  align 4
+jt_flash_read:                        ; 0x4009C828  flash_read(address, buffer, count) i32: 0 done, -1
+  j     flash_bytes
+  align 4
+jt_args:                              ; 0x4009C82C  args() pchar: the text of the arguments (version 2)
+  j     api_args
+  align 4
+jt_debug_end:                         ; 0x4009C830  not for programs: the debug monitor ends one here (its q)
+  j     rf_dbg
+  align 4
+
+; the rest of the exceptions (the registers of the program are lost; a2 its pc, a3 the cause)
+vec_high2:
+  s32i  a3, a0, 112
+  s32i  a2, a0, 116
+  rfi   2
+vec_high3:
+  s32i  a3, a0, 112
+  s32i  a2, a0, 116
+  rfi   3
+vec_high4:
+  s32i  a3, a0, 112
+  s32i  a2, a0, 116
+  rfi   4
+vec_high5:
+  s32i  a3, a0, 112
+  s32i  a2, a0, 116
+  rfi   5
+vec_high6:
+  s32i  a3, a0, 112
+  s32i  a2, a0, 116
+  rfi   6
+vec_exc:                             ; kernel and user exceptions: exccause, epc1, excvaddr
+  l32r  a0, lit_vars
+  rsr   a2, exccause
+  s32i  a2, a0, 112
+  rsr   a2, epc1
+  s32i  a2, a0, 116
+  rsr   a2, excvaddr
+  s32i  a2, a0, 120
+  l32r  a2, lit_rf_exc
+  wsr   a2, epc1
+  rfe
+
+; the NMI while a program runs (key_on): what came over UART0 into the ring (the NMI alone fills it then: rx_poll
+; leaves UART0 alone; a byte for a full ring is dropped). Ctrl+C is not for the program: it stops it, out of the NMI
+; to rf_key, from wherever it is (also in a function of the console, the ROM or a handler of the windows); only while
+; a function of the ROM writes the flash (vars+168) it waits for its end (fl_read, fl_write, fl_erase). a1 .. a5 of
+; the program wait in vars+144 .. +160
+nmi_key:
+  l32r  a0, lit_vars
+  s32i  a1, a0, 144
+  s32i  a2, a0, 148
+  s32i  a3, a0, 152
+  s32i  a4, a0, 156
+  s32i  a5, a0, 160
+  l32r  a1, lit_uart0
+  l32r  a5, lit_ring
+nk_next:
+  l32i  a2, a1, 0x1C
+  extui a2, a2, 0, 8                 ; RXFIFO_CNT
+  beqz  a2, nk_done
+  l32i  a2, a1, 0                    ; a byte (UART_FIFO_REG on the APB)
+  movi  a3, 3
+  bne   a2, a3, nk_keep
+  s32i  a3, a0, 164                  ; Ctrl+C
+  j     nk_next
+nk_keep:
+  l32i  a3, a0, 0                    ; where it goes
+  add   a4, a5, a3
+  s8i   a2, a4, 0
+  addi  a3, a3, 1
+  extui a3, a3, 0, 12
+  l32i  a4, a0, 4
+  beq   a3, a4, nk_next              ; the ring is full
+  s32i  a3, a0, 0
+  j     nk_next
+nk_done:
+  movi  a2, -1
+  s32i  a2, a1, 0x10                 ; UART_INT_CLR_REG
+  memw
+  l32i  a2, a0, 164
+  beqz  a2, nk_back
+  l32i  a2, a0, 168
+  bnez  a2, nk_back                  ; the flash is busy: the end of the function of the ROM stops it
+  l32r  a2, lit_rf_key
+  wsr   a2, epc7
+  rfi   7
+nk_back:
+  l32i  a1, a0, 144
+  l32i  a2, a0, 148
+  l32i  a3, a0, 152
+  l32i  a4, a0, 156
+  l32i  a5, a0, 160
+  rsr   a0, excsave7
+  rfi   7
+
+; exit(code): from any depth of the program back to the console
+  align 4
+api_exit:
+  entry a1, 32
+  movi  a3, 1
+  j     rf_longjmp
+
+; version() i32: which functions the table has (1: exit .. flash_read, 2: and args)
+  align 4
+api_version:
+  entry a1, 32
+  movi  a2, 2
+  retw
+
+; poll_char() i32: the next byte that came in, -1 if none
+  align 4
+api_poll_char:
+  entry a1, 32
+  call8 rx_poll
+  l32r  a4, lit_vars
+  l32i  a5, a4, 0
+  l32i  a6, a4, 4
+  movi  a2, -1
+  beq   a5, a6, poll_done
+  call8 get_char
+  mov   a2, a10
+poll_done:
+  retw
+
+; millis() i32: milliseconds, counted from ccount at each call (before the first one: since the core started); a
+; program has to call it at least once in 2^32 cycles (107 s at 40 MHz, 17 s at 240 MHz)
+  align 4
+api_millis:
+  entry a1, 32
+  call8 ms_cycles                    ; the cycles in a millisecond into a10
+  l32r  a4, lit_vars
+  rsr   a5, ccount
+  l32i  a6, a4, 128                  ; ccount at the call before
+  s32i  a5, a4, 128
+  sub   a5, a5, a6
+  l32i  a6, a4, 132                  ; the cycles left over then
+  add   a5, a5, a6
+  quou  a6, a5, a10
+  remu  a5, a5, a10
+  s32i  a5, a4, 132
+  l32i  a2, a4, 136
+  add   a2, a2, a6
+  s32i  a2, a4, 136
+  retw
+
+; the entry of the file a2 (its address in DIRBUF), 0 if there is none or no file system
+  align 4
+file_entry:
+  entry a1, 32
+  l32r  a4, lit_vars
+  l32i  a4, a4, 16
+  beqz  a4, fn_none
+  mov   a10, a2
+  call8 find_entry
+  bltz  a10, fn_none
+  call8 entry_at
+  mov   a2, a10
+  retw
+fn_none:
+  movi  a2, 0
+  retw
+
+; file_size(name) i32: the length of the file, -1 if there is none
+  align 4
+api_file_size:
+  entry a1, 32
+  mov   a10, a2
+  call8 file_entry
+  movi  a2, -1
+  beqz  a10, fz_done
+  l32i  a2, a10, 24
+fz_done:
+  retw
+
+; file_read(name, buffer, offset, count) i32: up to count bytes of the file from offset on into buffer; how many (0
+; from its end on), -1 if there is no such file or the flash cannot be read
+  align 4
+api_file_read:
+  entry a1, 32
+  mov   a10, a2
+  call8 file_entry
+  beqz  a10, fr_none
+  l32i  a6, a10, 24                  ; the length
+  l32i  a7, a10, 20                  ; the first sector
+  movi  a2, 0
+  bgeu  a4, a6, fr_done              ; from its end on: nothing
+  sub   a6, a6, a4                   ; the bytes from offset on
+  bgeu  a6, a5, fr_count
+  mov   a5, a6
+fr_count:
+  slli  a10, a7, 12
+  add   a10, a10, a4
+  mov   a11, a3
+  mov   a12, a5
+  call8 flash_bytes
+  bnez  a10, fr_none
+  mov   a2, a5
+fr_done:
+  retw
+fr_none:
+  movi  a2, -1
+  retw
+
+; file_write(name, buffer, count) i32: a file with the count bytes at buffer (a new one, or a new text for one: the
+; old text stays until the directory is written); 0 done, -1 the directory is full, -2 not enough room in the flash,
+; -3 the flash cannot be written, -4 not a valid name, -5 no file system
+  align 4
+api_file_write:
+  entry a1, 32
+  l32r  a5, lit_vars
+  l32i  a5, a5, 16
+  movi  a6, -5
+  beqz  a5, fw_done
+  mov   a10, a2
+  call8 name_problem
+  movi  a6, -4
+  bnez  a10, fw_done
+  movi  a6, -2
+  bltz  a4, fw_done
+  mov   a10, a2
+  mov   a11, a3
+  mov   a12, a4
+  call8 store_file
+  mov   a6, a10
+fw_done:
+  mov   a2, a6
+  retw
+
+; flash_read(address, buffer, count) i32: a4 bytes of the flash from a2 on (any address, any count) to a3, in pieces
+; through SMALL; 0 done, -1 the flash cannot be read there
+  align 4
+flash_bytes:
+  entry a1, 32
+fb_part:
+  beqz  a4, fb_ok
+  movi  a5, -4
+  and   a5, a2, a5                   ; the word where the piece starts
+  sub   a6, a2, a5                   ; the bytes before it in that word
+  movi  a7, 252                      ; the piece: at most 252 bytes (with a6 at most 256 to read)
+  bgeu  a4, a7, fb_read
+  mov   a7, a4
+fb_read:
+  add   a12, a6, a7
+  addi  a12, a12, 3
+  srli  a12, a12, 2
+  slli  a12, a12, 2
+  mov   a10, a5
+  l32r  a11, lit_small
+  call8 fl_read
+  bnez  a10, fb_bad
+  l32r  a8, lit_small
+  add   a8, a8, a6
+  movi  a9, 0
+fb_copy:
+  add   a10, a8, a9
+  l8ui  a10, a10, 0
+  add   a11, a3, a9
+  s8i   a10, a11, 0
+  addi  a9, a9, 1
+  bltu  a9, a7, fb_copy
+  add   a2, a2, a7
+  add   a3, a3, a7
+  sub   a4, a4, a7
+  j     fb_part
+fb_ok:
+  movi  a2, 0
+  retw
+fb_bad:
+  movi  a2, -1
+  retw
 
 ; ---------- the commands ----------
 
@@ -356,9 +911,21 @@ cm_6d:
   call8 ext_help
   retw
 cm_7:
+  mov   a10, a2
+  l32r  a11, lit_c_wlan
+  call8 streq
+  beqz  a10, cm_8
+  mov   a10, a3
+  call8 cmd_wlan
+  retw
+cm_8:
   mov   a10, a2                      ; a command of the part that load put there?
   mov   a11, a3
   call8 ext_command
+  bnez  a10, cm_done
+  mov   a10, a2                      ; a program of this name in the files?
+  mov   a11, a3
+  call8 cmd_file
   bnez  a10, cm_done
   l32r  a10, lit_s_unknown
   call8 print
@@ -367,6 +934,68 @@ cm_7:
   l32r  a10, lit_s_unknown2
   call8 print
 cm_done:
+  retw
+
+; a command a2 the console does not know: the program of the file a2, else of a2 + ".bin" (as Upload This Program
+; names it), with the rest of the line a3 as its arguments (args(), its a2), started as a command (run_file with 2:
+; nothing before it, nothing after it when it ends with the code 0). 1 if there is such a file (it ran, or why not
+; is said), 0 if not
+  align 4
+cmd_file:
+  entry a1, 32
+  l32r  a4, lit_vars
+  l32i  a4, a4, 16
+  beqz  a4, cf_no                    ; no file system
+  mov   a10, a2
+  call8 find_entry
+  bgez  a10, cf_run
+  mov   a10, a2
+  call8 strlen
+  movi  a4, 15
+  bltu  a4, a10, cf_no               ; the name with .bin would be longer than 19 characters
+  l32r  a5, lit_chunk                ; the name with .bin into CHUNK (free while no program runs)
+  mov   a6, a2
+cf_name:
+  l8ui  a7, a6, 0
+  s8i   a7, a5, 0
+  beqz  a7, cf_ext
+  addi  a5, a5, 1
+  addi  a6, a6, 1
+  j     cf_name
+cf_ext:
+  l32r  a6, lit_s_bin
+cf_ext2:
+  l8ui  a7, a6, 0
+  s8i   a7, a5, 0
+  addi  a5, a5, 1
+  addi  a6, a6, 1
+  bnez  a7, cf_ext2
+  l32r  a10, lit_chunk
+  call8 find_entry
+  bltz  a10, cf_no
+  l32r  a2, lit_chunk
+cf_run:
+  mov   a10, a2
+  movi  a11, 2
+  mov   a12, a3
+  call8 run_file
+  beqz  a10, cf_yes                  ; it ran and ended (rf_after said how, if at all)
+  call8 print                        ; it did not start: why
+  l32r  a10, lit_s_crlf
+  call8 print
+cf_yes:
+  movi  a2, 1
+  retw
+cf_no:
+  movi  a2, 0
+  retw
+
+; args() for a program: the text of its arguments (the rest of the line of a command; empty for run)
+  align 4
+api_args:
+  entry a1, 32
+  l32r  a2, lit_vars
+  l32i  a2, a2, 180
   retw
 
 ; the cycles of the core in a millisecond in a2: as the ROM counts them (g_ticks_per_us_pro, which
@@ -757,7 +1386,7 @@ pm_ok:
 ; A packet: STX (0x02), the command, the length of the data (16 bits), the data, the CRC-32 of the command, the
 ; length and the data (all little endian). The PC sends one and waits for the answer. A name is a field of 20 bytes
 ; (the name, zeros behind it).
-;   P              -> k "Asmonite console 1"
+;   P              -> k "Asmonite console 2"
 ;   F              -> f files, bytes in use, bytes free (3 words), the name of the program for boot
 ;   L              -> l for each file: name, length, CRC-32 (28 bytes)
 ;   O name len crc -> k  a file opens for writing: its sectors are erased (a while: 50 ms each)
@@ -769,6 +1398,19 @@ pm_ok:
 ;   B name         -> k  the program for boot (a field of zeros: none)
 ;   M              -> k  a new, empty file system (all files are lost)
 ;   Q              -> k  back to the commands for a terminal (also after a second without a packet)
+;   R address bytes -> k  the bytes (whole words, up to 1024) into the RAM of the programs (Run of Asmonite); into
+;                         the room of the WiFi (the large window): the WiFi stops first, until the program ends
+;   E entry        -> k  the program R put into the RAM starts at its entry (as X: then it runs, and ends as there)
+;   T entry [flags] -> k  as E, for the debug monitor of Asmonite that R put into the RTC FAST memory (0x400C0000,
+;                         R takes that room too): its vectors while the program runs, entry its host (mon_host), which
+;                         stops at once; the debugger loads the program and starts it from there (M2). flags bit 0:
+;                         that program takes the room of the WiFi: the WiFi stops first, until the program ends
+;   A address length crc -> k  as O, for the room of the WiFi package in the flash (0x100000 .. 0x1FFFFF; address a
+;                         multiple of 4 KB): its sectors are erased; then W and C as for a file, C puts nothing into the
+;                         directory. The WiFi stops first (its code and data come from this room)
+;   Y address count -> d  the bytes of the flash there (count up to 1024, address a multiple of 4)
+;   K address count -> k  the CRC-32 of count bytes of the flash at address (a multiple of 4; below 4 MB): Asmonite
+;                         compares the console in the flash with its own and writes it again when they differ
 ;   I              -> k  the JEDEC id of the flash (4 bytes: the maker, the type, the size as a power of two, 0)
 ;   S              -> k  the divider of UART0 now (UART_CLKDIV_REG, 4 bytes)
 ;   S divider      -> k  at the rate now, then UART0 at the new divider: the next packet has to come right at the new
@@ -859,9 +1501,12 @@ sd_wait2:
   align 4
 pk_ident:
   entry a1, 32
+  call8 core1_park                   ; SPI1 asks the flash (core 1 parked while the WiFi runs)
   call8 flash_ident
+  mov   a2, a10
+  call8 core1_free
   l32r  a6, lit_vars
-  s32i  a10, a6, 76
+  s32i  a2, a6, 76
   movi  a10, 107                     ; 'k'
   addi  a11, a6, 76
   movi  a12, 4
@@ -1172,8 +1817,33 @@ dp_q2:
   j     dp_done
 dp_i:
   movi  a5, 73                       ; 'I'
-  bne   a3, a5, dp_q3
+  bne   a3, a5, dp_r
   call8 pk_ident
+  j     dp_done
+dp_r:
+  movi  a5, 82                       ; 'R'
+  bne   a3, a5, dp_e
+  call8 pk_ram
+  j     dp_done
+dp_e:
+  movi  a5, 69                       ; 'E'
+  bne   a3, a5, dp_t
+  call8 pk_exec
+  j     dp_done
+dp_t:
+  movi  a5, 84                       ; 'T'
+  bne   a3, a5, dp_a
+  call8 pk_debug
+  j     dp_done
+dp_a:
+  movi  a5, 65                       ; 'A'
+  bne   a3, a5, dp_y
+  call8 pk_area
+  j     dp_done
+dp_y:
+  movi  a5, 89                       ; 'Y'
+  bne   a3, a5, dp_q3
+  call8 pk_flash
   j     dp_done
 dp_q3:
   movi  a5, 81                       ; 'Q'
@@ -1182,7 +1852,7 @@ dp_q3:
   movi  a2, 1
   retw
 dp_unknown:
-  l32r  a10, lit_e_unknown
+  j     dp_more                      ; K, at the end of the code (the code before keeps its addresses)
   call8 send_err
 dp_done:
   movi  a2, 0
@@ -1493,6 +2163,7 @@ pc_whole:
   retw
 pc_dir:
   l32i  a10, a4, 40
+  bltz  a10, pc_ok                   ; the room of the WiFi package (A): no entry
   call8 entry_at
   l32r  a3, lit_wname
   movi  a5, 0
@@ -1561,6 +2232,7 @@ pg_read:
   slli  a12, a12, 2
   beqz  a12, pg_send
   call8 fl_read
+  bnez  a10, pg_err
 pg_send:
   movi  a10, 100                     ; 'd'
   l32r  a11, lit_out
@@ -1570,6 +2242,10 @@ pg_send:
   retw
 pg_bad:
   l32r  a10, lit_e_place
+  call8 send_err
+  retw
+pg_err:
+  l32r  a10, lit_s_flasherr
   call8 send_err
   retw
 
@@ -1616,8 +2292,270 @@ px_name:
   l32r  a10, lit_pkt
   addi  a10, a10, 4
   movi  a11, 1
+  movi  a12, 0
   call8 run_file
+  beqz  a10, px_done                 ; it ran and ended (rf_after said how)
   call8 send_err                     ; it did not start
+px_done:
+  retw
+
+; R address bytes: the bytes (whole words, up to 1024) into the room of the programs (code or data) at the address
+  align 4
+pk_ram:
+  entry a1, 32
+  addi  a2, a2, -4                   ; the bytes
+  blti  a2, 4, pr_size
+  extui a3, a2, 0, 2
+  bnez  a3, pr_size
+  movi  a3, 1024
+  bgeu  a3, a2, pr_sized
+pr_size:
+  l32r  a10, lit_e_size
+  call8 send_err
+  retw
+pr_sized:
+  l32r  a3, lit_pkt
+  l32i  a4, a3, 4                    ; the address
+  extui a5, a4, 0, 2
+  bnez  a5, pr_where
+  mov   a10, a4
+  mov   a11, a2
+  movi  a12, 0
+  call8 segment_fits
+  beqi  a10, 1, pr_room
+  l32r  a5, lit_monvec               ; the RTC FAST memory: the debug monitor of Asmonite (T)
+  bltu  a4, a5, pr_where
+  add   a6, a4, a2
+  l32r  a5, lit_rtc_hi
+  bltu  a5, a6, pr_where
+  j     pr_fits
+pr_room:                             ; in the room of the WiFi: the WiFi stops first (it starts again after the program)
+  mov   a10, a4
+  mov   a11, a2
+  call8 wifi_room
+  beqz  a10, pr_fits
+  call8 wlan_yield
+  beqz  a10, pr_fits
+  call8 send_err
+  retw
+pr_fits:
+  addi  a3, a3, 8
+  movi  a5, 0
+pr_word:                             ; a word at a time (the IRAM takes words only)
+  add   a6, a3, a5
+  l32i  a6, a6, 0
+  add   a7, a4, a5
+  s32i  a6, a7, 0
+  addi  a5, a5, 4
+  bltu  a5, a2, pr_word
+  memw
+  call8 send_ok
+  retw
+pr_where:
+  l32r  a10, lit_e_where
+  call8 send_err
+  retw
+
+; E entry: k, then the program that R put into the RAM starts at its entry (no arguments; it ends as one of X)
+  align 4
+pk_exec:
+  entry a1, 32
+  movi  a3, 4
+  beq   a2, a3, pe_len
+  l32r  a10, lit_e_size
+  call8 send_err
+  retw
+pe_len:
+  l32r  a3, lit_pkt
+  l32i  a2, a3, 4                    ; the entry
+  mov   a10, a2
+  movi  a11, 4
+  movi  a12, 0
+  call8 segment_fits
+  beqi  a10, 1, pe_fits
+  l32r  a10, lit_e_where
+  call8 send_err
+  retw
+pe_fits:
+  l32r  a5, lit_vars
+  s32i  a2, a5, 48                   ; the entry
+  movi  a3, 1
+  s32i  a3, a5, 184                  ; started by a packet
+  l32r  a4, lit_s_empty
+  s32i  a4, a5, 180                  ; no arguments
+  movi  a4, 0                        ; no file: its segments are in their place
+  j     rf_k                         ; on in run_file (the same frame: entry a1, 32)
+
+; T entry [flags]: as E, with the vectors of the debug monitor in the RTC FAST memory (0x400C0000) while it runs; entry
+; (its host mon_host) lies there too. flags bit 0: the program of the debugger takes the room of the WiFi (the large
+; window): the WiFi stops first, and starts again when the program ends
+  align 4
+pk_debug:
+  entry a1, 32
+  movi  a3, 4
+  beq   a2, a3, pt_len
+  movi  a3, 8
+  beq   a2, a3, pt_len
+  l32r  a10, lit_e_size
+  call8 send_err
+  retw
+pt_len:
+  mov   a6, a2                       ; the length
+  l32r  a3, lit_pkt
+  l32i  a2, a3, 4                    ; the entry
+  l32r  a4, lit_monvec
+  bltu  a2, a4, pt_where
+  l32r  a4, lit_rtc_hi
+  bgeu  a2, a4, pt_where
+  beqi  a6, 4, pt_go
+  l32i  a7, a3, 8
+  bbci  a7, 0, pt_go
+  call8 wlan_yield
+  beqz  a10, pt_go
+  call8 send_err
+  retw
+pt_go:
+  l32r  a5, lit_vars
+  movi  a3, 1
+  s32i  a3, a5, 188                  ; the vectors of the monitor (rf_go)
+  j     pe_fits                      ; on as E (the same frame: entry a1, 32)
+pt_where:
+  l32r  a10, lit_e_where
+  call8 send_err
+  retw
+
+; A address length crc: a part of the room of the WiFi package opens for writing as a file of O, its sectors erased;
+; W and C as for a file (vars+40 -1: C puts nothing into the directory)
+  align 4
+pk_area:
+  entry a1, 32
+  movi  a3, 12
+  beq   a2, a3, pa_len
+  l32r  a10, lit_e_size
+  call8 send_err
+  retw
+pa_len:
+  call8 svc_runs
+  beqz  a10, pa_still
+  call8 wlan_halt                    ; the WiFi off first (version 8: wifi_halt; it starts again at the next start
+  call8 svc_runs                     ; of the console or with wlan on)
+  beqz  a10, pa_still
+  l32r  a10, lit_e_wifiruns          ; an older service: still running
+  call8 send_err
+  retw
+pa_still:
+  l32r  a2, lit_pkt
+  l32i  a3, a2, 4                    ; the address
+  l32i  a4, a2, 8                    ; the length
+  extui a5, a3, 0, 12
+  bnez  a5, pa_where                 ; a whole sector
+  l32r  a5, lit_wifi_lo
+  bltu  a3, a5, pa_where
+  l32r  a5, lit_wifi_hi
+  bltu  a5, a3, pa_where
+  sub   a6, a5, a3                   ; the room from the address on
+  bltu  a6, a4, pa_where
+  movi  a6, 1
+  slli  a6, a6, 12
+  addi  a6, a6, -1
+  add   a6, a4, a6
+  srli  a6, a6, 12                   ; the sectors
+  srli  a7, a3, 12                   ; the first one
+  movi  a5, 0
+pa_erase:
+  beq   a5, a6, pa_state
+  add   a10, a7, a5
+  call8 fl_erase
+  bnez  a10, pa_err
+  addi  a5, a5, 1
+  j     pa_erase
+pa_state:
+  l32r  a5, lit_vars
+  movi  a6, 1
+  s32i  a6, a5, 20                   ; open
+  s32i  a7, a5, 24                   ; the first sector
+  s32i  a4, a5, 28                   ; the length
+  l32i  a6, a2, 12
+  s32i  a6, a5, 32                   ; the CRC-32
+  movi  a6, 0
+  s32i  a6, a5, 36                   ; written so far
+  movi  a6, -1
+  s32i  a6, a5, 40                   ; no entry: the room of the WiFi package
+  s32i  a6, a5, 44                   ; the offset of the last piece
+  call8 send_ok
+  retw
+pa_where:
+  l32r  a10, lit_e_area
+  call8 send_err
+  retw
+pa_err:
+  l32r  a10, lit_s_flasherr
+  call8 send_err
+  retw
+
+; Y address count: bytes of the flash in the room of the WiFi package (count up to 1024)
+  align 4
+pk_flash:
+  entry a1, 32
+  movi  a3, 8
+  beq   a2, a3, py_len
+  l32r  a10, lit_e_size
+  call8 send_err
+  retw
+py_len:
+  l32r  a2, lit_pkt
+  l32i  a3, a2, 4                    ; the address
+  l32i  a4, a2, 8                    ; the count
+  extui a5, a3, 0, 2
+  bnez  a5, py_where
+  movi  a5, 1024
+  bltu  a5, a4, py_where
+  l32r  a5, lit_wifi_lo
+  bltu  a3, a5, py_where
+  l32r  a5, lit_wifi_hi
+  bltu  a5, a3, py_where
+  sub   a6, a5, a3
+  bltu  a6, a4, py_where
+  mov   a10, a3
+  l32r  a11, lit_out
+  addi  a11, a11, 4
+  addi  a12, a4, 3
+  srli  a12, a12, 2
+  slli  a12, a12, 2
+  beqz  a12, py_send
+  call8 fl_read
+  bnez  a10, py_err
+py_send:
+  movi  a10, 100                     ; 'd'
+  l32r  a11, lit_out
+  addi  a11, a11, 4
+  mov   a12, a4
+  call8 send_packet
+  retw
+py_where:
+  l32r  a10, lit_e_area
+  call8 send_err
+  retw
+py_err:
+  l32r  a10, lit_s_flasherr
+  call8 send_err
+  retw
+
+; 1 if the WiFi service runs on core 1 (core 1 has its clock, the service its mark "WSVC"), else 0
+  align 4
+svc_runs:
+  entry a1, 32
+  movi  a2, 0
+  l32r  a3, lit_appclk
+  l32i  a3, a3, 0
+  extui a3, a3, 0, 1
+  beqz  a3, sr_done
+  l32r  a3, lit_svcmark
+  l32i  a3, a3, 0
+  l32r  a4, lit_svcmagic
+  bne   a3, a4, sr_done
+  movi  a2, 1
+sr_done:
   retw
 
 ; B name: the program for boot (a name field of zeros: none)
@@ -1685,7 +2623,9 @@ cmd_run:
   beqz  a10, cr_end
   mov   a10, a2
   movi  a11, 0
+  movi  a12, 0
   call8 run_file
+  beqz  a10, cr_end                  ; it ran and ended (rf_after said how)
   call8 print                        ; it did not start: why
   l32r  a10, lit_s_crlf
   call8 print
@@ -1861,7 +2801,9 @@ as_wait:
   bltu  a5, a3, as_wait
   mov   a10, a2
   movi  a11, 0
+  movi  a12, 0
   call8 run_file
+  beqz  a10, as_end                  ; it ran and ended (rf_after said how)
   call8 print                        ; it did not start: why
   l32r  a10, lit_s_crlf
   call8 print
@@ -1872,11 +2814,18 @@ as_stay:
 as_end:
   retw
 
-; the program in the file a2 into its place, then its entry; a3 = 1: k before (packets), else a line. Comes back
-; only when it cannot start: the text that says why
+; the program in the file a2 into its place, then its entry; a3 = 0: "Running name" before, 1: k before (packets),
+; 2: a command (nothing before, and nothing after when it ends with the code 0); a4 the text of its arguments (args(),
+; its a2; 0: none). Comes back only when it cannot start: the text that says why
   align 4
 run_file:
   entry a1, 32
+  l32r  a5, lit_vars
+  s32i  a3, a5, 184                  ; how it started
+  bnez  a4, rf_args
+  l32r  a4, lit_s_empty
+rf_args:
+  s32i  a4, a5, 180                  ; its arguments
   l32r  a4, lit_vars
   l32i  a4, a4, 16
   bnez  a4, rf_fs
@@ -1906,6 +2855,7 @@ rf_whole:
   mov   a2, a10
   retw
 rf_load:
+  beqi  a3, 2, rf_go                 ; a command: at once
   bnez  a3, rf_k
   l32r  a10, lit_s_running
   call8 print
@@ -1917,15 +2867,247 @@ rf_load:
 rf_k:
   call8 send_ok
 rf_go:
+  beqz  a4, rf_placed                ; E: R put it into its place
   mov   a10, a4
   movi  a11, 1
   call8 segments                     ; now into their place
+rf_placed:
   call8 uart_drain
+  ; the program gets a stack of its own (the top of its data) and the vectors of the console; the frames of the
+  ; console go into its stack first, so that the program may take all the registers (spill)
+  call8 spill
   l32r  a5, lit_vars
+  s32i  a0, a5, 92                   ; the return of run_file and its sp: rf_after comes back here from any window
+  s32i  a1, a5, 96
+  rsr   a6, ps
+  s32i  a6, a5, 100
+  rsr   a6, vecbase
+  s32i  a6, a5, 104
+  rsr   a6, intenable
+  s32i  a6, a5, 124
+  movi  a6, 0
+  s32i  a6, a5, 112
+  s32i  a6, a5, 120
+  s32i  a6, a5, 164                  ; no Ctrl+C yet
+  s32i  a6, a5, 168                  ; the flash is not busy
+  l32r  a6, lit_vectors
+  l32i  a7, a5, 188                  ; T: the vectors of the debug monitor (it stops the program, its NMI a pause)
+  beqz  a7, rf_vec
+  l32r  a6, lit_monvec
+rf_vec:
+  wsr   a6, vecbase
+  call8 key_on                       ; UART0 to the NMI: Ctrl+C stops the program
+  rsr   a6, intenable
+  l32r  a7, lit_nmibit
+  or    a6, a6, a7
+  wsr   a6, intenable
   l32i  a8, a5, 48                   ; the entry of the program
+  l32r  a9, lit_pstack
+  ; the base save area below its first sp: a0 and sp of a caller that is none; the handlers of the windows read
+  ; that sp ([sp-12]) when they spill this frame and put its a4..a7 32 bytes below it, so it points 32 bytes above
+  ; the stack (as the debug monitor does it)
+  addi  a6, a9, -16
+  movi  a7, 0
+  s32i  a7, a6, 0
+  addi  a7, a9, 32
+  s32i  a7, a6, 4
+  memw
   isync
-  callx8 a8                          ; as the boot ROM does; it does not come back
-  j     rf_go
+  mov   a1, a9
+  l32i  a10, a5, 180                 ; its a2: the text of its arguments
+  callx8 a8                          ; as the boot ROM calls a program, now on the stack of the program
+  mov   a2, a10                      ; it returned: its a2 is the code
+  movi  a3, 0
+  j     rf_after
+
+; the program stopped by an exception (the vectors above): from the window it was in
+rf_dexc:
+  rsr   a2, ps                       ; after a double exception EXCM is still set
+  movi  a3, -17
+  and   a2, a2, a3
+  wsr   a2, ps
+  rsync
+rf_exc:
+  movi  a2, 0
+  movi  a3, 3
+  j     rf_longjmp
+; the debug monitor ends the program (its q, over 0x4009C830)
+rf_dbg:
+  movi  a2, 0
+  movi  a3, 4
+  j     rf_longjmp
+; Ctrl+C (out of the NMI, or after a function of the ROM for the flash)
+rf_key:
+  movi  a2, 0
+  movi  a3, 2
+; a2 the code, a3 how it ended (1 exit, 2 Ctrl+C, 3 an exception, 4 the debugger): from any window of the program. Only this window stays;
+; the frames of the console are in its stack (spill), the ones of the program are dropped
+rf_longjmp:
+  rsr   a4, windowbase
+  movi  a5, 1
+  ssl   a4
+  sll   a5, a5
+  wsr   a5, windowstart
+  rsync
+; back in the console: its sp, the return of run_file, ps, the vectors and interrupts as before; then what happened
+rf_after:
+  ; a debug session (T): an end through the console (exit, Ctrl+C, an exception) stops the debugger first, at the
+  ; break rf_dbgbreak with a2 the code and a3 how; the mark is gone before it (never a second time)
+  beqz  a3, ra_go
+  beqi  a3, 4, ra_go
+  l32r  a5, lit_vars
+  l32i  a6, a5, 188
+  beqz  a6, ra_go
+  movi  a6, 0
+  s32i  a6, a5, 188
+  memw
+rf_dbgbreak:
+  break 1, 14
+ra_go:
+  l32r  a5, lit_vars
+  l32i  a6, a5, 100
+  wsr   a6, ps
+  rsync
+  l32i  a0, a5, 92
+  l32i  a1, a5, 96
+  l32i  a6, a5, 104
+  wsr   a6, vecbase
+  l32i  a6, a5, 124
+  wsr   a6, intenable                ; the NMI off
+  isync
+  s32i  a3, a5, 108
+  mov   a4, a2
+  call8 key_off                      ; UART0 as before
+  movi  a6, 0
+  s32i  a6, a5, 164                  ; no Ctrl+C waits (fl_done)
+  s32i  a6, a5, 168
+  s32i  a6, a5, 188                  ; the vectors of the console again next time
+  l32i  a6, a5, 0                    ; what the program did not read is not for the console
+  s32i  a6, a5, 4
+  call8 uart_drain
+  movi  a6, 3
+  beq   a3, a6, rf_stopped
+  beqi  a3, 4, rf_dbgstop
+  movi  a6, 2
+  bne   a3, a6, rf_ended
+  l32r  a10, lit_s_keystop           ; Program stopped (Ctrl+C).
+  call8 print
+  j     rf_back
+rf_ended:
+  l32i  a6, a5, 184
+  bnei  a6, 2, rf_say
+  bnez  a4, rf_say
+  j     rf_back                      ; a command that ended well: nothing to say
+rf_say:
+  l32r  a10, lit_s_ended             ; Program ended (code n).
+  call8 print
+  mov   a10, a4
+  call8 print_dec
+  l32r  a10, lit_s_ended2
+  call8 print
+  j     rf_back
+rf_dbgstop:                          ; Program stopped by the debugger.
+  l32r  a10, lit_s_dbgstop
+  call8 print
+  j     rf_back
+rf_stopped:                          ; Program stopped: exception n at pc 0x..., address 0x...
+  l32r  a10, lit_s_stopped
+  call8 print
+  l32i  a10, a5, 112
+  call8 print_hex
+  l32r  a10, lit_s_at
+  call8 print
+  l32i  a10, a5, 116
+  call8 print_hex
+  l32r  a10, lit_s_addr
+  call8 print
+  l32i  a10, a5, 120
+  call8 print_hex
+  l32r  a10, lit_s_ended2
+  addi  a10, a10, 1
+  call8 print
+rf_back:                             ; the WiFi again, when it stopped for this program (the large window)
+  call8 wlan_back
+  movi  a2, 0
+  retw
+
+; every frame of the callers into its stack: a chain of calls that takes all 64 registers (call8, then call12
+; four times: 8 + 48 + the 16 of the last one), as the handlers of the windows do it when the program needs them
+  align 4
+spill:
+  entry a1, 32
+  call12 spill1
+  retw
+  align 4
+spill1:
+  entry a1, 48
+  call12 spill2
+  retw
+  align 4
+spill2:
+  entry a1, 48
+  call12 spill3
+  retw
+  align 4
+spill3:
+  entry a1, 48
+  call12 spill4
+  retw
+  align 4
+spill4:
+  entry a1, 48
+  retw
+
+; while a program runs: each byte over UART0 raises RXFIFO_FULL (threshold 1), the interrupt matrix leads it to the
+; CPU interrupt 14, the NMI (nmi_key; rf_go switches it on in INTENABLE); the threshold and the map before into vars
+; (+172, +176), vars+140 = 1: rx_poll leaves UART0 to the NMI
+  align 4
+key_on:
+  entry a1, 32
+  l32r  a2, lit_uart0
+  l32r  a4, lit_vars
+  movi  a3, 0
+  s32i  a3, a2, 0x0C                 ; UART_INT_ENA_REG: none
+  movi  a3, -1
+  s32i  a3, a2, 0x10                 ; UART_INT_CLR_REG
+  l32i  a3, a2, 0x24                 ; UART_CONF1_REG: bits 6..0 the threshold of RXFIFO_FULL
+  s32i  a3, a4, 172
+  movi  a5, -128
+  and   a3, a3, a5
+  addi  a3, a3, 1
+  s32i  a3, a2, 0x24
+  l32r  a5, lit_intmap
+  l32i  a6, a5, 0
+  s32i  a6, a4, 176
+  movi  a6, 14
+  s32i  a6, a5, 0
+  movi  a3, 1
+  s32i  a3, a4, 140
+  memw
+  movi  a3, 1
+  s32i  a3, a2, 0x0C                 ; RXFIFO_FULL
+  memw
+  retw
+
+; UART0 as before key_on (the NMI is off already: INTENABLE as before the program)
+  align 4
+key_off:
+  entry a1, 32
+  l32r  a2, lit_uart0
+  l32r  a4, lit_vars
+  movi  a3, 0
+  s32i  a3, a2, 0x0C
+  movi  a3, -1
+  s32i  a3, a2, 0x10
+  l32i  a3, a4, 172
+  s32i  a3, a2, 0x24
+  l32r  a5, lit_intmap
+  l32i  a6, a4, 176
+  s32i  a6, a5, 0
+  movi  a3, 0
+  s32i  a3, a4, 140
+  memw
+  retw
 
 ; the segments of the program in the file of entry a2: a3 bit 0 = 0 checked, 1 copied into their place; bit 1 = 1 for
 ; load (the room between the programs and the console too, the segments for the flash left out and counted in
@@ -1996,6 +3178,17 @@ sg_next:
 sg_ram:
   extui a7, a3, 0, 1
   beqz  a7, sg_skip
+  bbsi  a3, 1, sg_copy               ; load: its parts, the WiFi as it is
+  l32r  a7, lit_vars                 ; a program in the room of the WiFi: the WiFi stops first
+  l32i  a10, a7, 52
+  l32i  a11, a7, 56
+  call8 wifi_room
+  beqz  a10, sg_copy
+  call8 wlan_yield
+  beqz  a10, sg_copy
+  mov   a2, a10
+  retw
+sg_copy:
   add   a10, a2, a6
   l32r  a7, lit_vars
   l32i  a11, a7, 52
@@ -2009,6 +3202,22 @@ sg_skip:
   j     sg_next
 sg_done:
   movi  a2, 0
+  retw
+
+; 1 if the a3 bytes at a2 reach into the room of the WiFi (the service and wlan.rom in the IRAM: the large window of a
+; program, step 7 of the plan for the board, M3.3), else 0
+  align 4
+wifi_room:
+  entry a1, 32
+  add   a3, a3, a2                   ; behind it
+  movi  a5, 0
+  l32r  a6, lit_wroom_lo
+  l32r  a7, lit_wroom_hi
+  bgeu  a2, a7, wr_done
+  bgeu  a6, a3, wr_done
+  movi  a5, 1
+wr_done:
+  mov   a2, a5
   retw
 
 ; 1 if a3 bytes at a2 lie in the room of a program (the IRAM or the DRAM below the console); with a4 = 1 (load) also
@@ -2378,102 +3587,152 @@ fs_none:
   movi  a2, -1
   retw
 
-; the file a2 with the a3 bytes of FILEBUF into the flash; 1 if done
+; the file a2 with the a4 bytes at a3 into the flash: into a new place first (piece by piece through CHUNK, each read
+; back), only then the directory points to it; 0 done, -1 the directory is full, -2 not enough room in the flash, -3
+; the flash cannot be written. The bytes may lie anywhere (the memory of a program: it is only read)
   align 4
-save_file:
-  entry a1, 32
+store_file:
+  entry a1, 48
+  s32i  a3, a1, 0                    ; the bytes
+  s32i  a4, a1, 4                    ; how many
   mov   a10, a2
   call8 find_entry
   mov   a5, a10                      ; its entry, or a free one
-  bgez  a5, sf_entry
+  bgez  a5, st_entry
   movi  a5, 0
-sf_free:
+st_free:
   mov   a10, a5
   call8 entry_at
   l8ui  a6, a10, 0
-  beqz  a6, sf_entry
+  beqz  a6, st_entry
   addi  a5, a5, 1
   movi  a6, 64
-  bltu  a5, a6, sf_free
-  l32r  a10, lit_s_dirfull
-  call8 print
-  movi  a2, 0
+  bltu  a5, a6, st_free
+  movi  a2, -1
   retw
-sf_entry:
+st_entry:
   call8 build_used                   ; the old text of the file stays where it is until the directory is written
   movi  a6, 1
   slli  a6, a6, 12
   addi  a6, a6, -1
-  add   a6, a3, a6
+  add   a6, a4, a6
   srli  a6, a6, 12                   ; the sectors
   mov   a10, a6
   call8 find_space
   mov   a7, a10                      ; the first sector
-  bgez  a7, sf_room
-  l32r  a10, lit_s_full
-  call8 print
-  movi  a2, 0
+  bgez  a7, st_room
+  movi  a2, -2
   retw
-sf_room:
-  l32r  a4, lit_filebuf              ; zeros up to a whole word
-  add   a4, a4, a3
-  movi  a10, 0
-  s8i   a10, a4, 0
-  s8i   a10, a4, 1
-  s8i   a10, a4, 2
+st_room:
   movi  a4, 0
-sf_erase:
-  beq   a4, a6, sf_write
+st_erase:
+  beq   a4, a6, st_write
   add   a10, a7, a4
   call8 fl_erase
-  bnez  a10, sf_err
+  bnez  a10, st_err
   addi  a4, a4, 1
-  j     sf_erase
-sf_write:
-  beqz  a3, sf_dir
-  slli  a10, a7, 12
-  l32r  a11, lit_filebuf
-  addi  a12, a3, 3
+  j     st_erase
+st_write:
+  l32i  a4, a1, 4                    ; the bytes still to write
+  slli  a6, a7, 12                   ; where they go
+st_piece:
+  beqz  a4, st_dir
+  movi  a10, 256                     ; a piece of at most 256 bytes into CHUNK, zeros up to a whole word
+  bgeu  a4, a10, st_copy
+  mov   a10, a4
+st_copy:
+  s32i  a10, a1, 8
+  l32r  a11, lit_chunk
+  srli  a12, a10, 2
+  slli  a12, a12, 2
+  add   a12, a11, a12
+  movi  a13, 0
+  s32i  a13, a12, 0
+  movi  a12, 0
+st_byte:
+  add   a13, a3, a12
+  l8ui  a13, a13, 0
+  add   a14, a11, a12
+  s8i   a13, a14, 0
+  addi  a12, a12, 1
+  bltu  a12, a10, st_byte
+  addi  a12, a10, 3
   srli  a12, a12, 2
   slli  a12, a12, 2
+  mov   a10, a6
   call8 fl_write
-  bnez  a10, sf_err
-  slli  a10, a7, 12
-  l32r  a11, lit_filebuf
-  addi  a12, a3, 3
+  bnez  a10, st_err
+  l32i  a12, a1, 8
+  addi  a12, a12, 3
   srli  a12, a12, 2
   slli  a12, a12, 2
+  mov   a10, a6
+  l32r  a11, lit_chunk
   call8 fl_verify
-  beqz  a10, sf_err
-sf_dir:
+  beqz  a10, st_err
+  l32i  a10, a1, 8
+  add   a3, a3, a10
+  add   a6, a6, a10
+  sub   a4, a4, a10
+  j     st_piece
+st_dir:
   mov   a10, a5
   call8 entry_at
   mov   a4, a10
   s32i  a7, a4, 20                   ; the first sector
-  s32i  a3, a4, 24                   ; the length
+  l32i  a12, a1, 4
+  s32i  a12, a4, 24                  ; the length
   movi  a10, 0
-  l32r  a11, lit_filebuf
-  mov   a12, a3
+  l32i  a11, a1, 0
   call8 crc32
   s32i  a10, a4, 28
   movi  a6, 0                        ; the name, with zeros up to 20 bytes
   movi  a7, 0                        ; 1: its end is passed
-sf_name:
+st_name:
   add   a10, a2, a6
   l8ui  a10, a10, 0
-  bnez  a10, sf_char
+  bnez  a10, st_char
   movi  a7, 1
-sf_char:
-  beqz  a7, sf_store
+st_char:
+  beqz  a7, st_store
   movi  a10, 0
-sf_store:
+st_store:
   add   a11, a4, a6
   s8i   a10, a11, 0
   addi  a6, a6, 1
   movi  a10, 20
-  bltu  a6, a10, sf_name
+  bltu  a6, a10, st_name
   call8 dir_save
-  beqz  a10, sf_err
+  beqz  a10, st_err
+  movi  a2, 0
+  retw
+st_err:
+  movi  a2, -3
+  retw
+
+; the file a2 with the a3 bytes of FILEBUF into the flash (put), and what happened; 1 if done
+  align 4
+save_file:
+  entry a1, 32
+  mov   a10, a2
+  l32r  a11, lit_filebuf
+  mov   a12, a3
+  call8 store_file
+  beqz  a10, sf_done
+  l32r  a4, lit_s_flasherr
+  movi  a5, -1
+  bne   a10, a5, sf_room
+  l32r  a4, lit_s_dirfull
+sf_room:
+  movi  a5, -2
+  bne   a10, a5, sf_say
+  l32r  a4, lit_s_full
+sf_say:
+  mov   a10, a4
+  call8 print
+  movi  a2, 0
+  retw
+sf_done:
   l32r  a10, lit_s_saved
   call8 print
   mov   a10, a2
@@ -2487,12 +3746,6 @@ sf_store:
   l32r  a10, lit_s_bytes
   call8 print
   movi  a2, 1
-  retw
-sf_err:
-  l32r  a10, lit_s_flasherr
-  call8 print
-sf_fail:
-  movi  a2, 0
   retw
 
 ; reads both directories and keeps the valid one with the higher number in DIRBUF; 1 if there is one
@@ -2651,6 +3904,611 @@ cr_done:
   xor   a2, a2, a6
   retw
 
+; ---------- the WiFi network (wlan; step 8 of the plan for the board, M3.4) ----------
+; Two sectors right below the WiFi package keep the network of the board, 0xFE000 and 0xFF000 (outside the file
+; system and the room of packet A): each time the other one is written, with a number one higher, and the valid one
+; with the higher number counts, as with the directory. A record of 128 bytes at the start of its sector: +0 "AWN1",
+; +4 the number, +8 bit 0: an open network (no key), +12 the length of the name (1 .. 32), +16 the name (32 bytes),
+; +48 the key (32 bytes: PBKDF2-SHA1 of the password and the name, the PMK of WPA2; not the password), +124 the
+; CRC-32 of the bytes before it. Whoever reads the flash learns the key of this one network, not the password.
+
+; wlan [set | clear]: a2 the rest of the line
+  align 4
+cmd_wlan:
+  entry a1, 32
+  l8ui  a3, a2, 0
+  beqz  a3, wn_show
+  mov   a10, a2
+  l32r  a11, lit_c_set
+  call8 streq
+  bnez  a10, wn_set
+  mov   a10, a2
+  l32r  a11, lit_c_clear
+  call8 streq
+  bnez  a10, wn_clear
+  mov   a10, a2
+  l32r  a11, lit_c_on
+  call8 streq
+  bnez  a10, wn_on
+  mov   a10, a2
+  l32r  a11, lit_c_off
+  call8 streq
+  bnez  a10, wn_off
+  l32r  a10, lit_s_wnuse
+  call8 print
+  retw
+wn_on:
+  movi  a10, 0
+  call8 wlan_switch
+  retw
+wn_off:
+  movi  a10, 1
+  call8 wlan_switch
+  retw
+wn_set:
+  call8 wlan_set
+  retw
+wn_clear:
+  call8 wlan_clear
+  retw
+wn_show:
+  call8 wlan_show
+  retw
+
+; wlan: the network (its name, open or WPA2) and the state of the WiFi
+  align 4
+wlan_show:
+  entry a1, 32
+  call8 cred_load
+  bnez  a10, ws_net
+  l32r  a10, lit_s_wnnone
+  call8 print
+  j     ws_state
+ws_net:
+  l32r  a10, lit_s_wnnet
+  call8 print
+  l32r  a2, lit_credbuf
+  addi  a10, a2, 16
+  l32i  a11, a2, 12
+  call8 print_n
+  l32i  a3, a2, 8
+  extui a3, a3, 0, 1
+  l32r  a10, lit_s_wnwpa
+  beqz  a3, ws_kind
+  l32r  a10, lit_s_wnopen
+ws_kind:
+  call8 print
+  l32r  a2, lit_credbuf               ; wlan off?
+  l32i  a2, a2, 8
+  bbci  a2, 1, ws_state
+  l32r  a2, lit_s_wnisoff
+  j     ws_say
+ws_state:
+  call8 svc_runs
+  l32r  a2, lit_s_wnoff
+  beqz  a10, ws_say
+  l32r  a8, lit_svcstat              ; wifi_status: its words, on this core
+  callx8 a8
+  l32r  a2, lit_s_wnconn
+  bbsi  a10, 0, ws_say               ; connected
+  l32r  a2, lit_s_wnconnecting
+  bbsi  a10, 24, ws_say              ; the service connects in the background
+  l32r  a2, lit_s_wnnot
+ws_say:
+  mov   a10, a2
+  call8 print
+  retw
+
+; wlan set: the name of a network and its password (without echo; Ctrl+C: nothing changes). The console keeps the
+; name and the key (wifi_pmk of the WiFi service: PBKDF2-SHA1, as WPA2 makes it), not the password: LINE and the
+; bytes of the ring that held it are cleared at once. An empty password: an open network
+  align 4
+wlan_set:
+  entry a1, 32
+  call8 cred_load                    ; the number and the sector for the next record; bit 1 (wlan off) kept
+  l32r  a2, lit_vars
+  movi  a3, 0
+  beqz  a10, wt_flags
+  l32r  a3, lit_credbuf
+  l32i  a3, a3, 8
+  movi  a4, 2
+  and   a3, a3, a4
+wt_flags:
+  s32i  a3, a2, 216
+  l32r  a10, lit_s_wnask1
+  call8 print
+  l32r  a10, lit_chunk
+  movi  a11, 32
+  call8 read_line
+  bltz  a10, wt_done                 ; Ctrl+C
+  mov   a2, a10                      ; the length of the name
+  beqz  a2, wt_none
+  l32r  a10, lit_s_wnask2
+  call8 print
+  l32r  a3, lit_vars
+  l32i  a4, a3, 4                    ; the ring: where the password starts
+  movi  a5, 1
+  s32i  a5, a3, 212                  ; read_line without echo
+  l32r  a10, lit_line
+  movi  a11, 64
+  call8 read_line
+  movi  a5, 0
+  s32i  a5, a3, 212
+  bltz  a10, wt_forget
+  mov   a5, a10                      ; the length of the password
+  l32r  a6, lit_credbuf              ; the record: zeros, the length and the name
+  movi  a7, 0
+  movi  a8, 0
+wt_zero:
+  add   a9, a6, a7
+  s32i  a8, a9, 0
+  addi  a7, a7, 4
+  movi  a9, 128
+  bne   a7, a9, wt_zero
+  s32i  a2, a6, 12
+  l32r  a8, lit_chunk
+  movi  a7, 0
+wt_name:
+  add   a9, a8, a7
+  l8ui  a9, a9, 0
+  add   a10, a6, a7
+  s8i   a9, a10, 16
+  addi  a7, a7, 1
+  bne   a7, a2, wt_name
+  bnez  a5, wt_key
+  movi  a7, 1                        ; an open network
+  s32i  a7, a6, 8
+  j     wt_save
+wt_key:
+  call8 svc_ready
+  bnez  a10, wt_problem
+  l32r  a10, lit_s_wnkey
+  call8 print
+  l32r  a10, lit_line
+  l32r  a11, lit_chunk
+  mov   a12, a2
+  addi  a13, a6, 48
+  l32r  a8, lit_svcpmk
+  callx8 a8
+  mov   a7, a10
+  mov   a10, a4
+  call8 forget
+  beqz  a7, wt_save
+  l32r  a10, lit_s_wnbadpw
+  call8 print
+  retw
+wt_save:
+  l32r  a6, lit_vars                 ; wlan off stays off (the record before: vars+216)
+  l32i  a6, a6, 216
+  l32r  a7, lit_credbuf
+  l32i  a8, a7, 8
+  or    a8, a8, a6
+  s32i  a8, a7, 8
+  call8 cred_save
+  bnez  a10, wt_err
+  l32r  a10, lit_s_wnsaved
+  call8 print
+  l32r  a10, lit_chunk
+  call8 print
+  l32r  a10, lit_s_wnsaved2
+  call8 print
+  l32r  a7, lit_credbuf              ; the WiFi on the new network at once (not with wlan off)
+  l32i  a8, a7, 8
+  bbsi  a8, 1, wt_done
+  call8 wlan_start
+  retw
+wt_err:
+  l32r  a10, lit_s_flasherr
+  call8 print
+  retw
+wt_none:
+  l32r  a10, lit_s_notformatted
+  call8 print
+  retw
+wt_problem:
+  call8 print
+  l32r  a10, lit_s_crlf
+  call8 print
+wt_forget:
+  mov   a10, a4
+  call8 forget
+wt_done:
+  retw
+
+; the password gone from the RAM: LINE (256 bytes) and the bytes of the ring from a2 up to the next byte to read
+  align 4
+forget:
+  entry a1, 32
+  l32r  a3, lit_line
+  movi  a4, 0
+  movi  a5, 0
+fg_line:
+  add   a6, a3, a4
+  s32i  a5, a6, 0
+  addi  a4, a4, 4
+  movi  a6, 256
+  bne   a4, a6, fg_line
+  l32r  a3, lit_ring
+  l32r  a4, lit_vars
+fg_ring:
+  l32i  a6, a4, 4
+  beq   a2, a6, fg_done
+  add   a6, a3, a2
+  s8i   a5, a6, 0
+  addi  a2, a2, 1
+  extui a2, a2, 0, 12
+  j     fg_ring
+fg_done:
+  memw
+  retw
+
+; at the start of the console: the WiFi in the background when the board keeps a network and wlan off did not switch
+; it off (bit 1 of the record)
+  align 4
+wlan_boot:
+  entry a1, 32
+  call8 cred_load
+  beqz  a10, wb_done
+  l32r  a2, lit_credbuf
+  l32i  a2, a2, 8
+  bbsi  a2, 1, wb_done
+  call8 wlan_start
+wb_done:
+  retw
+
+; at the start, before the hello: when the WiFi will start (a network kept, not wlan off), the service loaded and
+; the core at 160 MHz now (wifi_clock): Asmonite talks to the console after its hello, and a packet that came while
+; the clock switched (UART0 a new divider) came garbled
+  align 4
+wlan_clock_boot:
+  entry a1, 32
+  call8 cred_load
+  beqz  a10, wcb_done
+  l32r  a2, lit_credbuf
+  l32i  a2, a2, 8
+  bbsi  a2, 1, wcb_done
+  call8 svc_ready
+  bnez  a10, wcb_done
+  l32r  a3, lit_svchead
+  l32i  a3, a3, 32
+  movi  a4, 9
+  bltu  a3, a4, wcb_done
+  call8 uart_drain
+  l32r  a8, lit_svcclock
+  callx8 a8
+wcb_done:
+  retw
+
+; the WiFi on with the network of CRED: the service out of the WiFi package if it does not run (svc_ready), then
+; wifi_keep: core 1 connects in the background, again after a loss; says so, or why not
+; The first start of the WiFi switches the core from 80 to 160 MHz (base_clock of the service), and UART0 gets a new
+; divider: a byte under way then came garbled, also one the console sent on core 0 meanwhile (and waiting for the
+; switch, the console missed packets after a reset). So the console switches itself first, with UART0 empty
+; (wifi_clock, version 9), then the WiFi starts: core 1 finds 160 MHz and switches nothing.
+  align 4
+wlan_start:
+  entry a1, 32
+  l32r  a2, lit_vars
+  movi  a3, 0
+  s32i  a3, a2, 220                  ; (not stopped for a program any more)
+  call8 svc_ready
+  bnez  a10, wst_problem
+  l32r  a3, lit_svchead
+  l32i  a3, a3, 32
+  movi  a4, 9
+  bltu  a3, a4, wst_noclock
+  call8 uart_drain
+  l32r  a8, lit_svcclock
+  callx8 a8
+wst_noclock:
+  l32r  a10, lit_s_wnbg1             ; "WiFi: connecting to NAME in the background."
+  call8 print
+  l32r  a2, lit_credbuf
+  addi  a10, a2, 16
+  l32i  a11, a2, 12
+  call8 print_n
+  l32r  a10, lit_s_wnbg2
+  call8 print
+  l32r  a10, lit_credbuf
+  l32r  a8, lit_svckeep
+  callx8 a8
+  retw
+wst_problem:
+  mov   a2, a10
+  l32r  a10, lit_s_wnwifi
+  call8 print
+  mov   a10, a2
+  call8 print
+  l32r  a10, lit_s_crlf
+  call8 print
+  retw
+
+; the WiFi off (wifi_halt: stopped, core 1 stalled; nothing when the service does not run): the RAM and the power
+; free
+  align 4
+wlan_halt:
+  entry a1, 32
+  call8 svc_runs
+  beqz  a10, wh_done
+  l32r  a3, lit_svchead
+  l32i  a3, a3, 32
+  movi  a4, 8
+  bltu  a3, a4, wh_done
+  l32r  a8, lit_svchalt
+  callx8 a8
+wh_done:
+  retw
+
+; a program that takes the room of the WiFi (the large window, step 7 of the plan for the board, M3.3): when the
+; service runs, the WiFi off (wlan_halt) and vars+220 = 1, so that it starts again when the program ends (wlan_back);
+; 0, or the text of the problem (an older service that does not stop)
+  align 4
+wlan_yield:
+  entry a1, 32
+  movi  a2, 0
+  call8 svc_runs
+  beqz  a10, wy_done
+  call8 wlan_halt
+  l32r  a3, lit_vars
+  movi  a4, 1
+  s32i  a4, a3, 220
+  call8 svc_runs
+  beqz  a10, wy_done
+  l32r  a2, lit_e_wifiruns
+wy_done:
+  retw
+
+; after a program: when the WiFi stopped for it (wlan_yield), the WiFi again as at the start of the console (a network
+; kept, not wlan off)
+  align 4
+wlan_back:
+  entry a1, 32
+  l32r  a2, lit_vars
+  l32i  a3, a2, 220
+  beqz  a3, wbk_done
+  movi  a3, 0
+  s32i  a3, a2, 220
+  call8 wlan_boot
+wbk_done:
+  retw
+
+; wlan on (a2 = 0) / wlan off (a2 = 1): bit 1 of the record (kept over resets), then the WiFi on or off
+  align 4
+wlan_switch:
+  entry a1, 32
+  call8 cred_load
+  bnez  a10, wsw_net
+  l32r  a10, lit_s_wnnone
+  call8 print
+  retw
+wsw_net:
+  l32r  a3, lit_credbuf
+  l32i  a4, a3, 8
+  movi  a5, -3
+  and   a4, a4, a5
+  slli  a5, a2, 1
+  or    a5, a4, a5
+  l32i  a4, a3, 8
+  beq   a4, a5, wsw_go                ; as it is: nothing to write
+  s32i  a5, a3, 8
+  call8 cred_save
+  beqz  a10, wsw_go
+  l32r  a10, lit_s_flasherr
+  call8 print
+  retw
+wsw_go:
+  bnez  a2, wsw_off
+  call8 wlan_start
+  retw
+wsw_off:
+  call8 wlan_halt
+  l32r  a10, lit_s_wnoffnow
+  call8 print
+  retw
+
+; wlan clear: both sectors erased, the board knows no network
+  align 4
+wlan_clear:
+  entry a1, 32
+  l32r  a2, lit_cred
+  srli  a10, a2, 12
+  call8 fl_erase
+  mov   a3, a10
+  srli  a10, a2, 12
+  addi  a10, a10, 1
+  call8 fl_erase
+  or    a3, a3, a10
+  l32r  a4, lit_vars
+  movi  a5, 0
+  s32i  a5, a4, 204
+  s32i  a2, a4, 208
+  call8 wlan_halt                    ; no network: the WiFi off
+  l32r  a10, lit_s_wncleared
+  beqz  a3, wc_say
+  l32r  a10, lit_s_flasherr
+wc_say:
+  call8 print
+  retw
+
+; the record of the network into CRED: 1, or 0 when neither sector holds a valid one. vars+204 its number (0: none),
+; vars+208 the sector for the next record (the other one)
+  align 4
+cred_load:
+  entry a1, 32
+  l32r  a2, lit_vars
+  movi  a3, 0
+  s32i  a3, a2, 204
+  l32r  a4, lit_cred
+  s32i  a4, a2, 208
+  movi  a5, 0                        ; the sector: 0, 1
+cd_next:
+  l32r  a4, lit_cred
+  slli  a6, a5, 12
+  add   a4, a4, a6
+  mov   a10, a4
+  l32r  a11, lit_credrd
+  movi  a12, 128
+  call8 fl_read
+  bnez  a10, cd_skip
+  l32r  a3, lit_credrd
+  l32i  a6, a3, 0
+  l32r  a7, lit_credmagic
+  bne   a6, a7, cd_skip
+  movi  a10, 0
+  mov   a11, a3
+  movi  a12, 124
+  call8 crc32
+  l32i  a6, a3, 124
+  bne   a10, a6, cd_skip
+  l32i  a6, a3, 4
+  l32i  a7, a2, 204
+  bgeu  a7, a6, cd_skip              ; not newer
+  s32i  a6, a2, 204
+  movi  a7, 1
+  slli  a7, a7, 12
+  xor   a7, a4, a7                   ; the other sector
+  s32i  a7, a2, 208
+  l32r  a7, lit_credbuf
+  movi  a8, 0
+cd_copy:
+  add   a9, a3, a8
+  l32i  a9, a9, 0
+  add   a10, a7, a8
+  s32i  a9, a10, 0
+  addi  a8, a8, 4
+  movi  a9, 128
+  bne   a8, a9, cd_copy
+cd_skip:
+  addi  a5, a5, 1
+  movi  a6, 2
+  bne   a5, a6, cd_next
+  l32i  a3, a2, 204
+  movi  a2, 0
+  beqz  a3, cd_done
+  movi  a2, 1
+cd_done:
+  retw
+
+; the record in CRED (+8 .. +123 filled) into the sector of vars+208, with "AWN1", the next number and its CRC-32; 0,
+; or 1 when the flash failed
+  align 4
+cred_save:
+  entry a1, 32
+  l32r  a2, lit_vars
+  l32r  a3, lit_credbuf
+  l32r  a4, lit_credmagic
+  s32i  a4, a3, 0
+  l32i  a4, a2, 204
+  addi  a4, a4, 1
+  s32i  a4, a3, 4
+  movi  a10, 0
+  mov   a11, a3
+  movi  a12, 124
+  call8 crc32
+  s32i  a10, a3, 124
+  l32i  a5, a2, 208
+  srli  a10, a5, 12
+  call8 fl_erase
+  bnez  a10, cs_bad
+  mov   a10, a5
+  mov   a11, a3
+  movi  a12, 128
+  call8 fl_write
+  bnez  a10, cs_bad
+  mov   a10, a5
+  mov   a11, a3
+  movi  a12, 128
+  call8 fl_verify
+  beqz  a10, cs_bad
+  l32i  a4, a3, 4
+  s32i  a4, a2, 204
+  movi  a6, 1
+  slli  a6, a6, 12
+  xor   a5, a5, a6
+  s32i  a5, a2, 208
+  movi  a2, 0
+  retw
+cs_bad:
+  movi  a2, 1
+  retw
+
+; the WiFi service in the RAM for wifi_pmk on this core: when it does not run on core 1, its parts for the RAM out of
+; the WiFi package (as inc/wifi.abel loads them: the head at 0x1F0000 checked, each part by its CRC-32, then its
+; segments as load puts them); 0, or the text of the problem. The frame: +0 the head (56 bytes), +56 an entry of
+; the directory for segments (the sector of the part at +20, its length at +24)
+  align 4
+svc_ready:
+  entry a1, 128
+  call8 svc_runs
+  bnez  a10, sv_version
+  l32r  a10, lit_wifihead
+  mov   a11, a1
+  movi  a12, 56
+  call8 fl_read
+  bnez  a10, sv_none
+  l32i  a3, a1, 0
+  l32r  a4, lit_wifimagic
+  bne   a3, a4, sv_none
+  l32i  a3, a1, 4
+  movi  a4, 0                       ; the chip
+  bne   a3, a4, sv_none
+  l32i  a3, a1, 12
+  movi  a4, 3
+  bne   a3, a4, sv_none
+  movi  a10, 0
+  mov   a11, a1
+  movi  a12, 52
+  call8 crc32
+  l32i  a3, a1, 52
+  bne   a10, a3, sv_none
+  addi  a2, a1, 28                   ; the parts 1 and 2: their address, length and CRC-32
+  movi  a5, 2
+sv_part:
+  l32i  a10, a2, 0
+  srli  a10, a10, 12
+  l32i  a11, a2, 4
+  call8 file_crc
+  l32i  a3, a2, 8
+  bne   a10, a3, sv_none
+  l32i  a3, a2, 0
+  srli  a3, a3, 12
+  s32i  a3, a1, 76
+  l32i  a3, a2, 4
+  s32i  a3, a1, 80
+  addi  a10, a1, 56
+  movi  a11, 3
+  call8 segments
+  bnez  a10, sv_none
+  addi  a2, a2, 12
+  addi  a5, a5, -1
+  bnez  a5, sv_part
+sv_version:
+  l32r  a3, lit_svchead
+  l32i  a3, a3, 32
+  movi  a4, 8
+  l32r  a2, lit_e_wifiold
+  bltu  a3, a4, sv_done
+  movi  a2, 0
+sv_done:
+  retw
+sv_none:
+  l32r  a2, lit_e_nowifi
+  retw
+
+; the a3 bytes of the text at a2 to the terminal
+  align 4
+print_n:
+  entry a1, 32
+pq_next:
+  beqz  a3, pq_done
+  l8ui  a10, a2, 0
+  call8 put_char
+  addi  a2, a2, 1
+  addi  a3, a3, -1
+  j     pq_next
+pq_done:
+  retw
+
 ; ---------- the flash (the functions of the ROM; 0 = done) ----------
 
 ; the flash attached to the SPI pins of the eFuses (as at the start from the flash); its size from its JEDEC id (4 to
@@ -2691,38 +4549,137 @@ fi_count:
   s32i  a3, a6, 80
   retw
 
+; While a function of the ROM works on the flash, vars+168 = 1: Ctrl+C (nmi_key) waits for its end, then the program
+; stops here (a command of the flash cut off in the middle could leave the flash in a state the ROM does not expect).
+; And while the WiFi service runs on core 1, core 1 is parked (core1_park): its cache must not fetch from the flash
+; while SPI1 works on it. When core 1 does not park, the function is not done: 1 (a failure of the flash)
+
 ; a4 bytes (whole words) from the flash at a2 to a3
   align 4
 fl_read:
   entry a1, 32
+  l32r  a5, lit_vars
+  movi  a6, 1
+  s32i  a6, a5, 168
+  call8 core1_park
+  bnez  a10, fl_nopark
   mov   a10, a2
   mov   a11, a3
   mov   a12, a4
   l32r  a8, lit_read
   callx8 a8
   mov   a2, a10
-  retw
+  j     fl_done
 
 ; a4 bytes (whole words) from a3 into the flash at a2 (erased before)
   align 4
 fl_write:
   entry a1, 32
+  l32r  a5, lit_vars
+  movi  a6, 1
+  s32i  a6, a5, 168
+  call8 core1_park
+  bnez  a10, fl_nopark
   mov   a10, a2
   mov   a11, a3
   mov   a12, a4
   l32r  a8, lit_write
   callx8 a8
   mov   a2, a10
-  retw
+  j     fl_done
 
 ; erases sector a2 (4 KB)
   align 4
 fl_erase:
   entry a1, 32
+  l32r  a5, lit_vars
+  movi  a6, 1
+  s32i  a6, a5, 168
+  call8 core1_park
+  bnez  a10, fl_nopark
   mov   a10, a2
   l32r  a8, lit_erase
   callx8 a8
   mov   a2, a10
+  j     fl_done
+fl_nopark:
+  movi  a2, 1
+fl_done:                             ; a5 vars: the flash is free; a Ctrl+C that came meanwhile stops the program now
+  call8 core1_free
+  movi  a6, 0
+  s32i  a6, a5, 168
+  memw
+  l32i  a6, a5, 164
+  bnez  a6, fl_key
+  retw
+fl_key:
+  j     rf_key
+
+; core 1 parked before the console uses the flash (step 6 of the plan for the board, M3.2): when the WiFi service runs
+; on core 1 (version 6 or later), a request in its svc_pblock (+0, counted up) and its bell FROM_CPU_INTR3; then wait
+; until core 1 says it is parked for it (+4: svc_park of wlan\wlansvc.asm), at most a second (lit_parkms). vars+200
+; the block (0: nothing parked). 0, or 1 when core 1 did not park (the request is over then: +8, so a late park ends
+; at once)
+  align 4
+core1_park:
+  entry a1, 32
+  movi  a2, 0
+  l32r  a3, lit_vars
+  s32i  a2, a3, 200
+  call8 svc_runs
+  beqz  a10, cp_done
+  l32r  a4, lit_svchead
+  l32i  a5, a4, 32                   ; the version of the service
+  movi  a6, 6
+  bltu  a5, a6, cp_done
+  l32i  a5, a4, 68                   ; svc_pblock
+  memw
+  l32i  a6, a5, 0
+  addi  a6, a6, 1
+  s32i  a6, a5, 0                    ; the request
+  memw
+  l32r  a7, lit_fromcpu
+  movi  a8, 1
+  s32i  a8, a7, 0                    ; the bell
+  memw
+  call8 ms_cycles
+  l32r  a2, lit_parkms
+  mull  a2, a2, a10                  ; the cycles of the wait
+  rsr   a4, ccount
+cp_wait:
+  memw
+  l32i  a7, a5, 4
+  beq   a7, a6, cp_parked
+  call8 rx_poll                      ; what comes over UART0 meanwhile into the ring: its FIFO holds 128 bytes, a few
+  rsr   a7, ccount                   ; ms at a high rate (while the WiFi starts, core 1 has its interrupts off for a
+  sub   a7, a7, a4                   ; while: the PHY; packets came damaged)
+  bltu  a7, a2, cp_wait
+  l32r  a7, lit_fromcpu
+  movi  a8, 0
+  s32i  a8, a7, 0                    ; the bell off
+  s32i  a6, a5, 8                    ; the request is over
+  memw
+  movi  a2, 1
+  retw
+cp_parked:
+  s32i  a5, a3, 200
+  movi  a2, 0
+cp_done:
+  retw
+
+; core 1 goes on (after core1_park)
+  align 4
+core1_free:
+  entry a1, 32
+  l32r  a3, lit_vars
+  l32i  a5, a3, 200
+  beqz  a5, cf_done
+  l32i  a6, a5, 0
+  s32i  a6, a5, 8                    ; the request is over
+  memw
+  movi  a6, 0
+  s32i  a6, a3, 200
+cf_done:
   retw
 
 ; 1 if the flash at a2 holds the a4 bytes (whole words) at a3
@@ -2770,10 +4727,49 @@ rx_poll:
   l32r  a2, lit_uart0
   l32r  a4, lit_vars
   l32r  a7, lit_ring
+  l32i  a5, a4, 140
+  bnez  a5, rp_done                  ; a program runs: the NMI takes the bytes (nmi_key)
+; How many bytes wait: as ESP-IDF counts them (uart_ll_get_rxfifo_len of the ESP32), from the read and the write
+; pointer of the FIFO in its memory (UART_MEM_RX_STATUS_REG: bits 12..2 and 23..13), (write - read) mod 128; equal
+; pointers: empty, or full when RXFIFO_CNT says 128. RXFIFO_CNT alone is not credible while the FIFO is read through
+; the APB (a byte came twice now and then while core 1 connected the WiFi), and the pointers are looked at once for
+; so many bytes, not after each one (read again at once, they still showed one more now and then).
+; While core 1 starts or stops the WiFi, something there reads the FIFO once (a byte that came then is lost; M3.3 part
+; 3). When the FIFO is empty then, its read pointer passes the write pointer: (write - read) mod 128 says 127, and the
+; console read the old bytes of its memory again (an E ran twice, a flood of damaged packets). So: the pointer word is
+; read twice and must agree with itself; 120 bytes and more while RXFIFO_CNT (read twice) says less than 8 is that
+; state: the bytes are read and dropped, as ESP-IDF empties the FIFO of the ESP32 (uart_ll_rxfifo_rst: its reset bit
+; does not work). RXFIFO_CNT alone decides nothing (after a change of the rate it stayed lower than the pointers).
 rp_next:
+  l32i  a5, a2, 0x60
+  l32i  a6, a2, 0x60
+  bne   a5, a6, rp_done              ; changed meanwhile: later
+  extui a8, a5, 2, 11
+  extui a9, a5, 13, 11
+  sub   a3, a9, a8
+  extui a3, a3, 0, 7                 ; the pointers
   l32i  a5, a2, 0x1C
   extui a5, a5, 0, 8                 ; RXFIFO_CNT
-  beqz  a5, rp_done
+  bnez  a3, rp_much
+  movi  a8, 128                      ; equal pointers: full when RXFIFO_CNT says so
+  bne   a5, a8, rp_done
+  mov   a3, a8
+  j     rp_byte
+rp_much:
+  movi  a8, 120
+  bltu  a3, a8, rp_byte
+  movi  a8, 8
+  bgeu  a5, a8, rp_byte
+  l32i  a6, a2, 0x1C                 ; RXFIFO_CNT again
+  extui a6, a6, 0, 8
+  bgeu  a6, a8, rp_byte
+rp_drop:                             ; out of step: the old bytes away
+  l32i  a5, a2, 0
+  addi  a3, a3, -1
+  bnez  a3, rp_drop
+  memw
+  j     rp_next
+rp_byte:
   l32i  a5, a2, 0                    ; a byte (UART_FIFO_REG on the APB)
   l32i  a6, a4, 0                    ; where it goes
   add   a8, a7, a6
@@ -2781,8 +4777,11 @@ rp_next:
   addi  a6, a6, 1
   extui a6, a6, 0, 12
   l32i  a8, a4, 4
-  beq   a6, a8, rp_next              ; the ring is full
+  beq   a6, a8, rp_count             ; the ring is full: the byte is dropped
   s32i  a6, a4, 0
+rp_count:
+  addi  a3, a3, -1
+  bnez  a3, rp_byte
   j     rp_next
 rp_done:
   retw
@@ -2880,12 +4879,16 @@ rl_ctrl:
   add   a8, a2, a4
   s8i   a5, a8, 0
   addi  a4, a4, 1
+  l32i  a8, a7, 212                  ; wlan set: the password without echo
+  bnez  a8, rl_next
   mov   a10, a5
   call8 put_char
   j     rl_next
 rl_back:
   beqz  a4, rl_next
   addi  a4, a4, -1
+  l32i  a8, a7, 212
+  bnez  a8, rl_next
   l32r  a10, lit_s_bs
   call8 print
   j     rl_next
@@ -2929,6 +4932,30 @@ pp_space:
   addi  a3, a3, -1
   j     pp_space
 pp_done:
+  retw
+
+; a2 as 8 hex digits
+  align 4
+print_hex:
+  entry a1, 32
+  l32r  a3, lit_digits
+  movi  a4, 8
+ph_next:
+  extui a5, a2, 28, 4
+  slli  a2, a2, 4
+  movi  a6, 10
+  bltu  a5, a6, ph_digit
+  addi  a5, a5, 7
+ph_digit:
+  addi  a5, a5, 48
+  s8i   a5, a3, 0
+  addi  a3, a3, 1
+  addi  a4, a4, -1
+  bnez  a4, ph_next
+  movi  a5, 0
+  s8i   a5, a3, 0
+  l32r  a10, lit_digits
+  call8 print
   retw
 
 ; a2 in decimal (unsigned)
@@ -3052,6 +5079,82 @@ watchdogs_off:
   memw
   retw
 
+
+; ---------- packets added later, at the end of the code (M4): the code before them keeps its addresses ----------
+
+; the rest of the dispatch of the packets (dp_unknown jumps here): K, else an unknown packet
+  align 4
+dp_more:
+  movi  a5, 75                       ; 'K'
+  bne   a3, a5, dm_unknown
+  call8 pk_crc
+  j     dp_done
+dm_unknown:
+  l32r  a10, lit_e_unknown
+  call8 send_err
+  j     dp_done
+
+; K address count: the CRC-32 of count bytes of the flash at address (a multiple of 4, the bytes below 4 MB), read
+; in pieces of 1024 bytes into OUT (Asmonite: is the console in the flash its own? M4)
+  align 4
+pk_crc:
+  entry a1, 32
+  movi  a3, 8
+  beq   a2, a3, kc_len
+  l32r  a10, lit_e_size
+  call8 send_err
+  retw
+kc_len:
+  l32r  a2, lit_pkt
+  l32i  a3, a2, 4                    ; the address
+  l32i  a4, a2, 8                    ; the count
+  extui a5, a3, 0, 2
+  bnez  a5, kc_where
+  l32r  a5, lit_4m
+  bltu  a5, a3, kc_where
+  sub   a6, a5, a3
+  bltu  a6, a4, kc_where
+  movi  a7, 0                        ; the CRC so far
+kc_piece:
+  beqz  a4, kc_send
+  movi  a5, 1024
+  bgeu  a4, a5, kc_read
+  mov   a5, a4
+kc_read:
+  mov   a10, a3
+  l32r  a11, lit_out
+  addi  a11, a11, 4
+  addi  a12, a5, 3
+  srli  a12, a12, 2
+  slli  a12, a12, 2
+  call8 fl_read
+  bnez  a10, kc_err
+  mov   a10, a7
+  l32r  a11, lit_out
+  addi  a11, a11, 4
+  mov   a12, a5
+  call8 crc32
+  mov   a7, a10
+  add   a3, a3, a5
+  sub   a4, a4, a5
+  j     kc_piece
+kc_send:
+  l32r  a11, lit_out
+  addi  a11, a11, 4
+  s32i  a7, a11, 0
+  movi  a10, 107                     ; 'k'
+  movi  a12, 4
+  call8 send_packet
+  retw
+kc_where:
+  l32r  a10, lit_e_area
+  call8 send_err
+  retw
+kc_err:
+  l32r  a10, lit_s_flasherr
+  call8 send_err
+  retw
+
 .data 0x3FFD0000
 vars:    dd 0                       ; +0 the ring: where the next byte goes
           dd 0                       ; +4 the ring: the next byte to read
@@ -3063,7 +5166,7 @@ vars:    dd 0                       ; +0 the ring: where the next byte goes
           dd 0                       ; +28 its length
           dd 0                       ; +32 its CRC-32
           dd 0                       ; +36 the bytes written so far
-          dd 0                       ; +40 its entry
+          dd 0                       ; +40 its entry (-1: the room of the WiFi package, packet A)
           dd 0                       ; +44 the offset of the last piece
           dd 0                       ; +48 the entry of the program that is loaded
           dd 0                       ; +52 the address of a segment
@@ -3074,9 +5177,40 @@ vars:    dd 0                       ; +0 the ring: where the next byte goes
           dd 0                       ; +72 packet S: the divider now (its answer)
           dd 0                       ; +76 packet I: the JEDEC id of the flash (its answer)
           dd 510                     ; +80 the sectors of the files: from 0x202 to the end of the flash (flash_init)
-wname:    dd 0, 0, 0, 0, 0           ; its name (20 bytes)
+          dd 0                       ; +84 (the S3: bytes wait in the FIFO of its USB port)
+          dd 0                       ; +88 (the S3: a byte found no room in 10 ms)
+          dd 0                       ; +92 a program runs: the return of run_file (its a0 with the bits of call8)
+          dd 0                       ; +96 its sp
+          dd 0                       ; +100 its ps
+          dd 0                       ; +104 vecbase before the program (the boot ROM's)
+          dd 0                       ; +108 how the last program ended: 0 returned, 1 exit, 3 an exception
+          dd 0                       ; +112 the exception: exccause (0x100 + n: interrupt level n, 0x106 a break;
+                                     ;      0x200 + exccause: a double exception)
+          dd 0                       ; +116 its pc
+          dd 0                       ; +120 excvaddr (a load or store)
+          dd 0                       ; +124 intenable before the program
+          dd 0                       ; +128 millis: ccount at the call before
+          dd 0                       ; +132 millis: the cycles left over then (less than a millisecond)
+          dd 0                       ; +136 millis: the milliseconds
+          dd 0                       ; +140 1: a program runs, the NMI takes the bytes of UART0 (key_on)
+          dd 0, 0, 0, 0, 0           ; +144 .. +160 a1 .. a5 of the program in the NMI (nmi_key)
+          dd 0                       ; +164 Ctrl+C came
+          dd 0                       ; +168 1: a function of the ROM works on the flash (Ctrl+C waits)
+          dd 0                       ; +172 UART_CONF1_REG before key_on
+          dd 0                       ; +176 DPORT_PRO_UART_INTR_MAP_REG before key_on
+          dd 0                       ; +180 the text of the arguments of the program (args())
+          dd 0                       ; +184 how it started: 0 run, 1 packet X, 2 a command (run_file)
+          dd 0                       ; +188 1: the vectors of the debug monitor (packet T)
+          dd 0, 0                    ; +192, +196 (the S3: a0 and a1 of dbg_host)
+          dd 0                       ; +200 core 1 is parked (core1_park): svc_pblock of the WiFi service, 0 not
+          dd 0                       ; +204 the number of the record of the WiFi network (wlan; 0: none)
+          dd 0xFE000                 ; +208 the sector for the next record
+          dd 0                       ; +212 1: read_line without echo (the password of wlan set)
+          dd 0                       ; +216 wlan set: bit 1 (wlan off) of the record before
+          dd 0                       ; +220 1: the WiFi was stopped for a program in its room (wlan_yield)
+wname:   dd 0, 0, 0, 0, 0           ; its name (20 bytes)
 digits:   db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-s_hello:  db 13, 10, 'Asmonite console for the ESP32 (help shows the commands)', 13, 10, 0
+s_hello:  db 13, 10, 'Asmonite console 2 for the ESP32 (help shows the commands)', 13, 10, 0
 s_nofs:   db 'There is no file system in the flash yet: format makes one.', 13, 10, 0
 s_prompt: db '> ', 0
 s_crlf:   db 13, 10, 0
@@ -3092,7 +5226,9 @@ s_help:   db '  ls            the files', 13, 10
           db '  load name     puts its parts for the RAM into their place, without starting it', 13, 10
           db '  boot name     starts it after every reset (boot alone: which one)', 13, 10
           db '  noboot        no program after a reset', 13, 10
-          db '  help          this list', 13, 10, 0
+          db '  wlan          the WiFi network (wlan set: its name and password, wlan on, wlan off, wlan clear: none)', 13, 10
+          db '  help          this list', 13, 10
+          db '  name [args]   another word: the program name or name.bin of the files', 13, 10, 0
 s_unknown: db 'Unknown command: ', 0
 s_unknown2: db ' (help shows the commands)', 13, 10, 0
 s_noname: db 'Which file? (a name after the command)', 13, 10, 0
@@ -3116,7 +5252,7 @@ s_sure:   db 'All files will be lost. Type yes to go on: ', 0
 s_yes:    db 'yes', 0
 s_formatted: db 'Done: an empty file system.', 13, 10, 0
 s_notformatted: db 'Nothing was changed.', 13, 10, 0
-s_version: db 'Asmonite console 1', 0
+s_version: db 'Asmonite console 2', 0
 e_packet: db 'The packet was damaged.', 0
 e_unknown: db 'Unknown packet.', 0
 e_size:   db 'The packet has the wrong length.', 0
@@ -3125,9 +5261,20 @@ e_notopen: db 'No file is open for writing.', 0
 e_place:  db 'The bytes are not at their place in the file.', 0
 e_fcrc:   db 'The file in the flash does not match its CRC-32.', 0
 e_noprog: db 'This is not a program (an image as Asmonite writes it into the flash).', 0
-e_where:  db 'The program does not fit: its code must be in 0x40080000..0x40097FFF, its data in 0x3FFB0000..0x3FFCFFFF.', 0
+e_where:  db 'The program does not fit: its code must be in 0x40080000..0x4009BFFF, its data in 0x3FFB0000..0x3FFCFFFF.', 0
 e_damaged: db 'The file is damaged: its CRC-32 does not match.', 0
+e_wifiruns: db 'The WiFi service runs on core 1: reset the board first.', 0
+e_area:   db 'Not in the room of the WiFi package (0x100000..0x1FFFFF).', 0
 s_running: db 'Running ', 0
+s_ended:  db 13, 10, 'Program ended (code ', 0
+s_ended2: db ').', 13, 10, 0
+s_stopped: db 13, 10, 'Program stopped: exception 0x', 0
+s_keystop: db 13, 10, 'Program stopped (Ctrl+C).', 13, 10, 0
+s_dbgstop: db 13, 10, 'Program stopped by the debugger.', 13, 10, 0
+s_empty:  db 0
+s_bin:    db '.bin', 0
+s_at:     db ' at pc 0x', 0
+s_addr:   db ', address 0x', 0
 s_auto:   db 'Autostart of ', 0
 s_auto2:  db ' in a second (press BOOT or a key to stay in the console)', 13, 10, 0
 s_stay:   db 'No autostart this time.', 13, 10, 0
@@ -3147,3 +5294,31 @@ c_rm:     db 'rm', 0
 c_df:     db 'df', 0
 c_format: db 'format', 0
 c_help:   db 'help', 0
+c_wlan:   db 'wlan', 0
+c_set:    db 'set', 0
+c_clear:  db 'clear', 0
+s_wnuse:  db 'wlan shows the WiFi network, wlan set sets one, wlan on / wlan off, wlan clear forgets it.', 13, 10, 0
+s_wnnone: db 'No WiFi network is set (wlan set sets one).', 13, 10, 0
+s_wnnet:  db 'WiFi network: ', 0
+s_wnwpa:  db ' (WPA2)', 13, 10, 0
+s_wnopen: db ' (open)', 13, 10, 0
+s_wnoff:  db 'The WiFi does not run (wlan on starts it).', 13, 10, 0
+s_wnnot:  db 'The WiFi is on, not connected.', 13, 10, 0
+s_wnconn: db 'The WiFi is on and connected.', 13, 10, 0
+s_wnask1: db 'Name of the network: ', 0
+s_wnask2: db 'Password (not shown; empty for an open network): ', 0
+s_wnkey:  db 'Computing the key ...', 13, 10, 0
+s_wnbadpw: db 'The password must have 8 to 63 characters. Nothing was changed.', 13, 10, 0
+s_wnsaved: db 'Saved: the network ', 0
+s_wnsaved2: db '. The board keeps its name and key, not the password.', 13, 10, 0
+s_wncleared: db 'The board knows no WiFi network now.', 13, 10, 0
+e_nowifi: db 'The WiFi package is not on the board: F9 of a WiFi program or Prepare Board in Asmonite writes it.', 0
+e_wifiold: db 'The WiFi package on the board is too old: Board Files > Install WiFi in Asmonite writes the new one.', 0
+c_on:     db 'on', 0
+c_off:    db 'off', 0
+s_wnbg1:  db 'WiFi: connecting to ', 0
+s_wnbg2:  db ' in the background.', 13, 10, 0
+s_wnwifi: db 'WiFi: ', 0
+s_wnisoff: db 'The WiFi is off (wlan on switches it on).', 13, 10, 0
+s_wnconnecting: db 'The WiFi is on, connecting ...', 13, 10, 0
+s_wnoffnow: db 'The WiFi is off, also after a reset (wlan on switches it on).', 13, 10, 0

@@ -20,6 +20,7 @@
 .imagebase 0x40080000
 
 lit_uart0:    dd 0x3FF40000
+lit_uart_ahb: dd 0x60000000          ; UART_FIFO_REG on the AHB (see hello_uart_ram.asm)
 lit_message:  dd message
 lit_second:   dd 40000000            ; one second in cycles (40 MHz)
 lit_wdt_key:  dd 0x50D83AA1          ; the key that unlocks the watchdog registers
@@ -46,6 +47,7 @@ _start:
   memw
 
   l32r  a2, lit_uart0
+  l32r  a4, lit_uart_ahb
   l32r  a7, lit_second
   movi  a6, 120                      ; room for one more byte while fewer than 120 wait
 
@@ -58,7 +60,8 @@ fifo_full:
   l32i  a11, a2, 0x1C                ; UART_STATUS_REG
   extui a11, a11, 16, 8              ; TXFIFO_CNT
   bgeu  a11, a6, fifo_full
-  s32i  a5, a2, 0                    ; UART_FIFO_REG
+  s32i  a5, a4, 0                    ; UART_FIFO_REG (AHB)
+  memw
   addi  a3, a3, 1
   j     next_byte
 

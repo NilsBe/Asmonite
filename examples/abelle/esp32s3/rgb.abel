@@ -1,0 +1,115 @@
+# The RGB LED of the ESP32-S3 board (a WS2812 at GPIO 48): red, green and blue, half a second each, then once around
+# the colour wheel; three rounds, then the LED goes off and the program ends (back to the console).
+# F9 in Asmonite runs it in the RAM, over the console or the USB JTAG (gone after a reset).
+#
+# A WS2812 takes 24 bits (green, red, blue, the high bit first): a 0 is high for 0.35 us, a 1 for 0.7 us, each bit
+# 1.25 us; low for more than 50 us takes the colour. Such short times are a job for the RMT (Remote Control
+# Transceiver): it sends a list of pulses on its own, each entry two of them with their level and their length in
+# ticks. Here it counts the 40 MHz of the crystal (a tick is 25 ns), whatever the clock of the core is.
+#
+# The registers (ESP32-S3 Technical Reference Manual, chapters "Remote Control Peripheral" and "IO MUX and GPIO
+# Matrix"; ESP-IDF components/soc/esp32s3/include/soc: rmt_reg.h, gpio_sig_map.h, system_reg.h):
+#   SYSTEM_PERIP_CLK_EN0 (0x600C0018), SYSTEM_PERIP_RST_EN0 (0x600C0020): bit 9 the clock and the reset of the RMT
+#   RMT_SYS_CONF (0x600160C0): CLK_EN bit 31, SCLK_ACTIVE bit 26, SCLK_SEL bits 25..24 (3: the crystal), SCLK_DIV_NUM
+#     bits 11..4 (0: divided by 1), MEM_FORCE_PU bit 3, MEM_CLK_FORCE_ON bit 1, APB_FIFO_MASK bit 0 (the RAM of the
+#     RMT written directly)
+#   RMT_CH0CONF0 (0x60016020): TX_START bit 0, MEM_RD_RST bit 1, APB_MEM_RST bit 2, IDLE_OUT_EN bit 6 (low when idle),
+#     DIV_CNT bits 15..8 (1), MEM_SIZE bits 19..16 (1 block), CARRIER_EN bit 21 (on after a reset: off here),
+#     CONF_UPDATE bit 24
+#   RMT_INT_RAW (0x60016070), RMT_INT_CLR (0x6001607C): bit 0 channel 0 has sent all
+#   the RAM of channel 0 (0x60016800): 48 entries; bits 14..0 the length of the first pulse, bit 15 its level, bits
+#     30..16 and 31 the second one; an entry 0 ends the list
+#   IO_MUX_GPIO48 (0x600090C4): 0x1800 = the function GPIO, drive 2
+#   GPIO_FUNC48_OUT_SEL_CFG (0x60004614): 81 = RMT_SIG_OUT0 on the pad, bit 10: enabled by GPIO_ENABLE1
+#   GPIO_ENABLE1_W1TS (0x60004030): bit 16 = GPIO 48 an output
+target "esp32s3"
+
+system: u32[16]    at 0x600C0000    # SYSTEM: the clocks and resets of the peripherals
+rmt:    u32[64]    at 0x60016000    # the RMT
+rmtmem: u32[48]    at 0x60016800    # the RAM of channel 0
+gpio:   u32[0x200] at 0x60004000    # the GPIO registers
+iomux:  u32[64]    at 0x60009000    # IO_MUX: the function of each pin
+
+def ets_delay_us(us: u32) at 0x40000600
+
+PERIP_CLK_EN0 = 0x18 / 4
+PERIP_RST_EN0 = 0x20 / 4
+RMT_BIT = 1 << 9
+
+CH0CONF0 = 0x20 / 4
+INT_RAW = 0x70 / 4
+INT_CLR = 0x7C / 4
+SYS_CONF = 0xC0 / 4
+
+TX_START = 1
+MEM_RD_RST = 2
+APB_MEM_RST = 4
+CONF_UPDATE = 1 << 24
+# channel 0: idle low, a tick of the clock of the RMT (25 ns), one block of RAM, no carrier
+CH0 = (1 << 6) | (1 << 8) | (1 << 16)
+
+# the pulses of a bit: high, then low (in ticks of 25 ns)
+BIT0 = 14 | (1 << 15) | (36 << 16)    # 0.35 us high, 0.9 us low
+BIT1 = 28 | (1 << 15) | (22 << 16)    # 0.7 us high, 0.55 us low
+
+LED = 1 << 16                         # GPIO 48 in the registers of GPIO 32..48
+
+def rmt_setup():
+    # the clock of the RMT on, a reset
+    system[PERIP_CLK_EN0] = system[PERIP_CLK_EN0] | RMT_BIT
+    system[PERIP_RST_EN0] = system[PERIP_RST_EN0] | RMT_BIT
+    system[PERIP_RST_EN0] = (system[PERIP_RST_EN0] | RMT_BIT) ^ RMT_BIT
+    # the crystal, divided by 1; its RAM on and written directly
+    rmt[SYS_CONF] = (1 << 31) | (1 << 26) | (3 << 24) | (1 << 3) | (1 << 1) | 1
+    rmt[CH0CONF0] = CH0
+    # GPIO 48: a GPIO, the signal of the RMT on it, an output
+    iomux[0xC4 / 4] = 0x1800
+    gpio[0x614 / 4] = 81 | (1 << 10)
+    gpio[0x30 / 4] = LED
+
+# the colour (green, red, blue: 8 bits each) to the LED
+def send(grb):
+    for i in 0..24:
+        if grb & (0x800000 >> i) != 0:
+            rmtmem[i] = BIT1
+        else:
+            rmtmem[i] = BIT0
+    rmtmem[24] = 0
+    # from the start of the RAM, then go
+    rmt[CH0CONF0] = CH0 | MEM_RD_RST | APB_MEM_RST
+    rmt[CH0CONF0] = CH0
+    rmt[INT_CLR] = 1
+    rmt[CH0CONF0] = CH0 | CONF_UPDATE
+    rmt[CH0CONF0] = CH0 | TX_START
+    # 24 bits take 30 us
+    for t in 0..100:
+        if rmt[INT_RAW] & 1 != 0:
+            break
+        ets_delay_us(10)
+    rmt[INT_CLR] = 1
+    ets_delay_us(100)                 # low for more than 50 us: the LED takes the colour
+
+def rgb(r, g, b) i32:
+    return (g << 16) | (r << 8) | b
+
+# a point of the colour wheel (0 .. 191): red, green, blue and back to red, not too bright
+def wheel(h) i32:
+    if h < 64:
+        return rgb(63 - h, h, 0)
+    if h < 128:
+        return rgb(0, 127 - h, h - 64)
+    return rgb(h - 128, 0, 191 - h)
+
+def main():
+    rmt_setup()
+    for round in 0..3:
+        send(rgb(40, 0, 0))
+        ets_delay_us(500000)
+        send(rgb(0, 40, 0))
+        ets_delay_us(500000)
+        send(rgb(0, 0, 40))
+        ets_delay_us(500000)
+        for h in 0..192:
+            send(wheel(h))
+            ets_delay_us(15000)
+    send(0)
