@@ -9,7 +9,7 @@ Windows und arbeiten mit 32-Bit- und 64-Bit-Intel-Code, mit ARM, mit Xtensa auf 
 **aBelle**, eine kleine Sprache mit der Schreibweise von Python, für Windows, den ESP32 und den ESP32-S3, in Asmonite
 Zeile für Zeile im Quelltext debuggt.
 
-Aktuelle Version: **0.13.0** | Website: [asmonite.com](https://asmonite.com) und
+Aktuelle Version: **0.14.0** | Website: [asmonite.com](https://asmonite.com) und
 [dismonite.com](https://dismonite.com) | Chat: [Discord](https://discord.gg/Sj8kvqEkc)
 
 ![Der Editor von Asmonite](assets/editor.png)
@@ -33,13 +33,15 @@ Aktuelle Version: **0.13.0** | Website: [asmonite.com](https://asmonite.com) und
   Den Pico (RP2040) auch **ohne Debug-Probe**: ein Programm im RAM über seinen USB-Boot (BOOTSEL), ein Kabel.
   Anleitung: [docs/de/picoboot.md](docs/de/picoboot.md).
 - **Welches Board wie debuggt wird** (über eine Debug-Probe oder mit dem USB-Kabel allein) und wie seine serielle
-  Ausgabe zum PC kommt (der Reiter Serial): [docs/de/boards.md](docs/de/boards.md).
+  Ausgabe zum PC kommt (der Reiter Serial); der **Board Manager** zeigt die angesteckten Boards, was er über sie weiß,
+  und nur die Knöpfe, die zum Board passen: [docs/de/boards.md](docs/de/boards.md).
 - **ESP32 und ESP32-S3:** Xtensa (`.arch xtensa`, `.target esp32` / `.target esp32s3`), auch in aBelle. Eine kleine
   **Konsole** von Asmonite liegt im Flash des Boards, mit Dateien: F9 führt ein Programm über sie aus und debuggt es,
-  **ohne JTAG-Probe, ohne BOOT-Taste, ohne Reset**; Ausgabe und Stop im Reiter Serial. Das Menü **Board** richtet ein
-  neues Board ein (Prepare Board) und hält die Konsole selbst aktuell. Das **WLAN** (offene Netze und WPA2, DHCP,
+  **ohne JTAG-Probe, ohne BOOT-Taste, ohne Reset**; Ausgabe und Stop im Reiter Serial. Der Board Manager richtet ein
+  neues Board ein (Prepare Board), F9 hält die Konsole selbst aktuell. Das **WLAN** (offene Netze und WPA2, DHCP,
   DNS, Ping, UDP, TCP, mDNS) läuft ohne ESP-IDF als Dienst der Konsole auf dem zweiten Kern, auch während der
-  Debugger das Programm an einem Breakpoint anhält; `wlan set` speichert das Netz auf dem Board. Anleitungen:
+  Debugger das Programm an einem Breakpoint anhält; `wlan set` speichert das Netz auf dem Board, das dann auch ohne
+  Programm auf ping und `name.local` antwortet (`name set`, ein Passwort für telnet mit `passwd set`). Anleitungen:
   [docs/de/esp32.md](docs/de/esp32.md), [docs/de/esp32s3.md](docs/de/esp32s3.md).
 - **aBelle:** eine kleine Sprache mit der Schreibweise von Python; drei Compiler (Windows x86, x64, ESP32 und
   ESP32-S3) im ZIP, F9 übersetzt und debuggt im Quelltext, mit den Variablen unter der Maus. Sprachbeschreibung

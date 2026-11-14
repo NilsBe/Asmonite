@@ -5,7 +5,7 @@
 ;
 ;   1. plug in the board (its USB port goes to a USB serial chip: CP2102, CH340 ...)
 ;   2. press F9: the program goes into the RAM and runs (over the console, or under the debug monitor of Asmonite);
-;      Board > Advanced > Write to Flash and Run writes it into the flash first, then the board runs it at every start
+;      Project > Write to Flash and Run writes it into the flash first, then the board runs it at every start
 ;
 ; The boot ROM leaves the core at the crystal; the bootloader of ESP-IDF switches it to the PLL. This program does
 ; what ESP-IDF does (components/esp_hw_support/port/esp32/rtc_clk.c, the values for a crystal of 40 MHz):

@@ -101,7 +101,7 @@ Beispiele stehen neben ihrem Code.
 | „the ESP32-C3 is plugged in, but ... has not given its USB JTAG an interface“ | Debug targets > ESP32-C3 > Set up the USB JTAG (einmal je Board) |
 | „COM8 is open in another program“ | Das Terminal (PuTTY …) schließen, dann noch einmal F9 |
 | „the core of the ESP32-C3 hangs“ | RESET am Board drücken, dann noch einmal |
-| Das Board startet alle paar Sekunden neu, der COM-Port kommt und geht, ein Terminal zeigt `invalid header: 0xffffffff` | Der Flash ist leer (ein Schreiben wurde nicht fertig): BOOT halten, RESET drücken, BOOT loslassen, dann F9 mit einem Programm für den Flash |
+| Das Board startet alle paar Sekunden neu, der COM-Port kommt und geht, ein Terminal zeigt `invalid header: 0xffffffff`; F9 meldet „does not answer over USB JTAG: … (error 31)“ | Der Flash ist leer (Erase Flash im Board Manager, oder ein Schreiben wurde nicht fertig): BOOT halten, RESET drücken (oder das Board anstecken), BOOT loslassen, dann F9; ein Programm für den Flash beendet das |
 | Das Board antwortet gar nicht | BOOT halten, RESET drücken, BOOT loslassen: Der Chip wartet in seinem Boot-ROM; dann F9 |
 | Nichts auf dem COM-Port | Ist das Programm für den USB-Port (`blink_ram.asm`) oder für UART0 (`hello_uart_ram.asm`)? |
 

@@ -126,13 +126,15 @@ def net_init():
     clear(net_gw, 4)
     clear(net_dns, 4)
     arp_done = False
-    # a name from the MAC ("esp32-3e78") until net_set_name gives another one
-    net_set_name("esp32-")
-    for md_k in 0..2:
-        md_b = net_mac[4 + md_k]
-        net_name[6 + 2 * md_k] = md_hexdigit(md_b >> 4)
-        net_name[7 + 2 * md_k] = md_hexdigit(md_b & 15)
-    net_name[10] = 0
+    # the name of the board: the one of name set in the console, else one from the MAC ("esp32-789a"); net_set_name
+    # gives another one
+    if wifi_board_name(net_name) == 0:
+        net_set_name("esp32-")
+        for md_k in 0..2:
+            md_b = net_mac[4 + md_k]
+            net_name[6 + 2 * md_k] = md_hexdigit(md_b >> 4)
+            net_name[7 + 2 * md_k] = md_hexdigit(md_b & 15)
+        net_name[10] = 0
 
 # the Ethernet header of a frame in tx: to dst, from us, of type t (0x0800 IPv4, 0x0806 ARP)
 def eth_header(dst: pchar, t):
@@ -400,7 +402,7 @@ def md_lower(c) i32:
     return c
 
 # the name of the board (up to 31 characters: letters, digits, '-') for DHCP (option 12; call it before dhcp_run)
-# and mDNS (<name>.local); net_init gives it one from the MAC ("esp32-3e78")
+# and mDNS (<name>.local); net_init gives it the one of name set, else one from the MAC ("esp32-789a")
 def net_set_name(md_s: pchar):
     md_k = 0
     while md_s[md_k] != 0 and md_k < 31:
@@ -632,4 +634,5 @@ def dhcp_run() i32:
     if o >= 0: copy(net_dns, rx + o, 4)
     o = dhcp_option(d, udp_n, 51)
     if o >= 0: net_lease = i32(get32(rx + o))
+    wifi_set_ip(net_ip)             # the service answers ARP and ping for it from now on (on core 1)
     return True

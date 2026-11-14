@@ -3,8 +3,8 @@
 # console says "Program ended (code 0)"), x ends it with exit(7) from deep in a function ("code 7"), Ctrl+C (Stop in
 # the tab Serial) at any time ("Program stopped (Ctrl+C)").
 # A program for the console (inc/console.abel): F9 without a breakpoint runs it over the console (the text and the
-# keys in the tab Serial); or Board > Files, upload it and Run, or run runs.bin in a terminal. With a breakpoint it
-# runs under the debugger, where only exit() of the console is tried so far.
+# keys in the tab Serial); or Board > Board Manager, upload it and Run, or run runs.bin in a terminal. With a
+# breakpoint it runs under the debugger, where only exit() of the console is tried so far.
 target "esp32"
 
 include "inc/console.abel"

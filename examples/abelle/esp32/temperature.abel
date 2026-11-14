@@ -1,7 +1,7 @@
 # The temperature sensor inside the ESP32: every second its raw value over UART0 (under the debugger in the tab Serial,
 # else in a terminal on the COM port, 115200 baud). Put a finger on the chip (the metal can of the module) or warm it a
 # little: the value goes up. F9 in Asmonite runs it in the RAM (gone after a reset);
-# Board > Advanced > Write to Flash and Run writes it into the flash at 0x1000 first (in place of the firmware that was
+# Project > Write to Flash and Run writes it into the flash at 0x1000 first (in place of the firmware that was
 # there): then the board runs it at every start, also without the PC.
 #
 # The sensor measures the chip itself, not the air around it: the chip warms itself while it works (the more, the

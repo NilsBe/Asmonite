@@ -54,7 +54,6 @@ def head_done(n) i32:
 def main():
     println("web server (aBelle)")
     net_init()
-    net_set_name("esp32")           # http://esp32.local/ (mDNS); with more boards: one name each
     print("connecting to ")
     println(wifi_saved_name())
     r = wifi_connect_saved()

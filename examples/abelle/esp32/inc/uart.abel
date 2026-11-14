@@ -51,7 +51,7 @@ def print_byte(u_b):
     put_hex((u_b >> 4) & 15)
     put_hex(u_b & 15)
 
-# the 6 bytes at u_p as a MAC: "CC:50:E3:95:3E:78"
+# the 6 bytes at u_p as a MAC: "02:12:34:56:78:9A"
 def print_mac(u_p: pchar):
     for u_i in 0..6:
         if u_i > 0: put_char(':')

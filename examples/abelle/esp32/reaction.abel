@@ -1,7 +1,7 @@
 # A reaction game on the ESP32 DevKit: after a random time of 2 to 5 seconds the LED (GPIO 2) goes on; press the BOOT
 # button as fast as you can. The program writes your time and your best one over UART0 (under the debugger in the tab
 # Serial, else in a terminal on the COM port, 115200 baud). Press before the LED is on, and it says "too early". F9 in
-# Asmonite runs it in the RAM (gone after a reset); Board > Advanced > Write to Flash and Run writes it into the flash
+# Asmonite runs it in the RAM (gone after a reset); Project > Write to Flash and Run writes it into the flash
 # at 0x1000 first (in place of the firmware that was there): then the board runs it at every start, also without the PC.
 #
 # The BOOT button pulls GPIO 0 to ground (the boot ROM reads it only at a reset, then it is a pin as any other):

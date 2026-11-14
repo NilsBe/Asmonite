@@ -1,0 +1,15 @@
+  ls            the files
+  cat name      shows a file
+  put name      a new file: type or paste the text, then a line with only a dot
+  rm name       removes a file
+  df            the room in the flash
+  format        a new, empty file system (all files are lost)
+  run name      starts a program (a file as Asmonite writes it into the flash)
+  load name     puts its parts for the RAM into their place, without starting it
+  boot name     starts it after every reset (boot alone: which one)
+  noboot        no program after a reset
+  wlan          the WiFi network (wlan set: its name and password, wlan on, wlan off, wlan clear: none)
+  name          the name of the board in the network, name.local (name set <name>, name clear: the one of the MAC)
+  passwd        the password for telnet (passwd set, passwd clear: none, telnet lets everyone in)
+  help          this list (the file help.txt)
+  name [args]   another word: the program of that name (or name.bin of an older Asmonite)

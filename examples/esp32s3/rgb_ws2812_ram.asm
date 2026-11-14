@@ -3,9 +3,10 @@
 ; This program runs in the RAM of the chip:
 ;   1. plug in the board at the USB port of the chip (Debug > Debug targets: "Set up the USB JTAG" once for each
 ;      board, as for the ESP32-C3)
-;   2. press F9: with the console of Asmonite on the board (Board > Prepare Board) it runs over the console, with a
-;      breakpoint or F7 (Step into) under the debugger over the USB JTAG; without the console the debugger resets the
-;      chip into the download mode of its boot ROM, stops core 0 there, loads the program to 0x40378000 and runs it
+;   2. press F9: with the console of Asmonite on the board (Board Manager > Prepare Board) it runs over the console,
+;      with a breakpoint or F7 (Step into) under the debugger over the USB JTAG; without the console the debugger
+;      resets the chip into the download mode of its boot ROM, stops core 0 there, loads the program to 0x40378000 and
+;      runs it
 ; Only if the firmware of the board uses the USB port itself (the board is then no "USB JTAG/serial debug unit"),
 ; hold BOOT, press RST and let BOOT go before, once. Nothing is written to the flash: after RST the firmware of the
 ; board runs again.

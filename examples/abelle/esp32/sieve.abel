@@ -1,7 +1,7 @@
 # A benchmark: the sieve of Eratosthenes for the primes below 20000, ten times, and the time it took (timer 0 of timer
 # group 0), every five seconds over UART0 (under the debugger in the tab Serial, else in a terminal on the COM port,
 # 115200 baud). There are 2262 primes below 20000. F9 in Asmonite runs it in the RAM (gone after a reset);
-# Board > Advanced > Write to Flash and Run writes it into the flash at 0x1000 first (in place of the firmware that was
+# Project > Write to Flash and Run writes it into the flash at 0x1000 first (in place of the firmware that was
 # there): then the board runs it at every start, also without the PC.
 #
 # The array of the sieve has 20000 bytes in the DRAM; the compiler puts its zeros into the program, so they go over

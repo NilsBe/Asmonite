@@ -1,7 +1,7 @@
 # A clock on the ESP32 DevKit: timer 0 of timer group 0 counts microseconds. The LED at GPIO 2 blinks, half a second on
 # and off, and every second the program writes how long it runs over UART0 (under the debugger in the tab Serial, else
 # in a terminal on the COM port, 115200 baud). F9 in Asmonite runs it in the RAM (gone after a reset);
-# Board > Advanced > Write to Flash and Run writes it into the flash at 0x1000 first (in place of the firmware that was
+# Project > Write to Flash and Run writes it into the flash at 0x1000 first (in place of the firmware that was
 # there): then the board runs it at every start, also without the PC.
 #
 # Timer group 0 (ESP32 Technical Reference Manual, chapter "Timer Group"): two timers of 64 bits; T0CONFIG at 0x00

@@ -46,7 +46,9 @@ A program for the Pico at a Pico 2 (or the other way round) is refused with the 
 
 ## The Pico 2 (RP2350) in short
 
-The RP2350 on the Pico 2 has two processors of each of two kinds: two Arm Cortex-M33 and two RISC-V cores (Hazard3). At start-up the boot ROM chooses which pair runs, from the program in the flash. Asmonite writes programs for both: for the RISC-V cores (`.arch riscv32`, RV32IMAC with the bit manipulation extensions) and for the Arm cores (`.arch thumb`, see [The Arm cores](#the-arm-cores)); it uses core 0 of either.
+The RP2350 on the Pico 2 has two processors of each of two kinds: two Arm Cortex-M33 and two RISC-V cores (Hazard3). At start-up the boot ROM chooses which pair runs, from the program in the flash. Asmonite writes programs for both: for the RISC-V cores (`.arch riscv32`, RV32IMAC with the bit manipulation extensions) and for the Arm cores (`.arch thumb`, see [The Arm cores](#the-arm-cores)); it uses core 0 of either. To switch without a program of your
+own: **RISC-V Cores** or **Arm Cores** in the Board Manager (menu Board) writes the example `blink` of the other cores
+into the flash.
 
 | What | Address |
 |---|---|

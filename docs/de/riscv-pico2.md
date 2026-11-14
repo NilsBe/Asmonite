@@ -46,7 +46,9 @@ Ein Programm für den Pico an einem Pico 2 (oder umgekehrt) wird mit dem Namen d
 
 ## Der Pico 2 (RP2350) in Kürze
 
-Der RP2350 auf dem Pico 2 hat zwei Prozessoren von zwei Sorten: zwei Arm Cortex-M33 und zwei RISC-V-Kerne (Hazard3). Beim Start wählt das Boot-ROM nach dem Programm im Flash, welches Paar läuft. Asmonite schreibt Programme für beide: für die RISC-V-Kerne (`.arch riscv32`, RV32IMAC mit den Bit-Manipulations-Erweiterungen) und für die Arm-Kerne (`.arch thumb`, siehe [Die Arm-Kerne](#die-arm-kerne)); es benutzt jeweils Kern 0.
+Der RP2350 auf dem Pico 2 hat zwei Prozessoren von zwei Sorten: zwei Arm Cortex-M33 und zwei RISC-V-Kerne (Hazard3). Beim Start wählt das Boot-ROM nach dem Programm im Flash, welches Paar läuft. Asmonite schreibt Programme für beide: für die RISC-V-Kerne (`.arch riscv32`, RV32IMAC mit den Bit-Manipulations-Erweiterungen) und für die Arm-Kerne (`.arch thumb`, siehe [Die Arm-Kerne](#die-arm-kerne)); es benutzt jeweils Kern 0. Umschalten ohne eigenes Programm:
+**RISC-V Cores** bzw. **Arm Cores** im Board Manager (Menü Board) schreibt das Beispiel `blink` der anderen Kerne in
+den Flash.
 
 | Was | Adresse |
 |---|---|

@@ -6,6 +6,78 @@ Versionsnummern: MAJOR.MINOR.PATCH. Solange MAJOR 0 ist, darf ein MINOR-Schritt 
 vorhandene Quelltexte bedeuten; solche Änderungen stehen unter „Geändert“ und sind mit
 **(Quelltexte)** markiert.
 
+## 0.14.0 – 2026-11-14
+
+### Neu
+- **Der Name des Boards** (ESP32, ESP32-S3): `name set keller` in der Konsole gibt dem Board einen Namen, `name`
+  zeigt ihn, `name clear` nimmt wieder den aus der MAC (`esp32-789a`, beim S3 `esp32s3-789a`). Der Router lernt ihn
+  per DHCP, die Konsole beantwortet am Prompt mDNS für `name.local` und nennt den Namen mit der Adresse; telnetd,
+  webserver und die anderen Netzprogramme nehmen denselben Namen (`inc/net.abel` liest ihn; die festen `esp32` /
+  `esp32s3` gibt es nicht mehr).
+- **Ein Passwort für telnet** (ESP32, ESP32-S3): `passwd set` in der Konsole (8 bis 63 Zeichen; das Board behält 12
+  Bytes eines PBKDF2-SHA1-Schlüssels daraus, nicht das Passwort), `passwd`, `passwd clear`. telnetd fragt danach und
+  trennt nach dem dritten falschen; ohne Passwort lässt es jeden herein und sagt das. `inc/wifi.abel`:
+  `wifi_login_set`, `wifi_login_check`.
+- **Ping ohne Programm** (ESP32, ESP32-S3): Steht die WLAN-Verbindung der Konsole, holt sie sich per DHCP eine
+  Adresse und meldet sie („WiFi: connected, address …“), und der WLAN-Dienst auf dem zweiten Kern beantwortet ARP
+  und ping für sie selbst, auch während ein Programm läuft, das keine Pakete liest. So ist das Board nach einem
+  Neustart oder Stromausfall per ping erreichbar. Die Konsole fragt nach der halben Leasedauer erneut und meldet
+  „WiFi: no connection.“, wenn die Verbindung weg ist. `dhcp_run` aus `inc/net.abel` gibt seine Adresse ebenso an
+  den Dienst weiter (neu: `wifi_set_ip`, `wifi_get_ip`).
+- **Der Board Manager** (Board > Board Manager) ersetzt das Fenster Board Files. Er zeigt die angesteckten Boards,
+  ein Foto des gewählten Boards, was Asmonite über es herausfindet, ohne es zu stören (Chip und Revision, Flash, die
+  Konsole, die laufenden Kerne; MAC, Quarz und beim S3 der PSRAM im Chip mit Read Chip; das Netz eines ESP32 oder
+  ESP32-S3: WLAN aus, verbindet oder verbunden, seine Adresse, MAC und sein Name), und nur die Knöpfe, die zum Board
+  passen:
+  - ESP32, ESP32-S3: die Dateien der Konsole wie bisher; Reset Board, Read Chip (über das Boot-ROM: das Board startet
+    neu), Prepare Board, This Program Autostarts, Install WiFi Again, Format, Erase Flash.
+  - ESP32-C3: Reset Board, Read Chip, Erase Flash, über sein Boot-ROM.
+  - Pico, Pico 2 und die STM32F103 Blue Pill hinter der Debug Probe: Reset Board, Erase Flash; beim Pico 2 dazu
+    RISC-V Cores / Arm Cores (das Beispiel `blink` der anderen Kerne kommt in den Flash).
+  - Der Pico im USB-Boot (BOOTSEL): Start Program, Erase Flash. Der Pico 2 im USB-Boot: Arm Cores, RISC-V Cores, über
+    sein Laufwerk.
+  - Ein Board, das Asmonite nicht kennt: was Windows über es sagt, keine Knöpfe.
+- Der Board Manager **öffnet sich von selbst**, wenn ein Board zum ersten Mal eingesteckt wird, auch beim Start von
+  Asmonite mit einem solchen Board (gemerkt im Abschnitt `[Boards]` der Datei `Asmonite.ini`).
+- Mit mehreren angesteckten Boards bleiben Board Manager und Reiter Serial beim selben Board: Der Board Manager öffnet
+  sich mit dem Board des Reiters Serial, und beim Schließen verbindet sich der Reiter Serial mit dem Board, das zuletzt
+  darin gewählt war.
+- **telnetd versucht es wieder** (ESP32, ESP32-S3): Ohne sein Netz oder eine Adresse per DHCP meldet es das und
+  versucht es alle 10 Sekunden neu, statt zu enden (nach einem Stromausfall startet der Router oft langsamer als das
+  Board); fällt das WLAN weg, beendet es die Sitzung und holt sich wieder eine Adresse. Es endet nur, wenn das Board
+  kein Netz kennt.
+- Die ZIP-Datei hat die Fotos der Boards in `boards\`.
+
+### Geändert
+- **Im Reiter Serial tippst du direkt**: Die Tasten gehen sofort an das Board, wie in PuTTY (Enter, Rücktaste, Ctrl+C
+  ohne Markierung stoppt das Programm, Ctrl+V fügt ein); ein Programm, das einzelne Tasten liest, bekommt sie ohne
+  Enter. Der Haken **Line** in der Kopfzeile blendet die Zeile darunter wie bisher ein, für ein Programm, das nichts
+  zurückschreibt.
+- **Die Hilfe der Konsole ist eine Datei** auf dem Board, `help.txt` (ESP32, ESP32-S3): Prepare Board, Format und
+  jedes Update der Konsole schreiben sie; `help` zeigt sie, ohne sie eine kurze Liste. Die Konsole hat dadurch etwa
+  600 Bytes mehr Platz für ihre Daten.
+- **Programme für die Boards haben keine Endung**: Aus `blink.abel` wird `blink` (abelle_esp32 ohne Namen für das
+  Programm, Asmonite neben der Quelle und auf dem Board). Upload This Program und This Program Autostarts löschen ein
+  `blink.bin` eines älteren Asmonite und stellen einen Autostart, der darauf zeigte, auf `blink` um. Die Konsole
+  findet `name.bin` weiterhin. Quellen behalten `.abel`.
+- **Das Menü Board** hat nur noch **Board Manager...**. **Write to Flash and Run (ESP32)** steht im Menü Project.
+  Set This Program as Autostart ist der Knopf **This Program Autostarts**; Prepare Board, Erase Flash und Install WiFi
+  Again sind Knöpfe des Board Managers.
+
+### Behoben
+- telnetd konnte auf dem ESP32 das Board mit „IllegalInstruction“ anhalten, wenn es startete, während sich das WLAN
+  der Konsole gerade verband (als Autostart nach einem Stromausfall, solange der Router noch nicht da ist): Es richtete
+  die MMU des ersten Kerns für die Dateien ein, während der zweite Kern das WLAN aus dem Flash ausführte. Jetzt bildet
+  die Konsole die Dateien bei ihrem Start ab, vor ihrem WLAN, und telnetd lässt die MMU in Ruhe, sobald das WLAN läuft;
+  außerdem nimmt es die Größe des Flashs, die die Konsole kennt, statt den Flash zu fragen (`wifi_flash_size` aus
+  `inc/wifi.abel`).
+- Nach dem Ende eines Programms, das F9 (oder Run im Board Manager) über die Konsole gestartet hatte, zeigte die
+  Konsole erst nach Enter wieder einen Prompt (ESP32, ESP32-S3); jetzt schreibt sie `> ` von selbst.
+
+### Bekannt
+- Zwei ESP32-DevKits mit dem USB-Seriell-Chip CP2102 haben dieselbe Seriennummer („0001“); das zweite gilt schon als
+  gesehen und öffnet den Board Manager nicht von selbst.
+
 ## 0.13.0 – 2026-11-12
 
 ### Neu

@@ -6,7 +6,7 @@
 #
 # The program loads the service itself: its first wifi_ call reads the WiFi package in the flash of the board (from
 # 0x100000: the library, the parts of wlan.rom for the RAM and wlansvc, which Asmonite writes there when a program with
-# this file starts, or Board > Advanced > Install WiFi Again) and puts the parts for the RAM into their place
+# this file starts, or Board Manager > Install WiFi Again) and puts the parts for the RAM into their place
 # (wifi_start). Not when the service runs already (core 1 has its clock and the service its mark "WSVC" at
 # 0x403A001C: a program before it in the console started it). So a program runs alike by run or boot in the console
 # and under the debugger (F9): the debugger stops core 0 only, the WiFi on core 1 goes on. The program must end below
@@ -32,6 +32,9 @@ def wsvc_mac(buf: pchar) i32 at 0x403A0034
 def wsvc_disconnect() i32 at 0x403A0038
 def wsvc_summary() i32 at 0x403A003C
 def wsvc_millis() i32 at 0x403A0040
+def wsvc_set_ip(p: pchar) i32 at 0x403A0060          # version 10 of the service
+def wsvc_pmk(pw: pchar, salt: pchar, n: i32, key: pchar) i32 at 0x403A0048   # PBKDF2-SHA1, on this core
+def wsvc_get_ip(p: pchar) i32 at 0x403A0064
 
 WIFI_E_LINK = 0x7F6     # wifi_connect: the access point said no (the reason in wifi_status)
 WIFI_E_TIME = 0x7F7     # wifi_connect: nothing came in 15 seconds
@@ -129,6 +132,20 @@ def wifi_millis() i32:
     if wifi_start() != 0: return wl_soft_millis()
     return wsvc_millis()
 
+# the IPv4 address of the board (the 4 bytes at wl_p; 0: none) to the service: from now on it answers an ARP
+# request for it and a ping to it itself, on core 1, also while the program reads no frames (and the console
+# after the program); dhcp_run of inc/net.abel calls it. 0, -1 when the service on the board is older (version
+# 10 has it: Asmonite puts its own on the board)
+def wifi_set_ip(wl_p: pchar) i32:
+    if wifi_start() != 0: return WIFI_E_FILES
+    if wl_svc[8] < 10: return -1
+    return wsvc_set_ip(wl_p)
+
+# the address the service answers for into the 4 bytes at wl_p (zeros: none): 1 when it has one, else 0
+def wifi_get_ip(wl_p: pchar) i32:
+    if wifi_start() != 0 or wl_svc[8] < 10: return 0
+    return wsvc_get_ip(wl_p)
+
 # a connection to the network the board keeps (wlan set in the console keeps its name and its key, not the
 # password): 0 when the station is connected, else as wifi_connect; WIFI_E_NONET when the board keeps none. When the
 # console connects to it in the background already (it does so from its start, unless wlan off), the program waits
@@ -158,15 +175,9 @@ def wifi_saved_name() pchar:
 # wl_key as 64 hex digits and a 0 (65 bytes; wifi_connect takes them in place of the password), "" for an open
 # network; 1 when the board keeps one, else 0
 def wifi_saved(wl_name: pchar, wl_key: pchar) i32:
-    wl_best: u32 = 0
-    for wl_s in 0..2:
-        wl_no = wl_record(0xFE000 + wl_s * 4096)
-        if wl_no > wl_best:
-            wl_best = wl_no
-            for wl_i in 0..128: wl_rec_in_use[wl_i] = wl_rec[wl_i]
-    if wl_best == 0: return 0
+    if wl_best_record() == 0: return 0
     wl_n = wl_rec_in_use[12]
-    if wl_n > 32: return 0
+    if wl_n == 0 or wl_n > 32: return 0     # (a record with only the name of the board: no network)
     for wl_i in 0..wl_n: wl_name[wl_i] = wl_rec_in_use[16 + wl_i]
     wl_name[wl_n] = 0
     wl_key[0] = 0
@@ -177,11 +188,50 @@ def wifi_saved(wl_name: pchar, wl_key: pchar) i32:
     wl_key[64] = 0
     return 1
 
+# the name of the board (name set in the console: up to 31 characters and a 0, so 32 bytes) into wl_s: 1, or 0 and
+# wl_s empty when it has none (then inc/net.abel takes the one of the MAC)
+def wifi_board_name(wl_s: pchar) i32:
+    wl_s[0] = 0
+    if wl_best_record() == 0 or wl_rec_in_use[80] == 0: return 0
+    for wl_i in 0..31: wl_s[wl_i] = wl_rec_in_use[80 + wl_i]
+    wl_s[31] = 0
+    return 1
+
+# a password for telnet set on the board (passwd set in the console: 12 bytes of its key at +112 of the record)? 1,
+# else 0 (then telnetd lets everyone in)
+def wifi_login_set() i32:
+    if wl_best_record() == 0: return 0
+    for wl_i in 0..12:
+        if wl_rec_in_use[112 + wl_i] != 0: return 1
+    return 0
+
+# the password wl_p (a 0 at its end) the one of passwd set? 1, else 0. It makes the key as the console does (PBKDF2-SHA1
+# with the MAC of the board as its salt, by wifi_pmk of the service): about 2 seconds, a brake for one who tries many
+def wifi_login_check(wl_p: pchar) i32:
+    if wifi_start() != 0 or wl_best_record() == 0: return 0
+    wsvc_mac(wl_mac6)
+    if wsvc_pmk(wl_p, wl_mac6, 6, wl_pmk_out) != 0: return 0
+    wl_ok = 1
+    for wl_i in 0..12:
+        if wl_pmk_out[wl_i] != wl_rec_in_use[112 + wl_i]: wl_ok = 0
+    for wl_i in 0..32: wl_pmk_out[wl_i] = 0
+    return wl_ok
+
+# the valid record with the higher number into wl_rec_in_use: 1, or 0 when there is none
+def wl_best_record() i32:
+    wl_best: u32 = 0
+    for wl_s in 0..2:
+        wl_no = wl_record(0xFE000 + wl_s * 4096)
+        if wl_no > wl_best:
+            wl_best = wl_no
+            for wl_i in 0..128: wl_rec_in_use[wl_i] = wl_rec[wl_i]
+    return wl_best != 0
+
 # a sentence for an error of the functions above (for the output of a program)
 def wifi_error_text(wl_r: i32) pchar:
     if wl_r < 0: wl_r = 0 - wl_r
     if wl_r == 0: return "no error"
-    if wl_r == WIFI_E_FILES: return "the WiFi package is not on the board: F9 in Asmonite writes it (by hand: Board > Advanced > Install WiFi Again)"
+    if wl_r == WIFI_E_FILES: return "the WiFi package is not on the board: F9 in Asmonite writes it (by hand: Board Manager > Install WiFi Again)"
     if wl_r == WIFI_E_NONET: return "the board keeps no WiFi network: wlan set in the console"
     if wl_r == WIFI_E_LINK: return "the access point said no (the password? the reason in wifi_status)"
     if wl_r == WIFI_E_TIME: return "no answer of the access point within 15 s (its name? in reach?)"
@@ -264,6 +314,14 @@ def wl_flash_init():
 # the size of the flash from its JEDEC id (the command 0x9F through SPI1, as esptool flash_id and the console do it):
 # 4 to 16 MB, else 4 MB
 wl_spi1: u32[32] at 0x60002000
+
+# the size of the flash in bytes (4 to 16 MB) as the ROM knows it: the console sets it at its start, wifi_start too
+# when it loads the service. A program asks here, not the flash: while the WiFi runs on core 1 (its code in the flash),
+# a command to the flash through SPI1 can break a read of that code
+def wifi_flash_size() i32:
+    wifi_start()
+    return i32(wl_mem[i32(wl_legacy[0] + 4) / 4])
+
 def wl_flash_size() u32:
     wl_user = wl_spi1[0x18 / 4]
     wl_user2 = wl_spi1[0x20 / 4]
@@ -366,13 +424,17 @@ def wl_load(wl_start: i32, wl_size: i32) i32:
 
 # The console keeps it in two sectors below the WiFi package, 0xFE000 and 0xFF000 (examples/esp32s3/console.asm,
 # cred_load): the valid record with the higher number counts. A record (128 bytes): +0 "AWN1", +4 the number, +8 bit 0:
-# an open network, +12 the length of the name, +16 the name (32 bytes), +48 the key (32 bytes), +124 the CRC-32 of the
-# bytes before it
+# an open network, +12 the length of the name, +16 the name (32 bytes), +48 the key (32 bytes), +80 the name of the board
+# (name set: up to 31 characters and a 0; 0: none), +112 the password for telnet (12 bytes of its key; zeros:
+# none), +124 the CRC-32 of the bytes before it; the length 0 at +12: only
+# the name, no network
 def wl_con_flash_read(wl_address: u32, wl_buf: pchar, wl_count: i32) i32 at 0x403C0828    # flash_read of the console
 wl_rec: char[128]                       # a record read from the flash
 wl_rec_in_use: char[128]                # the one with the higher number
 wl_name_buf: char[36]
 wl_key_buf: char[68]
+wl_mac6: char[8]                        # the MAC: the salt of the password for telnet
+wl_pmk_out: char[32]                    # its key
 
 # the record in the sector at wl_at: its number when it is valid, else 0. While the service runs on core 1 through the
 # console (it parks core 1 for the flash), else by the ROM

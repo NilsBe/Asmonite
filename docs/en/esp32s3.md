@@ -36,7 +36,7 @@ _start:
     ...
 ```
 
-When the console of Asmonite is on the board (Board > Prepare Board) and the program has no breakpoint, F9 puts it into
+When the console of Asmonite is on the board (Prepare Board in the Board Manager) and the program has no breakpoint, F9 puts it into
 the RAM over the console and starts it, without the download mode and without a reset; the tab Serial shows its output
 (see [boards.md](boards.md)). F9 first replaces a console of an older version of Asmonite by itself (about 2 seconds;
 the files and the network of the board stay), and another WiFi package as well.
@@ -134,19 +134,19 @@ and a counter over the USB port of the chip; `examples/abelle/esp32s3/rgb.abel` 
 to its end (a little over 14 MB on 16 MB) and the same packets for Asmonite. It speaks over the USB port of the chip:
 any terminal program on the COM port of the chip, the baud rate does not matter.
 
-The menu **Board** works with the S3 as with the ESP32 (Asmonite takes the S3 when no board with a USB serial chip is
-plugged in):
+The **Board Manager** (menu Board, see [boards.md](boards.md)) works with the S3 as with the ESP32; with several boards
+plugged in, you choose it in the list on the left:
 
-- **Board > Prepare Board** writes the console into the flash over the boot ROM (on the S3 at the address 0) and makes
-  the file system when there is none.
-- **Board > Files** opens the window **ESP32-S3 Board Files**: **Upload File**, **Download**, **Delete**, **Run**,
-  **Autostart**, **Reset Board** and **Format** as on the ESP32; **Board > Set This Program as Autostart** and
-  **Board > Advanced > Erase Flash** as well. **Upload This Program** takes a program with `.target esp32s3` or
+- **Prepare Board** writes the console into the flash over the boot ROM (on the S3 at the address 0) and makes
+  the file system when there is none. While no console answers, Asmonite does not know whether an S3 or a C3 is
+  plugged in (both have the same USB id): Prepare Board and **Read Chip** ask the boot ROM first then.
+- **Upload File**, **Download**, **Delete**, **Run**, **Autostart**, **Reset Board**, **Format**, **This Program
+  Autostarts** and **Erase Flash** as on the ESP32. **Upload This Program** takes a program with `.target esp32s3` or
   `target "esp32s3"` and refuses one for the ESP32.
 - A program from the console may use all of the RAM of the programs: code `0x40378000 .. 0x403BFFFF`, data in the
   same RAM over the data bus `0x3FC88000 .. 0x3FCCFFFF`; a program for F9 fits as it is. The console itself lies
   above it (code from `0x403C0000`, data from `0x3FCD8000`). With the WiFi the upper part of it belongs to the WiFi.
-- **Board > Advanced > Install WiFi Again** writes the WiFi package anew (seldom needed, see [The WiFi](#the-wifi)).
+- **Install WiFi Again** writes the WiFi package anew (seldom needed, see [The WiFi](#the-wifi)).
 - **When a program ends, the console is back**, as on the ESP32: `retw` (it says `Program ended (code n)`),
   `exit(code)` by `callx8` to `0x403C0800`, an exception or a `break` (`Program stopped: …`), or **Ctrl+C** (the
   button Stop in the tab Serial; a packet over the USB port raises the NMI, also with the interrupts off). The program runs on
@@ -172,8 +172,8 @@ core 0 only, the WiFi goes on.
 1. The **WiFi package** lies in the flash from `0x100000` to `0x1FFFFF`, as on the ESP32: the library, a head at
    `0x1F0000`, behind it the parts of `wlan.rom` for the RAM and `wlansvc`. When you start a program with
    `inc/wifi.abel` with F9, Asmonite writes the package over the console if it is missing or does not match (about
-   300 KB, about 8 seconds). Prepare Board puts it there as well, **Board > Advanced > Install WiFi Again** does it by
-   hand.
+   300 KB, about 8 seconds). Prepare Board puts it there as well, **Install WiFi Again** in the Board Manager does it
+   by hand.
 2. A program in aBelle with `include "inc/wifi.abel"` (from `examples/abelle/esp32s3/inc/`) loads the service itself
    from the package, by `run` in the console as under the debugger. `examples/abelle/esp32s3/scan.abel` shows the
    networks nearby. While the console uses the flash, it parks core 1 as on the ESP32 ([esp32.md](esp32.md)): files
@@ -187,6 +187,8 @@ core 0 only, the WiFi goes on.
    port of the chip (`inc/usb.abel` in place of `inc/uart.abel`), the tab Serial shows it. `net.abel` and `tcp.abel`
    are the ones of the ESP32. For WPA2 the service unwraps the group key itself (AES key unwrap of RFC 3394): the ROM
    of the S3 has no function for it, unlike the one of the ESP32.
+4. As on the ESP32, the console gets an address by DHCP once connected ("WiFi: connected, address ..."), and the
+   service answers ARP and ping for it itself: the board answers ping also without a program ([esp32.md](esp32.md)).
 
 The RAM with the WiFi (the code bus and the data bus are the same RAM, `0x6F0000` apart):
 

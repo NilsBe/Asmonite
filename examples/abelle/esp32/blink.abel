@@ -1,6 +1,6 @@
 # Blink on the ESP32 DevKit: the LED at GPIO 2 on and off, slowly (see wait()). F9 in Asmonite translates it with
 # abelle_esp32, loads it with the monitor over the USB cable into the RAM and runs it (gone after a reset).
-# Board > Advanced > Write to Flash and Run writes it into the flash at 0x1000 first (in place of the firmware that was
+# Project > Write to Flash and Run writes it into the flash at 0x1000 first (in place of the firmware that was
 # there): then the board runs it at every start, also without the PC.
 #
 # watchdogs_off(): when the boot ROM starts a program from the flash, it switches the watchdogs on (the bootloader of

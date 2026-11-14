@@ -5,6 +5,72 @@ What changed from version to version. German: [docs/de/aenderungen.md](docs/de/a
 Version numbers: MAJOR.MINOR.PATCH. While MAJOR is 0, a MINOR step may change what
 existing sources mean; such changes are listed under "Changed" and marked **(sources)**.
 
+## 0.14.0 – 2026-11-14
+
+### New
+- **The name of the board** (ESP32, ESP32-S3): `name set keller` in the console gives the board a name, `name` shows
+  it, `name clear` takes the one of the MAC again (`esp32-789a`, the S3 `esp32s3-789a`). The router learns it by DHCP,
+  the console answers mDNS for `name.local` at its prompt and says the name with the address; telnetd, webserver and
+  the other network programs take the same name (`inc/net.abel` reads it; the fixed `esp32` / `esp32s3` are gone).
+- **A password for telnet** (ESP32, ESP32-S3): `passwd set` in the console (8 to 63 characters; the board keeps 12
+  bytes of a PBKDF2-SHA1 key of it, not the password), `passwd`, `passwd clear`. telnetd asks for it and ends the
+  connection after the third wrong one; without one it lets everyone in and says so. `inc/wifi.abel`:
+  `wifi_login_set`, `wifi_login_check`.
+- **Ping without a program** (ESP32, ESP32-S3): once the WiFi of the console is connected, the console gets an
+  address by DHCP and says it ("WiFi: connected, address ..."), and the WiFi service on the second core answers ARP
+  and ping for it itself, also while a program runs that reads no frames. So the board answers ping after a restart
+  or a power cut. The console asks again at half the lease time and says "WiFi: no connection." when it is gone.
+  `dhcp_run` of `inc/net.abel` gives its address to the service the same way (new: `wifi_set_ip`, `wifi_get_ip`).
+- **The Board Manager** (Board > Board Manager) takes the place of the window Board Files. It shows the boards plugged
+  in, a photo of the board chosen, what Asmonite finds out about it without disturbing it (chip and revision, flash,
+  the console, the cores that run; MAC, crystal and, on the S3, the PSRAM in the chip with Read Chip; the network of
+  an ESP32 or ESP32-S3: WiFi off, connecting or connected, its address, MAC and name) and only the buttons that fit
+  the board:
+  - ESP32, ESP32-S3: the files of the console as before; Reset Board, Read Chip (over the boot ROM: the board
+    restarts), Prepare Board, This Program Autostarts, Install WiFi Again, Format, Erase Flash.
+  - ESP32-C3: Reset Board, Read Chip, Erase Flash, over its boot ROM.
+  - Pico, Pico 2 and the STM32F103 Blue Pill behind the debug probe: Reset Board, Erase Flash; the Pico 2 also
+    RISC-V Cores / Arm Cores (the example `blink` of the other cores goes into the flash).
+  - The Pico in its USB boot (BOOTSEL): Start Program, Erase Flash. The Pico 2 in its USB boot: Arm Cores, RISC-V
+    Cores, over its drive.
+  - A board Asmonite does not know: what Windows tells about it, no buttons.
+- The Board Manager **opens by itself** when a board is plugged in for the first time, also when Asmonite starts with
+  such a board plugged in (remembered in the section `[Boards]` of `Asmonite.ini`).
+- With several boards plugged in, the Board Manager and the tab Serial keep to the same board: the Board Manager opens
+  with the board of the tab Serial, and when it closes, the tab Serial connects to the board chosen last in it.
+- **telnetd tries again** (ESP32, ESP32-S3): without its network or an address by DHCP it says so and tries again every
+  10 seconds instead of ending (after a power cut the router may start slower than the board); after a loss of the
+  WiFi it ends the session and gets an address again. It ends only when the board keeps no network.
+- The ZIP has the photos of the boards in `boards\`.
+
+### Changed
+- **The tab Serial is a terminal you type into**: the keys go to the board at once, as in PuTTY (Enter, Backspace,
+  Ctrl+C without a selection stops the program, Ctrl+V pastes); a program that reads single keys gets them without
+  Enter. The box **Line** in its header shows the line below as before, for a program that writes nothing back.
+- **The help of the console is a file** on the board, `help.txt` (ESP32, ESP32-S3): Prepare Board, Format and each
+  update of the console write it; `help` shows it, without it a short list. The console has about 600 bytes more of
+  room for its data.
+- **Programs for the boards have no extension**: `blink.abel` becomes `blink` (abelle_esp32 without a name for the
+  program, Asmonite next to the source and on the board). Upload This Program and This Program Autostarts remove a
+  `blink.bin` of an older Asmonite and move an autostart that named it to `blink`. The console still finds `name.bin`.
+  Sources keep `.abel`.
+- **The menu Board** has only **Board Manager...** now. **Write to Flash and Run (ESP32)** is in the menu Project.
+  Set This Program as Autostart is the button **This Program Autostarts**; Prepare Board, Erase Flash and Install
+  WiFi Again are buttons of the Board Manager.
+
+### Fixed
+- telnetd on the ESP32 could stop the board with "IllegalInstruction" when it started while the WiFi of the console
+  was connecting (as an autostart after a power cut, when the router is not there yet): it set up the MMU of the first
+  core for the files while the second core ran the WiFi from the flash. The console maps the files at its start now,
+  before its WiFi, and telnetd leaves the MMU as it is once the WiFi runs; it also takes the size of the flash the
+  console knows instead of asking the flash (`wifi_flash_size` of `inc/wifi.abel`).
+- After a program that F9 (or Run of the Board Manager) started over the console had ended, the console showed no
+  prompt until Enter (ESP32, ESP32-S3); it writes `> ` again now.
+
+### Known
+- Two ESP32 DevKits with the USB serial chip CP2102 have the same serial number ("0001"); the second one counts as
+  seen already and does not open the Board Manager by itself.
+
 ## 0.13.0 – 2026-11-12
 
 ### New

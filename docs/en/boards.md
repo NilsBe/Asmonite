@@ -17,6 +17,42 @@ what a program writes reaches the PC. The details are in the guide of each board
 The debug probe is a CMSIS-DAP probe at the SWD pins: the Raspberry Pi Debug Probe, or a Pico with the `debugprobe`
 firmware. "–": the board needs none, its USB port does it.
 
+## The Board Manager
+
+**Board > Board Manager** shows the boards plugged in and, for each, only what can be done with it. On the left are
+the boards (**Look Again** looks anew) and under them a photo of the board chosen. On the right is what Asmonite knows
+about the board, for an ESP32 and an ESP32-S3 the files of the console under it, at the bottom the buttons for the
+board.
+
+When it opens, the Board Manager reads only what does not disturb the board: what Windows tells about the USB device
+(id, maker, port), the hello of the console of Asmonite (chip, version of the console, flash), over the debug probe
+the chip, its revision, the flash and the cores that run, without halting the program, and for the Pico in its USB
+boot the chip and the flash over PICOBOOT. More about an ESP32 without a console only its boot ROM tells: **Read
+Chip** reads the chip, revision, MAC, crystal and flash, and restarts the board for it. On the ESP32-S3 it also names
+the PSRAM in the chip (modules such as N16R8: 8 MB), which Espressif writes into the eFuses; the PSRAM of an ESP32
+WROVER, a chip of its own next to the ESP32, the eFuses do not know.
+
+| Board | Buttons |
+|---|---|
+| ESP32, ESP32-S3 | the files: **Refresh**, **Upload File**, **Upload This Program**, **Download**, **Delete**, **Run**, **Autostart**; the board: **Reset Board**, **Read Chip**, **Prepare Board**, **This Program Autostarts**, **Install WiFi Again**, **Format**, **Erase Flash** |
+| ESP32-S3 or ESP32-C3, not known yet (both have the same USB id, no console answers) | **Read Chip**, **Prepare Board** |
+| ESP32-C3 | **Reset Board**, **Read Chip**, **Erase Flash** (over its boot ROM) |
+| Pico, Pico 2, Blue Pill behind the debug probe | **Reset Board**, **Erase Flash**; the Pico 2 also **RISC-V Cores** or **Arm Cores** |
+| Pico in its USB boot (BOOTSEL) | **Start Program** (leaves the USB boot, the program in the flash starts), **Erase Flash** |
+| Pico 2 in its USB boot (BOOTSEL) | **Arm Cores**, **RISC-V Cores** (over its drive RP2350) |
+| a board Asmonite does not know | no buttons; only what Windows tells about it |
+
+**RISC-V Cores** and **Arm Cores** switch the Pico 2: the boot ROM starts the cores the program in the flash is for,
+so the Board Manager writes the example `blink` of the other cores into the flash (the LED blinks). An empty Pico 2
+stays in its USB boot, and there its flash cannot be written over the debug probe; the Board Manager then writes the
+program as a UF2 file onto its drive.
+
+**By itself** the Board Manager opens when you plug a board in for the first time, and when Asmonite starts with a
+board plugged in that it has not seen before. After that you open it from the menu. Asmonite remembers the boards in
+the section `[Boards]` of the file `Asmonite.ini` (by their USB serial number, without one by the USB socket of the PC). When
+Asmonite is in the background, it flashes in the taskbar. A limit: two ESP32 DevKits with the USB serial chip CP2102
+have the same serial number ("0001"); so the second one counts as seen already.
+
 ## The tab Serial
 
 The tab **Serial** next to the output window is a small terminal for the COM ports. Under the debugger it shows what
@@ -35,7 +71,7 @@ the program writes by itself:
 
 **Without the debugger the tab connects by itself** to a board of Espressif (an ESP32 behind its USB serial chip
 first, else the USB port of an ESP32-S3 or ESP32-C3): when Asmonite starts and as soon as you plug the board in. It
-holds the port; the menu Board, the debugger and the boot ROM get it while they need it, then the tab connects again.
+holds the port; the Board Manager, the debugger and the boot ROM get it while they need it, then the tab connects again.
 **Disconnect** lets the port go, for another terminal say; then the tab stays off until you unplug the board or press
 Connect. When the console of Asmonite says hello after a reset ("Asmonite console 2 for the ESP32 …"), the header of
 the tab shows the chip, the console and the time of the start. Until then it shows what the USB tells ("ESP32 at
@@ -58,7 +94,7 @@ network of the board stay.
 **No console:** the header of the tab says so when the boot ROM finds no program in the flash (an empty board) or no
 console says hello within three seconds after a start (another firmware such as MicroPython, a program of Write to
 Flash and Run), and shows the button **Prepare Board**. When no console answers at F9, Asmonite asks: Prepare Board,
-or start the program with the debugger as before. Prepare Board (also in the menu Board) writes the console into the
+or start the program with the debugger as before. Prepare Board (also in the Board Manager) writes the console into the
 flash over the boot ROM and makes its file system when there is none; files of the console stay.
 
 The boards with serial output have an example that writes "Hello, world!" this way: `examples/esp32/hello_uart_ram.asm`,

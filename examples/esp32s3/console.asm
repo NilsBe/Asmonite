@@ -16,7 +16,8 @@
 ;   noboot        no program after a reset
 ;   wlan          the WiFi network of the board (wlan set: its name and password; wlan on, wlan off; wlan clear:
 ;                 none; see cmd_wlan). With a network and not wlan off the WiFi starts at the start of the
-;                 console, in the background (wlan_boot)
+;                 console, in the background (wlan_boot); once connected, the console gets an address by DHCP
+;                 and the WiFi service answers ping for it (net_tick)
 ;   help          the commands
 ;   name [args]   any other word: the program name or name.bin of the files, the rest of the line its arguments (in
 ;                 its a2 and by args()); no "Running" before it, no "Program ended (code 0)" after it
@@ -66,7 +67,7 @@
 ; rate of UART0 on the ESP32) is answered, but changes nothing: the USB port has no rate.
 ;
 ;   1. plug in the board at the USB port of the chip
-;   2. Board > Prepare Board (Asmonite also offers it at F9, and updates the console by itself later)
+;   2. Board > Board Manager > Prepare Board (Asmonite also offers it at F9, and updates the console by itself later)
 ;   3. a terminal on the COM port of the chip; the first time: format
 ;
 ; The file system takes the flash from 2 MB on to its end (0x200000 .. 0x3FFFFF on a flash of 4 MB, up to 0x7FFFFF on
@@ -114,6 +115,9 @@ FILEBUF  equ 0x3FCA0000              ; a file of put (64 KB)
 EXT      equ 0x403A0000              ; a part with commands of its own (see ext_command)
 CRED     equ 0x3FCD9800              ; the WiFi network (wlan): +0 the record in use (128 bytes), +128 one read
 ROMSNAP  equ 0x3FCD9900              ; the WiFi data of the ROM as the ROM set it up (see rom_snapshot): "AWR1", 392 bytes
+NETTX    equ OUT                     ; DHCP: the message that goes (342 bytes; see net_tick; the buffers of the
+NETNAME  equ 0x3FCD9B00              ; the name of the board in use (32 bytes; see console_dhcp.asm)
+NETRX    equ PKT                     ; packets: net_tick runs only at the prompt, between packets)
 
 lit_usb:      dd 0x60038000          ; USB Serial/JTAG: EP1 +0, EP1_CONF +4
 lit_10ms:     dd 400000              ; 10 ms at 40 MHz: how long a byte waits for room in the FIFO
@@ -236,6 +240,7 @@ lit_c_rm:     dd c_rm
 lit_c_df:     dd c_df
 lit_c_format: dd c_format
 lit_c_help:   dd c_help
+lit_c_helptxt: dd c_helptxt
 lit_pstack:   dd 0x3FCAFFE0          ; the stack of a program: the top of its data (as under the debugger; 32 bytes
                                      ; below 0x3FCB0000, where the WiFi service begins)
 lit_vectors:  dd vectors
@@ -307,6 +312,33 @@ lit_s_wnwifi: dd s_wnwifi
 lit_s_wnisoff: dd s_wnisoff
 lit_s_wnconnecting: dd s_wnconnecting
 lit_s_wnoffnow: dd s_wnoffnow
+CON_S3        equ 1                ; for console_dhcp.asm
+lit_nettx:    dd NETTX
+lit_netrx:    dd NETRX
+lit_netgap:   dd 4000000             ; net_tick looks at the WiFi after so many cycles (25 ms at 160 MHz)
+lit_net30s:   dd 30000
+lit_netday:   dd 86400               ; the longest lease the console takes (seconds)
+lit_nethead:  dd net_head
+lit_netname:  dd net_name
+lit_s_netup:  dd s_netup
+lit_s_netgone: dd s_netgone
+lit_s_netfail: dd s_netfail
+lit_netnamebuf: dd NETNAME
+lit_s_netin:  dd s_netin
+lit_s_netlocal: dd s_netlocal
+lit_c_name:   dd c_name
+lit_s_nmis:   dd s_nmis
+lit_s_nmmac:  dd s_nmmac
+lit_s_nmuse:  dd s_nmuse
+lit_s_nmbad:  dd s_nmbad
+lit_c_passwd: dd c_passwd
+lit_s_pwask:  dd s_pwask
+lit_s_pwbad:  dd s_pwbad
+lit_s_pwset:  dd s_pwset
+lit_s_pwnone: dd s_pwnone
+lit_s_pwdone: dd s_pwdone
+lit_s_pwuse:  dd s_pwuse
+lit_svccall:  dd 0x403A0000         ; the table of the WiFi service on the bus of the instructions (its entries)
 
 _start:
   rsil  a2, 5                        ; no interrupts up to level 5 (the boot ROM left its own on)
@@ -335,9 +367,15 @@ no_fs:
 main_loop:
   l32r  a10, lit_s_prompt
   call8 print
+  l32r  a2, lit_vars
+  movi  a3, 1
+  s32i  a3, a2, 224                  ; at the prompt: net_tick may look at the WiFi
   l32r  a10, lit_line
   movi  a11, 255
   call8 read_line
+  l32r  a2, lit_vars
+  movi  a3, 0
+  s32i  a3, a2, 224
   bltz  a10, main_loop               ; Ctrl+C
   call8 command
   j     main_loop
@@ -968,11 +1006,26 @@ cm_6d:
   l32r  a11, lit_c_help
   call8 streq
   beqz  a10, cm_7
-  l32r  a10, lit_s_help
-  call8 print
+  call8 help_show
   call8 ext_help
   retw
 cm_7:
+  mov   a10, a2
+  l32r  a11, lit_c_name
+  call8 streq
+  beqz  a10, cm_7n
+  mov   a10, a3
+  call8 cmd_name
+  retw
+cm_7n:
+  mov   a10, a2
+  l32r  a11, lit_c_passwd
+  call8 streq
+  beqz  a10, cm_7p
+  mov   a10, a3
+  call8 cmd_passwd
+  retw
+cm_7p:
   mov   a10, a2
   l32r  a11, lit_c_wlan
   call8 streq
@@ -1254,6 +1307,24 @@ cat_end:
 cat_done:
   retw
 
+; help: the file help.txt (Prepare Board and the update of the console write it), else the short list s_help
+  align 4
+help_show:
+  entry a1, 32
+  l32r  a3, lit_vars
+  l32i  a3, a3, 16                   ; a file system?
+  beqz  a3, hs_short
+  l32r  a10, lit_c_helptxt
+  call8 find_entry
+  bltz  a10, hs_short
+  l32r  a10, lit_c_helptxt
+  call8 cmd_cat
+  retw
+hs_short:
+  l32r  a10, lit_s_help
+  call8 print
+  retw
+
 ; put name: the lines up to a line with only a dot into FILEBUF, each with an LF, then into the flash
   align 4
 cmd_put:
@@ -1474,6 +1545,8 @@ pm_ok:
 ;   K address count -> k  the CRC-32 of count bytes of the flash at address (a multiple of 4; below 4 MB): Asmonite
 ;                         compares the console in the flash with its own and writes it again when they differ
 ;   I              -> k  the JEDEC id of the flash (4 bytes: the maker, the type, the size as a power of two, 0)
+;   N              -> k  the network: the state of the WiFi, the address, the MAC, the name of the board (48 bytes;
+;                        pk_net in console_dhcp.asm)
 ;   S              -> k  the divider of UART0 now (UART_CLKDIV_REG, 4 bytes)
 ;   S divider      -> k  at the rate now, then UART0 at the new divider: the next packet has to come right at the new
 ;                         rate within its second, else the divider before again. Back to the commands for a terminal
@@ -1862,8 +1935,13 @@ dp_q2:
   j     dp_done
 dp_i:
   movi  a5, 73                       ; 'I'
-  bne   a3, a5, dp_r
+  bne   a3, a5, dp_n
   call8 pk_ident
+  j     dp_done
+dp_n:
+  movi  a5, 78                       ; 'N'
+  bne   a3, a5, dp_r
+  call8 pk_net
   j     dp_done
 dp_r:
   movi  a5, 82                       ; 'R'
@@ -4073,7 +4151,7 @@ wn_show:
   align 4
 wlan_show:
   entry a1, 32
-  call8 cred_load
+  call8 cred_net 
   bnez  a10, ws_net
   l32r  a10, lit_s_wnnone
   call8 print
@@ -4150,15 +4228,25 @@ wt_flags:
   s32i  a5, a3, 212
   bltz  a10, wt_forget
   mov   a5, a10                      ; the length of the password
-  l32r  a6, lit_credbuf              ; the record: zeros, the length and the name
+  l32r  a6, lit_credbuf              ; the record: zeros (the name of the board at +80 stays), the length and the name
   movi  a7, 0
   movi  a8, 0
 wt_zero:
   add   a9, a6, a7
   s32i  a8, a9, 0
   addi  a7, a7, 4
-  movi  a9, 128
+  movi  a9, 80
   bne   a7, a9, wt_zero
+  l32r  a9, lit_vars                 ; no record before: no name either
+  l32i  a9, a9, 204
+  bnez  a9, wt_named
+wt_zero2:
+  add   a9, a6, a7
+  s32i  a8, a9, 0
+  addi  a7, a7, 4
+  movi  a9, 128
+  bne   a7, a9, wt_zero2
+wt_named:
   s32i  a2, a6, 12
   l32r  a8, lit_chunk
   movi  a7, 0
@@ -4261,7 +4349,7 @@ fg_done:
   align 4
 wlan_boot:
   entry a1, 32
-  call8 cred_load
+  call8 cred_net 
   beqz  a10, wb_done
   l32r  a2, lit_credbuf
   l32i  a2, a2, 8
@@ -4356,7 +4444,7 @@ wbk_done:
   align 4
 wlan_switch:
   entry a1, 32
-  call8 cred_load
+  call8 cred_net 
   bnez  a10, wsw_net
   l32r  a10, lit_s_wnnone
   call8 print
@@ -4390,6 +4478,9 @@ wsw_off:
   align 4
 wlan_clear:
   entry a1, 32
+  call8 cred_clear_net               ; a name kept: the record without its network
+  movi  a3, 0
+  bnez  a10, wc_halt
   l32r  a2, lit_cred
   srli  a10, a2, 12
   call8 fl_erase
@@ -4402,6 +4493,7 @@ wlan_clear:
   movi  a5, 0
   s32i  a5, a4, 204
   s32i  a2, a4, 208
+wc_halt:
   call8 wlan_halt                    ; no network: the WiFi off
   l32r  a10, lit_s_wncleared
   beqz  a3, wc_say
@@ -4886,7 +4978,12 @@ gc_wait:
   l32r  a4, lit_vars
   l32i  a5, a4, 0
   l32i  a6, a4, 4
-  beq   a5, a6, gc_wait
+  bne   a5, a6, gc_got
+  l32i  a7, a4, 224
+  beqz  a7, gc_wait
+  call8 net_tick                     ; at the prompt: the address of the board (DHCP)
+  j     gc_wait
+gc_got:
   l32r  a7, lit_ring
   add   a7, a7, a6
   l8ui  a2, a7, 0                    ; the ring is in the RAM of the data: bytes work there
@@ -4930,11 +5027,16 @@ pc_room:
   s32i  a5, a4, 84                   ; something to send (tx_flush; a full FIFO goes out by itself)
   retw
 
-; a line into a2 (at most a3 characters and a 0), with echo; its length, -1 for Ctrl+C
+; a line into a2 (at most a3 characters and a 0), with echo; its length, -1 for Ctrl+C. The line has its 0 behind it
+; all the time: net_say shows it again after a message
   align 4
 read_line:
   entry a1, 32
   movi  a4, 0                        ; the length
+rl_zero:
+  add   a8, a2, a4
+  movi  a6, 0
+  s8i   a6, a8, 0
 rl_next:
   call8 get_char
   mov   a5, a10
@@ -4957,8 +5059,16 @@ rl_cc:
   bne   a5, a8, rl_cc3
   movi  a10, 1
   call8 packet_mode                  ; STX: a program on the PC; then the line starts anew
+  l32r  a8, lit_vars                 ; a program started by a packet (F9) ran: the prompt again after its end
+  l32i  a9, a8, 184
+  bnei  a9, 1, rl_pkdone
+  movi  a9, 0
+  s32i  a9, a8, 184
+  l32r  a10, lit_s_prompt
+  call8 print
+rl_pkdone:
   movi  a4, 0
-  j     rl_next
+  j     rl_zero
 rl_cc3:
   movi  a8, 3
   bne   a5, a8, rl_bs
@@ -4980,6 +5090,8 @@ rl_ctrl:
   bgeu  a4, a3, rl_next              ; the line is full
   add   a8, a2, a4
   s8i   a5, a8, 0
+  movi  a6, 0
+  s8i   a6, a8, 1
   addi  a4, a4, 1
   l32i  a8, a7, 212                  ; wlan set: the password without echo
   bnez  a8, rl_next
@@ -4989,6 +5101,9 @@ rl_ctrl:
 rl_back:
   beqz  a4, rl_next
   addi  a4, a4, -1
+  add   a8, a2, a4
+  movi  a6, 0
+  s8i   a6, a8, 0
   l32i  a8, a7, 212
   bnez  a8, rl_next
   l32r  a10, lit_s_bs
@@ -5226,6 +5341,8 @@ glitch_off:
   memw
   retw
 
+.include "../esp32/console_dhcp.asm"                ; DHCP: the address of the board (net_tick)
+
 .data 0x3FCD8000
 vars:    dd 0                       ; +0 the ring: where the next byte goes
           dd 0                       ; +4 the ring: the next byte to read
@@ -5279,6 +5396,17 @@ vars:    dd 0                       ; +0 the ring: where the next byte goes
           dd 0                       ; +212 1: read_line without echo (the password of wlan set)
           dd 0                       ; +216 wlan set: bit 1 (wlan off) of the record before
           dd 0                       ; +220 1: the WiFi was stopped for a program in its room (wlan_yield)
+          dd 0                       ; +224 1: at the prompt (net_tick)
+          dd 0                       ; +228 DHCP: the state (0 none, 1 DISCOVER sent, 2 REQUEST sent, 3 an address,
+                                     ;      4 no answer: again after 30 s)
+          dd 0                       ; +232 the time of the last message (wifi_millis)
+          dd 0                       ; +236 its tries
+          dd 0                       ; +240 the xid
+          dd 0                       ; +244 the address offered (4 bytes)
+          dd 0                       ; +248 the server (option 54)
+          dd 0                       ; +252 the time to ask again (half the lease)
+          dd 0                       ; +256 the address said last (0: none)
+          dd 0                       ; +260 ccount at the last look of net_tick
 wname:    dd 0, 0, 0, 0, 0           ; its name (20 bytes)
 digits:   db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 s_hello:  db 13, 10, 'Asmonite console 2 for the ESP32-S3 (help shows the commands)', 13, 10, 0
@@ -5287,19 +5415,8 @@ s_prompt: db '> ', 0
 s_crlf:   db 13, 10, 0
 s_bs:     db 8, 32, 8, 0
 s_cancel: db '^C', 13, 10, 0
-s_help:   db '  ls            the files', 13, 10
-          db '  cat name      shows a file', 13, 10
-          db '  put name      a new file: type or paste the text, then a line with only a dot', 13, 10
-          db '  rm name       removes a file', 13, 10
-          db '  df            the room in the flash', 13, 10
-          db '  format        a new, empty file system (all files are lost)', 13, 10
-          db '  run name      starts a program (a file as Asmonite writes it into the flash)', 13, 10
-          db '  load name     puts its parts for the RAM into their place, without starting it', 13, 10
-          db '  boot name     starts it after every reset (boot alone: which one)', 13, 10
-          db '  noboot        no program after a reset', 13, 10
-          db '  wlan          the WiFi network (wlan set: its name and password, wlan on, wlan off, wlan clear: none)', 13, 10
-          db '  help          this list', 13, 10
-          db '  name [args]   another word: the program name or name.bin of the files', 13, 10, 0
+s_help:   db '  ls cat put rm df format run load boot noboot wlan help, or a program: name [args]', 13, 10
+          db '  (help.txt is missing: Prepare Board in the Board Manager writes it)', 13, 10, 0
 s_unknown: db 'Unknown command: ', 0
 s_unknown2: db ' (help shows the commands)', 13, 10, 0
 s_noname: db 'Which file? (a name after the command)', 13, 10, 0
@@ -5365,6 +5482,7 @@ c_rm:     db 'rm', 0
 c_df:     db 'df', 0
 c_format: db 'format', 0
 c_help:   db 'help', 0
+c_helptxt: db 'help.txt', 0
 c_wlan:   db 'wlan', 0
 c_set:    db 'set', 0
 c_clear:  db 'clear', 0
@@ -5384,7 +5502,7 @@ s_wnsaved: db 'Saved: the network ', 0
 s_wnsaved2: db '. The board keeps its name and key, not the password.', 13, 10, 0
 s_wncleared: db 'The board knows no WiFi network now.', 13, 10, 0
 e_nowifi: db 'The WiFi package is not on the board: F9 of a WiFi program or Prepare Board in Asmonite writes it.', 0
-e_wifiold: db 'The WiFi package on the board is too old: Board Files > Install WiFi in Asmonite writes the new one.', 0
+e_wifiold: db 'The WiFi package on the board is too old: Board Manager > Install WiFi Again in Asmonite writes the new one.', 0
 c_on:     db 'on', 0
 c_off:    db 'off', 0
 s_wnbg1:  db 'WiFi: connecting to ', 0
@@ -5393,3 +5511,4 @@ s_wnwifi: db 'WiFi: ', 0
 s_wnisoff: db 'The WiFi is off (wlan on switches it on).', 13, 10, 0
 s_wnconnecting: db 'The WiFi is on, connecting ...', 13, 10, 0
 s_wnoffnow: db 'The WiFi is off, also after a reset (wlan on switches it on).', 13, 10, 0
+.include "../esp32/console_dhcp_data.asm"

@@ -4,14 +4,15 @@
 # the commands: the files of the board (ls, cat, hex, df), memory (mem), the network (ip, ping, dns), the LED, a reset.
 # It needs the WiFi package on the board (F9 in Asmonite writes it there); the program loads the WiFi from it itself
 # (inc/wifi.abel): "run telnetd" in the console, or F9 in Asmonite. With "boot telnetd" in the console it starts after
-# every reset.
+# every reset. Without the network or an address it tries again every 10 seconds (after a power cut the router may
+# start slower than the board), also after a loss of the WiFi.
 #
 # Telnet: the bytes of a terminal over TCP. Commands of the protocol begin with the byte IAC (255): the server says
 # WILL ECHO and WILL SUPPRESS-GO-AHEAD, so the client sends each key at once and shows only what comes back (the
 # server echoes); other options the client offers are declined (DONT, WONT).
 #
 # The files: the file system of the console (0x200000 .. 0x3FFFFF of the flash) is read through the cache of core 0
-# (its MMU maps it at 0x3F400000, set up at the start, before the WiFi runs on core 1): reading the flash with the
+# (its MMU maps it at 0x3F400000: the console at its start, before the WiFi runs on core 1): reading the flash with the
 # functions of the ROM while core 1 runs its code from the flash is not allowed.
 # It serves until Stop in the tab Serial of Asmonite (Ctrl+C); then the console is there again, its WiFi stays.
 target "esp32"
@@ -37,6 +38,8 @@ sh_iac: i32 = 0                     # telnet: 0 text, 1 after IAC, 2 the option 
 sh_verb: i32 = 0                    # WILL, WONT, DO, DONT
 sh_cr: i32 = 0                      # the last byte was CR (its LF or 0 is no new line)
 sh_quit: i32 = 0
+sh_login: i32 = 0                   # 1: the password is asked for (passwd set in the console), 0: in
+sh_tries: i32 = 0                   # the wrong passwords of this client
 sh_ok: i32 = 0                      # sh_number: it was a number
 sh_ip: char[4]
 sh_digits: char[12]
@@ -189,8 +192,12 @@ def sh_host(s: pchar) i32:
 
 # ---------- the files (through the cache) ----------
 
-# the file system into the address space of core 0 (at the start, before the WiFi)
+# the file system into the address space of core 0, only while the WiFi does not run on core 1 yet: rewriting the MMU
+# of core 0 while core 1 fetches the code of the WiFi from the flash stopped core 1 now and then (IllegalInstruction;
+# after a power cut the console starts the WiFi before the autostart). The console maps it so itself at its start,
+# before its WiFi (examples/esp32/console.asm, fs_map)
 def sh_fs_map():
+    if wl_running(): return
     sh_cache_off(0)
     sh_cache_flush(0)
     sh_mmu_init(0)
@@ -522,6 +529,36 @@ def sh_option(x):
         sh_put(254)
         sh_put(x)
 
+# the welcome, after the password (or without one)
+def sh_welcome():
+    sh_textln("aBelle telnetd on the ESP32 (help: the commands)")
+    if not wifi_login_set(): sh_textln("(no password: passwd set in the console of the board gives one)")
+    sh_prompt()
+
+# Enter while the password is asked for: the one of passwd set (about 2 s to check it)? In, else again; the third wrong
+# one ends the session
+def sh_check():
+    sh_line[sh_len] = 0
+    sh_flush()
+    ok = wifi_login_check(sh_line)
+    for i in 0..SH_LINE: sh_line[i] = 0
+    sh_len = 0
+    if ok:
+        sh_login = 0
+        print("client logged in")
+        println("")
+        sh_welcome()
+        return
+    sh_tries += 1
+    print("client: a wrong password")
+    println("")
+    if sh_tries >= 3:
+        sh_textln("wrong password, the third time: bye")
+        sh_quit = True
+        return
+    sh_textln("wrong password")
+    sh_text("password: ")
+
 # one byte from the client
 def sh_byte(c):
     if sh_iac == 1:
@@ -551,23 +588,27 @@ def sh_byte(c):
     sh_cr = c == 13
     if c == 13 or c == 10:
         sh_nl()
-        sh_command()
-        sh_len = 0
-        if not sh_quit: sh_prompt()
+        if sh_login: sh_check()
+        else:
+            sh_command()
+            sh_len = 0
+            if not sh_quit: sh_prompt()
     elif c == 8 or c == 127:
         if sh_len > 0:
             sh_len -= 1
-            sh_put(8)
-            sh_put(' ')
-            sh_put(8)
+            if not sh_login:
+                sh_put(8)
+                sh_put(' ')
+                sh_put(8)
     elif c == 3:                                    # Ctrl+C: the line away
         sh_textln("^C")
         sh_len = 0
-        sh_prompt()
+        if sh_login: sh_text("password: ")
+        else: sh_prompt()
     elif c >= 32 and c < 127 and sh_len < SH_LINE:
         sh_line[sh_len] = c
         sh_len += 1
-        sh_put(c)
+        if not sh_login: sh_put(c)                  # the password: no echo
 
 # one client, until quit, its end, or 10 minutes without a key
 def sh_session():
@@ -582,14 +623,17 @@ def sh_session():
     sh_put(SH_IAC)
     sh_put(251)
     sh_put(3)                                       # WILL SUPPRESS-GO-AHEAD
-    sh_textln("aBelle telnetd on the ESP32 (help: the commands)")
-    sh_prompt()
+    sh_tries = 0
+    sh_login = wifi_login_set()
+    if sh_login: sh_text("password: ")
+    else: sh_welcome()
     sh_flush()
     idle = wifi_millis()
     while not sh_quit:
         k = tcp_recv(sh_ibuf, 256, 1000)
         if k < 0: break
         if k == 0:
+            if (wifi_status() & 1) == 0: break      # the WiFi is gone: the client too
             if wifi_millis() - idle > 600000:
                 sh_textln("")
                 sh_textln("10 minutes without a key: bye")
@@ -600,6 +644,27 @@ def sh_session():
         sh_flush()
     sh_flush()
 
+# the network the board keeps and an address of DHCP: 1; 0 when the board keeps none (wlan set in the console) or the
+# WiFi package is missing. Else it tries again every 10 seconds until it has both: after a power cut the router may
+# start slower than the board, and after a loss of the WiFi the address may be another one
+def sh_online() i32:
+    while True:
+        print("connecting to ")
+        println(wifi_saved_name())
+        r = wifi_connect_saved()
+        if r != 0:
+            print("wifi_connect: error ")
+            print_int(r)
+            print(" (")
+            print(wifi_error_text(r))
+            print(")")
+            println("")
+            if r == WIFI_E_NONET or r == WIFI_E_FILES: return 0
+        elif dhcp_run(): return 1
+        else: println("dhcp: no answer")
+        println("again in 10 seconds")
+        wifi_wait(10000)
+
 def main():
     println("telnetd (aBelle)")
     # first the service out of the files (by the ROM, core 1 is not on yet), then the files through the cache of
@@ -607,22 +672,10 @@ def main():
     if wifi_start() != 0:
         println(wifi_error_text(WIFI_E_FILES))
         return
-    sh_fs_bytes = i32(wl_flash_size()) - SH_FS_FLASH    # (wifi_start attached the flash)
+    sh_fs_bytes = wifi_flash_size() - SH_FS_FLASH
     sh_fs_map()
     net_init()
-    net_set_name("esp32")                           # telnet esp32.local (mDNS); with more boards: one name each
-    print("connecting to ")
-    println(wifi_saved_name())
-    r = wifi_connect_saved()
-    if r != 0:
-        print("wifi_connect: error ")
-        print_int(r)
-        print(" (")
-        print(wifi_error_text(r))
-        print(")")
-        println("")
-    elif not dhcp_run(): println("dhcp: no answer")
-    else:
+    while sh_online():
         mdns_start()
         print("telnet ")
         print_ip(net_ip)
@@ -630,14 +683,15 @@ def main():
         print("or telnet ")
         print(net_name)
         println(".local")
-        while True:
+        while (wifi_status() & 1) != 0:             # (the service connects again after a loss, in the background)
             tcp_listen(SH_PORT)
-            if not tcp_accept(60000): continue
+            if not tcp_accept(10000): continue
             print("client ")
             print_ip(tcp_ip)
             println("")
             sh_session()
             tcp_close()
             println("client gone")
+        println("the WiFi is gone")
     wifi_done()
     println("telnetd end")
