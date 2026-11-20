@@ -1,0 +1,43 @@
+# Blink: the LED of the board on and off, every half second, until you stop the program (Ctrl+C in the console, or
+# Stop in Asmonite). The same source for every board: only the lines below say where the LED of YOUR board is. Set
+# LED_PIN (and LED_LOW) for your board, then start it with F9 (it has no line target "...": Asmonite translates it
+# for the board of Project > aBelle for, and gpio_output and gpio_write of console.abel switch the pin of that chip).
+
+include "console.abel"
+
+# ---------- your board: set these ----------
+#   ESP32 DevKit V1 ............................................ LED_PIN = 2
+#   LilyGO T7-S3 (ESP32-S3) .................................... LED_PIN = 17
+#   ESP32-C3 LuatOS CORE ....................................... LED_PIN = 12   (its other LED: 13)
+#   Raspberry Pi Pico, Pico 2,
+#   the clone "Pico W-2023" (RP2040 with an ESP8285) ........... LED_PIN = 25
+#   Raspberry Pi Pico W, Pico 2 W .............................. LED_PIN = WL_GPIO0
+#       (their LED is wired to GPIO 0 of the WiFi chip, the CYW43439; WL_GPIO0 is its name in the datasheet)
+#   a board with an LED at another pin: its number (see the pinout of the board)
+# Boards with an RGB LED (a WS2812, as the ESP32-S3 DevKitC at GPIO 48, the ESP32-S31 board at GPIO 60) need another
+# program: on the ESP32-S31 examples/esp32s31/rgbblink.abel (rgb() of its console); the others: not yet.
+LED_PIN = 2
+LED_LOW = 0                     # 1: the LED lights when its pin is low (an LED from the pin to 3.3 V)
+BLINK_MS = 500                  # how long it stays on, and off, in milliseconds
+
+# n milliseconds
+def wait_ms(n):
+    t = millis()
+    while millis() - t < n:
+        pass
+
+# the LED on (1) or off (0)
+def set_led(on):
+    if LED_LOW:
+        gpio_write(LED_PIN, 1 - on)
+    else:
+        gpio_write(LED_PIN, on)
+
+def main():
+    println("blink: the LED of the board, every half second (Ctrl+C ends it)")
+    gpio_output(LED_PIN)
+    while True:
+        set_led(1)
+        wait_ms(BLINK_MS)
+        set_led(0)
+        wait_ms(BLINK_MS)

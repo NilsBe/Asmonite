@@ -132,8 +132,8 @@ Boards (GPIO 48) in Rot, Grün, Blau und im Farbkreis leuchten, die Impulse der 
 
 ## Die Konsole und ihre Dateien
 
-`examples/esp32s3/console.asm` ist die Konsole des ESP32 (siehe [esp32.md](esp32.md)) für den S3: dieselben Befehle
-(`ls`, `cat`, `put`, `rm`, `df`, `format`, `run`, `load`, `boot`, `help`), dasselbe Dateisystem im Flash ab 2 MB bis
+`boards/esp32s3/console.asm` ist die Konsole des ESP32 (siehe [esp32.md](esp32.md)) für den S3: dieselben Befehle
+(`ls`, `cat`, `rm`, `df`, `format`, `run`, `boot`, `reset`, `help`), dasselbe Dateisystem im Flash ab 2 MB bis
 zu seinem Ende (bei 16 MB also gut 14 MB) und dieselben Pakete für Asmonite. Sie spricht über den USB-Anschluss des
 Chips: jedes Terminalprogramm am COM-Port des Chips, die Baudrate spielt keine Rolle.
 
@@ -142,14 +142,14 @@ mehrere Boards angesteckt, wählst du es links in der Liste:
 
 - **Prepare Board** schreibt die Konsole über das Boot-ROM in den Flash (beim S3 an die Adresse 0) und legt
   das Dateisystem an, wenn es noch keins gibt. Antwortet noch keine Konsole, weiß Asmonite nicht, ob ein S3 oder ein
-  C3 angesteckt ist (beide haben dieselbe USB-Kennung): Prepare Board und **Read Chip** fragen dann zuerst das Boot-ROM.
-- **Upload File**, **Download**, **Delete**, **Run**, **Autostart**, **Reset Board**, **Format**, **This Program
-  Autostarts** und **Erase Flash** wie beim ESP32. **Upload This Program** nimmt ein Programm mit `.target esp32s3`
-  oder `target "esp32s3"` und weist eines für den ESP32 ab.
+  C3 angesteckt ist (beide haben dieselbe USB-Kennung): Prepare Board und **Chip Details** fragen dann zuerst das Boot-ROM.
+- **Upload File**, **Download**, **Delete**, **Run**, **Autostart**, **Reset**, **Format** und **Erase Flash**
+  wie beim ESP32, ebenso **Project > Compile and Upload** und **Debug > Upload and Run** für ein Programm mit
+  `.target esp32s3` oder `target "esp32s3"`.
 - Ein Programm aus der Konsole darf das ganze RAM der Programme nutzen: Code `0x40378000 .. 0x403BFFFF`, Daten im
   selben RAM über den Datenbus `0x3FC88000 .. 0x3FCCFFFF`; ein Programm für F9 passt unverändert. Die Konsole selbst
   liegt darüber (Code ab `0x403C0000`, Daten ab `0x3FCD8000`). Mit dem WLAN gehört der obere Teil davon dem WLAN.
-- **Install WiFi Again** schreibt das WLAN-Paket neu (selten nötig, siehe [Das WLAN](#das-wlan)).
+- **Install WiFi** schreibt das WLAN-Paket neu (selten nötig, siehe [Das WLAN](#das-wlan)).
 - **Wenn ein Programm endet, ist die Konsole wieder da**, wie beim ESP32: `retw` (Meldung `Program ended (code n)`),
   `exit(code)` mit `callx8` auf `0x403C0800`, eine Ausnahme bzw. ein `break` (`Program stopped: …`) oder **Ctrl+C**
   (Knopf Stop im Reiter Serial; ein Paket über den USB-Anschluss löst das NMI aus, auch bei gesperrten Interrupts). Das Programm
@@ -162,7 +162,7 @@ mehrere Boards angesteckt, wählst du es links in der Liste:
 - Nach einem Reset wartet die Konsole bei einem Autostart **3 Sekunden** (beim ESP32 eine): Mit dem Reset geht der
   USB-Anschluss kurz weg und kommt wieder, erst dann kann ein Terminal eine Taste schicken.
 
-Ein Reset über RTS (wie Reset Board) setzt nur den Chip zurück, der USB-Anschluss bleibt: Ein Terminal darf offen
+Ein Reset über RTS (wie Reset) setzt nur den Chip zurück, der USB-Anschluss bleibt: Ein Terminal darf offen
 bleiben. Manche Terminalprogramme schalten beim Öffnen des Ports RTS und setzen den Chip damit zurück; die Konsole
 startet dann neu.
 
@@ -176,7 +176,7 @@ Debugger hält nur Kern 0 an, das WLAN läuft weiter.
 1. Das **WLAN-Paket** liegt wie beim ESP32 im Flash von `0x100000` bis `0x1FFFFF`: die Bibliothek, bei `0x1F0000` ein
    Kopf, dahinter die Teile von `wlan.rom` für das RAM und `wlansvc`. Startest du mit F9 ein Programm mit
    `inc/wifi.abel`, schreibt Asmonite das Paket über die Konsole, wenn es fehlt oder nicht passt (rund 300 KB, etwa
-   8 Sekunden). Prepare Board legt es gleich mit an, **Install WiFi Again** im Board Manager tut es von Hand.
+   8 Sekunden). Prepare Board legt es gleich mit an, **Install WiFi** im Board Manager tut es von Hand.
 2. Ein Programm in aBelle mit `include "inc/wifi.abel"` (aus `examples/abelle/esp32s3/inc/`) lädt den Dienst selbst
    aus dem Paket, mit `run` in der Konsole wie unter dem Debugger. `examples/abelle/esp32s3/scan.abel` zeigt die
    Netze in der Nähe. Während die Konsole den Flash benutzt, parkt sie Kern 1 wie beim ESP32 ([esp32.md](esp32.md)):

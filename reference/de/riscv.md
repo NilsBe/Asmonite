@@ -125,11 +125,11 @@ Deshalb braucht eine 32-Bit-Konstante zwei Befehle: `lui` lädt die oberen 20 Bi
 Siehe auch: `li`, `lui`, `beq`, `jal`
 
 ## compressed – die 16-Bit-Formen (C)
-<!-- names: compressed, c.extension -->
+<!-- names: compressed, c.extension, .option, rvc, norvc -->
 
-Mit der Erweiterung C (und Zcb) führt der Kern auch Befehle mit 2 Bytes aus. Es sind die häufigsten Befehle mit weniger Auswahl: nur 8 der Register (`s0`, `s1`, `a0` bis `a5`), kleine Zahlen, das Zielregister oft gleich einer Quelle. Übersetzter Code (das Pico-SDK) benutzt sie reichlich, du triffst sie also im Disassembler bei fremdem Code, mit einem `c.` davor geschrieben: `c.addi sp, -16`, `c.lw a0, 4(a1)`, `c.jr ra`.
+Mit der Erweiterung C (und Zcb) führt der Kern auch Befehle mit 2 Bytes aus. Es sind die häufigsten Befehle mit weniger Auswahl: nur 8 der Register (`s0`, `s1`, `a0` bis `a5`), kleine Zahlen, das Zielregister oft gleich einer Quelle. Übersetzter Code (das Pico-SDK) benutzt sie reichlich, du triffst sie also im Disassembler bei fremdem Code, mit einem `c.` davor geschrieben: `c.addi sp, -16`, `c.lw a0, 4(a1)`, `c.jr ra`. Die Bedeutung ist die des langen Befehls.
 
-Der Assembler von Asmonite schreibt von jedem Befehl, den du tippst, die normale 4-Byte-Form; er kürzt nicht. Schreibe `c.`-Befehle nicht selbst, sie sind zum Lesen da. Die Bedeutung ist die des langen Befehls.
+Ohne weiteres schreibt der Assembler von jedem Befehl, den du tippst, die normale 4-Byte-Form. Mit **`.option rvc`** (wie GNU as) schreibt er überall die 2-Byte-Form, wo eine passt, etwa ein Fünftel weniger Code: `addi`, `li`, `mv`, `add`, `lw`/`sw` (auch auf `sp`), `ret`, `jr`, die Schiebe- und Bitbefehle, und Sprünge und Verzweigungen zu einem Label, wenn es nah ist (`j`, `beqz`/`bnez` auf `s0`, `s1`, `a0` bis `a5`, `call` als `c.jal` bis 2 KB, als `jal` bis 1 MB). `.option norvc` schaltet es wieder aus, etwa rund um eine Tabelle von Sprüngen, die je 4 Bytes lang sein müssen (ein Trap-Vektor, eine Tabelle von Einsprüngen). Zweierlei beachten: Befehle können jetzt an jeder geraden Adresse beginnen, setze also `align 4` vor Datenwörter (`dd`), die `lw` liest; und der Kern muss C haben (der ESP32-C3, der Pico 2, der D1 haben es). Die Zcb-Formen wählt er nicht von selbst. Du kannst `c.`-Befehle auch selbst schreiben; sie sind immer 2 Bytes lang, und der Assembler sagt, wenn die Operanden nicht passen.
 
 | Kurze Form | Ist |
 |---|---|

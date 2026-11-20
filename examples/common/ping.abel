@@ -1,0 +1,161 @@
+# Ping: the board connects to the network it keeps (wlan set in the console), gets an address by DHCP, then sends four
+# ICMP echo requests, one a second, to the router and to a server in the internet (found by DNS) and shows each reply
+# with the time it took, at the end the count and the times as the ping of a PC does. The same source for the ESP32,
+# the ESP32-S3, the ESP32-C3, the ESP32-S31, the Pico W and the Pico 2 W: it has no line target "...", so Asmonite
+# translates it for the board of Project > aBelle for (the board in the tab Serial), and include "net.abel" takes the
+# small IP stack of aBelle and the WiFi of that board from abelle\lib. Start it with F9, or "run ping" in the console
+# once it is a file on the board.
+#
+# With an argument it pings that host instead: "ping 192.168.1.20" (an address) or "ping example.com" (a name, by DNS)
+# in the console. To ping the board itself, ping it from another device of the network: the WiFi does not send a frame
+# back to the board it comes from.
+#
+# An echo request (ping_send in net.abel) is an IPv4 packet of protocol 1 (ICMP): type 8, code 0, a checksum, an
+# identifier and a sequence number, then some bytes of data. The host sends the same back as type 0, an echo reply;
+# net_recv notes its sequence number in ping_got. The time to live (ttl) of the reply tells how many routers it went
+# through: the host started with 64, 128 or 255, each router took one off.
+include "console.abel"
+include "net.abel"
+
+PINGS = 4                           # echo requests to each host
+PING_DATA = 32                      # bytes of data in each
+host_ip: char[4]
+
+# the name of the server in the internet
+def server_name() pchar:
+    return "dns.google"
+
+# the text s an IPv4 address ("192.168.1.20": four numbers up to 255 with dots)? Then it into host_ip and 1, else 0
+def parse_ip(s: pchar) i32:
+    k = 0
+    for part in 0..4:
+        if s[k] < '0' or s[k] > '9':
+            return False
+        v = 0
+        while s[k] >= '0' and s[k] <= '9':
+            v = v * 10 + s[k] - '0'
+            if v > 255:
+                return False
+            k += 1
+        host_ip[part] = v
+        if part < 3:
+            if s[k] != '.':
+                return False
+            k += 1
+    return s[k] == 0 or s[k] == ' '
+
+# PINGS echo requests to dst, one a second: "reply from 192.168.1.1: seq 1, ttl 64, 3 ms", then
+# "4 sent, 4 received, 0 % lost, min/avg/max 2/3/5 ms"
+def ping_host(dst: pchar):
+    got = 0
+    tmin = 1000000
+    tmax = 0
+    tsum = 0
+    for seq in 1..PINGS + 1:
+        ping_got = -1
+        t0 = wifi_millis()
+        r = ping_send(dst, seq, PING_DATA)
+        if r != 0:
+            print("ping_send: error ")
+            print_int(r)
+            if r == -1:
+                print(" (no answer to ARP)")
+            println("")
+            return
+        t = 0
+        while ping_got != seq and t < 2000:
+            net_recv(10)
+            t = wifi_millis() - t0
+        if ping_got == seq:
+            print("reply from ")
+            print_ip(ping_from)
+            print(": seq ")
+            print_int(seq)
+            print(", ttl ")
+            print_int(ping_ttl)
+            print(", ")
+            print_int(t)
+            println(" ms")
+            got += 1
+            tsum += t
+            if t < tmin:
+                tmin = t
+            if t > tmax:
+                tmax = t
+        else:
+            print("seq ")
+            print_int(seq)
+            println(": no reply within 2 s")
+        # the rest of the second (the WiFi goes on in net_recv; pings to us are answered meanwhile)
+        while wifi_millis() - t0 < 1000:
+            net_recv(10)
+    print_int(PINGS)
+    print(" sent, ")
+    print_int(got)
+    print(" received, ")
+    print_int((PINGS - got) * 100 / PINGS)
+    print(" % lost")
+    if got > 0:
+        print(", min/avg/max ")
+        print_int(tmin)
+        put_char('/')
+        print_int(tsum / got)
+        put_char('/')
+        print_int(tmax)
+        print(" ms")
+    println("")
+
+# the host of the argument (an address or a name) pinged
+def ping_argument(a: pchar):
+    if parse_ip(a) or dns_lookup(a, host_ip):
+        print("ping ")
+        print(a)
+        print(" = ")
+        print_ip(host_ip)
+        println("")
+        ping_host(host_ip)
+    else:
+        print("dns: no address for ")
+        println(a)
+
+def main():
+    println("Ping")
+    net_init()
+    print("connecting to ")
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
+    if r != 0:
+        print("wifi_connect: error ")
+        print_int(r)
+        print(" (")
+        print(wifi_error_text(r))
+        println(")")
+        return
+    if not dhcp_run():
+        println("dhcp: no answer")
+        return
+    print("ip: ")
+    print_ip(net_ip)
+    print("  router: ")
+    print_ip(net_gw)
+    println("")
+    a = args()
+    if a[0] != 0:
+        ping_argument(a)
+    else:
+        print("ping the router ")
+        print_ip(net_gw)
+        println("")
+        ping_host(net_gw)
+        if dns_lookup(server_name(), host_ip):
+            print("ping ")
+            print(server_name())
+            print(" = ")
+            print_ip(host_ip)
+            println("")
+            ping_host(host_ip)
+        else:
+            print("dns: no address for ")
+            println(server_name())
+    wifi_done()
+    println("ping end")

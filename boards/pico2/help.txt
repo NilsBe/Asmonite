@@ -1,0 +1,16 @@
+  ls                the files
+  cat name          shows a file
+  rm name           removes a file
+  df                the room in the flash
+  format            a new, empty file system (all files are lost)
+  run name [args]   starts a program (or: name [args])
+  boot name         starts the program after every reset (boot alone: which one)
+  noboot            no program after a reset
+  wlan [on | off]   the WiFi chip of a Pico 2 W (on: with its firmware)
+  wlan scan         the WiFi networks around
+  wlan set | clear  the network of the board: its name and password (the key is kept) / none
+  name [set | clear] the mDNS name of the board (name.local, DHCP), name set pico2w-keller
+  passwd [set | clear] the password for telnet (telnetd; the key is kept)
+  info              the chip, its cores, the boot ROM, the console
+  reset             starts the chip again
+  help              this list (the file help.txt)

@@ -1,0 +1,55 @@
+# Runs: how often this program has run, kept in a file on the board. At each start it reads the number in the file
+# runs.txt, counts one more and writes it back; the file stays when the board is switched off. The same source for
+# every board (no line target "..."): file_size, file_read and file_write of console.abel use the file system of the
+# console of the board. Start it with F9 a few times, or upload it in the Board Manager and type "runs" in the
+# console. "cat runs.txt" in the console shows the file, "rm runs.txt" starts the count again.
+
+include "console.abel"
+
+text: char[16]
+
+# the number at the start of t (its digits), 0 if there are none
+def number(t: pchar) i32:
+    n = 0
+    i = 0
+    while t[i] >= '0' and t[i] <= '9':
+        n = n * 10 + (t[i] - '0')
+        i += 1
+    return n
+
+# n (0 or more) as digits into t, a 0 behind them: how many digits
+def digits_of(n, t: pchar) i32:
+    k = 1
+    m = n
+    while m >= 10:
+        m = m / 10
+        k += 1
+    t[k] = 0
+    for i in 0..k:
+        t[k - 1 - i] = '0' + n % 10
+        n = n / 10
+    return k
+
+def main():
+    runs = 0
+    size = file_size("runs.txt")
+    if size < 0:
+        println("runs.txt is not there yet: this is the first run.")
+    else:
+        got = file_read("runs.txt", text, 0, 15)
+        if got > 0:
+            text[got] = 0
+            runs = number(text)
+    runs += 1
+    k = digits_of(runs, text)
+    r = file_write("runs.txt", text, k)
+    if r != 0:
+        print("runs.txt could not be written (file_write: ")
+        print_int(r)
+        println("; -5: no file system: type format in the console)")
+        return
+    print("This program has run ")
+    print_int(runs)
+    print(" time(s); runs.txt now has ")
+    print_int(file_size("runs.txt"))
+    println(" bytes.")

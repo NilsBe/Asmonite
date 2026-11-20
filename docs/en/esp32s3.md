@@ -129,8 +129,8 @@ and a counter over the USB port of the chip; `examples/abelle/esp32s3/rgb.abel` 
 
 ## The console and its files
 
-`examples/esp32s3/console.asm` is the console of the ESP32 (see [esp32.md](esp32.md)) for the S3: the same commands
-(`ls`, `cat`, `put`, `rm`, `df`, `format`, `run`, `load`, `boot`, `help`), the same file system in the flash from 2 MB
+`boards/esp32s3/console.asm` is the console of the ESP32 (see [esp32.md](esp32.md)) for the S3: the same commands
+(`ls`, `cat`, `rm`, `df`, `format`, `run`, `boot`, `reset`, `help`), the same file system in the flash from 2 MB
 to its end (a little over 14 MB on 16 MB) and the same packets for Asmonite. It speaks over the USB port of the chip:
 any terminal program on the COM port of the chip, the baud rate does not matter.
 
@@ -139,14 +139,14 @@ plugged in, you choose it in the list on the left:
 
 - **Prepare Board** writes the console into the flash over the boot ROM (on the S3 at the address 0) and makes
   the file system when there is none. While no console answers, Asmonite does not know whether an S3 or a C3 is
-  plugged in (both have the same USB id): Prepare Board and **Read Chip** ask the boot ROM first then.
-- **Upload File**, **Download**, **Delete**, **Run**, **Autostart**, **Reset Board**, **Format**, **This Program
-  Autostarts** and **Erase Flash** as on the ESP32. **Upload This Program** takes a program with `.target esp32s3` or
-  `target "esp32s3"` and refuses one for the ESP32.
+  plugged in (both have the same USB id): Prepare Board and **Chip Details** ask the boot ROM first then.
+- **Upload File**, **Download**, **Delete**, **Run**, **Autostart**, **Reset**, **Format** and **Erase Flash**
+  as on the ESP32, and so **Project > Compile and Upload** and **Debug > Upload and Run** for a program with
+  `.target esp32s3` or `target "esp32s3"`.
 - A program from the console may use all of the RAM of the programs: code `0x40378000 .. 0x403BFFFF`, data in the
   same RAM over the data bus `0x3FC88000 .. 0x3FCCFFFF`; a program for F9 fits as it is. The console itself lies
   above it (code from `0x403C0000`, data from `0x3FCD8000`). With the WiFi the upper part of it belongs to the WiFi.
-- **Install WiFi Again** writes the WiFi package anew (seldom needed, see [The WiFi](#the-wifi)).
+- **Install WiFi** writes the WiFi package anew (seldom needed, see [The WiFi](#the-wifi)).
 - **When a program ends, the console is back**, as on the ESP32: `retw` (it says `Program ended (code n)`),
   `exit(code)` by `callx8` to `0x403C0800`, an exception or a `break` (`Program stopped: …`), or **Ctrl+C** (the
   button Stop in the tab Serial; a packet over the USB port raises the NMI, also with the interrupts off). The program runs on
@@ -159,7 +159,7 @@ plugged in, you choose it in the list on the left:
 - After a reset the console waits **3 seconds** before an autostart (on the ESP32 one): with the reset the USB port
   goes away for a moment and comes back, only then can a terminal send a key.
 
-A reset over RTS (as Reset Board) resets the chip only, the USB port stays: a terminal may stay open. Some terminal
+A reset over RTS (as Reset) resets the chip only, the USB port stays: a terminal may stay open. Some terminal
 programs switch RTS when they open the port and so reset the chip; the console then starts again.
 
 ## The WiFi
@@ -172,7 +172,7 @@ core 0 only, the WiFi goes on.
 1. The **WiFi package** lies in the flash from `0x100000` to `0x1FFFFF`, as on the ESP32: the library, a head at
    `0x1F0000`, behind it the parts of `wlan.rom` for the RAM and `wlansvc`. When you start a program with
    `inc/wifi.abel` with F9, Asmonite writes the package over the console if it is missing or does not match (about
-   300 KB, about 8 seconds). Prepare Board puts it there as well, **Install WiFi Again** in the Board Manager does it
+   300 KB, about 8 seconds). Prepare Board puts it there as well, **Install WiFi** in the Board Manager does it
    by hand.
 2. A program in aBelle with `include "inc/wifi.abel"` (from `examples/abelle/esp32s3/inc/`) loads the service itself
    from the package, by `run` in the console as under the debugger. `examples/abelle/esp32s3/scan.abel` shows the

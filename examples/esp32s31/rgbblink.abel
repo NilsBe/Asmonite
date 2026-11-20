@@ -1,0 +1,26 @@
+# RGB blink: the RGB LED of the ESP32-S31 board (a WS2812 at GPIO 60) on and off, every half second, until you stop
+# the program (Ctrl+C in the console, or Stop in Asmonite). Start it with F9. rgb(pin, colour) is a function of the
+# console of the S31 (console.abel): the colour as 0xRRGGBB, 0 turns the LED off. The plain blink for the LED of any
+# board is examples/common/blink.abel.
+
+target "esp32s31"
+include "console.abel"
+
+RGB_PIN = 60                    # the WS2812 of the ESP32-S31 board
+COLOUR = 0x200000               # the colour as 0xRRGGBB: 0x200000 a dim red, 0x002000 green, 0x000020 blue,
+                                # 0x202020 white (up to 0xFF each: very bright)
+BLINK_MS = 500                  # how long it stays on, and off, in milliseconds
+
+# n milliseconds
+def wait_ms(n):
+    t = millis()
+    while millis() - t < n:
+        pass
+
+def main():
+    println("rgbblink: the RGB LED of the board, every half second (Ctrl+C ends it)")
+    while True:
+        rgb(RGB_PIN, COLOUR)
+        wait_ms(BLINK_MS)
+        rgb(RGB_PIN, 0)
+        wait_ms(BLINK_MS)

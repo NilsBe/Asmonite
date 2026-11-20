@@ -125,11 +125,11 @@ That is why a 32-bit constant takes two instructions: `lui` loads the upper 20 b
 Related: `li`, `lui`, `beq`, `jal`
 
 ## compressed – the 16-bit forms (C)
-<!-- names: compressed, c.extension -->
+<!-- names: compressed, c.extension, .option, rvc, norvc -->
 
-With the C extension (and Zcb) the core also runs instructions of 2 bytes. They are the most common instructions with fewer choices: only 8 of the registers (`s0`, `s1`, `a0` to `a5`), small numbers, the target register often the same as a source. Compiled code (the Pico SDK) uses them a lot, so you meet them in the disassembly of other code, written with a `c.` in front: `c.addi sp, -16`, `c.lw a0, 4(a1)`, `c.jr ra`.
+With the C extension (and Zcb) the core also runs instructions of 2 bytes. They are the most common instructions with fewer choices: only 8 of the registers (`s0`, `s1`, `a0` to `a5`), small numbers, the target register often the same as a source. Compiled code (the Pico SDK) uses them a lot, so you meet them in the disassembly of other code, written with a `c.` in front: `c.addi sp, -16`, `c.lw a0, 4(a1)`, `c.jr ra`. The meaning is that of the long instruction.
 
-The assembler of Asmonite writes the normal 4-byte form of every instruction you type; it does not shorten them. Do not write `c.` instructions yourself, they are for reading. The meaning is that of the long instruction.
+Without anything else the assembler writes the normal 4-byte form of every instruction you type. With **`.option rvc`** (as GNU as) it writes the 2-byte form wherever one fits, about a fifth less code: `addi`, `li`, `mv`, `add`, `lw`/`sw` (also on `sp`), `ret`, `jr`, the shifts and bit operations, and jumps and branches to a label when it is near (`j`, `beqz`/`bnez` on `s0`, `s1`, `a0` to `a5`, `call` as `c.jal` within 2 KB, as `jal` within 1 MB). `.option norvc` switches it off again, for example around a table of jumps that must be 4 bytes each (a trap vector, a table of entries). Two things to watch: instructions can now start at any even address, so put `align 4` in front of data words (`dd`) that `lw` reads; and the core must have C (the ESP32-C3, the Pico 2, the D1 have it). The Zcb forms are not chosen by themselves. You may also write `c.` instructions yourself; they are 2 bytes always, and the assembler says when the operands do not fit.
 
 | Short form | Is |
 |---|---|

@@ -76,6 +76,8 @@ Kennst du x86 oder ARM, sind das die Unterschiede, die zählen:
 | Befehlslänge | 1 bis 15 Bytes | 2 oder 4 | 4 (2 bei den kurzen Formen) |
 
 Die F1-Hilfe von Asmonite hat die Themen `riscv`, `registers`, `pseudo` (die Kurznamen des Assemblers: `li`, `mv`, `j`, `ret` ...), `encoding` und `compressed`; lies sie mit dem Cursor in einer beliebigen Zeile eines `.arch riscv32`-Quelltexts.
+Mit `.option rvc` schreibt der Assembler die 2-Byte-Formen, wo sie passen (etwa ein Fünftel weniger Code; die
+Hazard3-Kerne haben C): siehe das Thema `compressed`.
 
 ## Das erste Programm
 
@@ -121,7 +123,7 @@ Der Kern hat **4 Hardware-Breakpoints**; jeder Breakpoint im Editor belegt einen
 
 ## Ein Programm im Flash
 
-Ein Programm mit `.imagebase 0x10000000` wird beim Start in den Flash geschrieben. Das Boot-ROM startet ein Programm aus dem Flash nur, wenn in seinen ersten 4 KB ein kleiner Block steht, der sagt, was das Programm ist (IMAGE_DEF); `examples\pico2\blink_flash.asm` hat ihn:
+Ein Programm mit `.imagebase 0x10000000` wird beim Start in den Flash geschrieben. Das Boot-ROM startet ein Programm aus dem Flash nur, wenn in seinen ersten 4 KB ein kleiner Block steht, der sagt, was das Programm ist (IMAGE_DEF); `boards\pico2\blink_flash.asm` hat ihn:
 
 ```asm
 image_def:
@@ -147,7 +149,7 @@ _start:
 
 ## Die Arm-Kerne
 
-Dasselbe geht mit den Arm-Kernen: `.target pico2` und `.arch thumb` (der Cortex-M33 kennt nur Thumb-Code). `examples\pico2\blink_arm_flash.asm` ist das Blink-Programm für sie. Die Unterschiede zu RISC-V:
+Dasselbe geht mit den Arm-Kernen: `.target pico2` und `.arch thumb` (der Cortex-M33 kennt nur Thumb-Code). `boards\pico2\blink_arm_flash.asm` ist das Blink-Programm für sie. Die Unterschiede zu RISC-V:
 
 - Eine Konstante mit 32 Bit lädt `movw` (untere Hälfte) und `movt` (obere Hälfte) statt `li`.
 - Es gibt Flags: `cmp` setzt sie, `bne` verzweigt danach.
@@ -184,6 +186,154 @@ Terminalprogramm: DTR an.
 eigenen seriellen Port: Der COM-Port von Programmen aus dem Pico SDK kommt von einem USB-Stack im Programm (TinyUSB),
 den ein Assembler-Programm nicht hat. Ein USB-Seriell-Adapter an GP0 und GND tut, was der UART der Probe tut.
 
+## Die Konsole von Asmonite auf dem Pico 2 und dem Pico
+
+Wie beim ESP32 gibt es für die Arm-Kerne des Pico 2 eine Konsole: `boards/pico2/console.asm`. Sie steht im Flash,
+kopiert sich beim Start ins RAM und spricht über UART0 (GP0, GP1) mit 115200 Baud, also über den Stecker „U“ der
+Debug Probe (verkabelt wie oben).
+
+**Einrichten:** Board > Board Manager, links den Pico 2 (Debug Probe) wählen, dann **Prepare Board**. Asmonite
+schreibt die Konsole über die Probe in den Flash, an die Stelle des Programms dort, und legt ein Dateisystem an, wenn
+noch keins da ist. Danach zeigt der Board Manager die Dateien mit denselben Knöpfen wie beim ESP32: eine Datei
+hochladen, herunterladen, löschen, starten (*Run*: der Reiter Serial
+zeigt, was das Programm schreibt), Autostart, formatieren. Ist die Konsole im Flash nicht die dieser
+Asmonite-Version, sagt das die Zeile *Console*; Prepare Board schreibt die neue, die Dateien bleiben.
+
+**Am Prompt** (Reiter Serial auf dem COM-Port der Probe, Enter): `ls`, `cat name`, `rm name`, `df`, `format`,
+`run name [args]` (oder nur der Name), `boot name`, `boot`, `noboot`, `info`, `reset`, `wlan`,
+`help`.
+Ctrl+C (Stop im Reiter Serial) hält ein Programm an, das läuft. Nach einem Reset mit einem Programm für den Autostart
+wartet die Konsole eine Sekunde: Eine Taste hält sie am Prompt.
+
+**Pico W und Pico 2 W:** Der Chip unterscheidet sie nicht vom Pico und vom Pico 2, deshalb fragt die Konsole beim
+Start einmal den WiFi-Chip des Boards (CYW43439, an GPIO 23, 24, 25 und 29): Antwortet er, ist das Board ein W. Der
+Gruß der Konsole, `info` (die Zeile *board*) und der Board Manager (sein Titel, sein Foto, die Zeile *Board*) nennen
+es. Auf einem Board ohne WiFi leuchtet dabei die LED eine Viertelsekunde. Danach schaltet die Konsole den WiFi-Chip
+aus; die LED eines W hängt an diesem Chip, deshalb blinken die Beispiele `blink` sie nicht.
+
+`wlan on` startet den WiFi-Chip eines W mit seiner Firmware: Die Konsole liest sie aus den Dateien `43439A0.bin` und
+`nvram_rp2040.bin` im Flash und schickt sie über das SPI des Chips in seinen RAM (etwa 226 KB in 0,6 s), dann läuft
+sein Arm-Kern; danach spricht die Konsole in Paketen mit der Firmware (SDPCM, ihre Kommandos: ioctl und iovar) und
+gibt ihr die CLM-Daten (`43439A0_clm.bin`, die Kanäle und die Sendeleistung je Land). Prepare Board legt die drei
+Dateien auf einen W (aus `wlan\infineon` neben `Asmonite.exe`, unverändert von Infineon, mit ihrer Lizenz).
+`wlan off` schaltet den Chip aus, `wlan` sagt, ob er läuft, `wlan scan` zeigt die Netzwerke in der Nähe (das Signal
+in dBm, den Kanal, offen oder geschützt, den Namen). `led()` der Programme schaltet die LED eines W am Chip.
+
+`wlan set` fragt nach dem Namen eines Netzwerks und seinem Passwort (ohne Anzeige; nur Enter: ein offenes Netz) und
+verbindet sich (WPA2 mit AES). Wie beim ESP32 behält die Konsole den Namen und den daraus gemachten Schlüssel von
+WPA2 (PBKDF2, etwa 2 s), nicht das Passwort, in den letzten zwei Sektoren des Flash hinter den Dateien; `wlan on`
+startet den Chip und verbindet sich wieder (auch nach einem Reset), `wlan` zeigt das Netz, `wlan clear` vergisst
+es.
+
+**aBelle-Programme im Netz:** `include "inc/net.abel"` (in `abelle/examples/pico2`, nach `inc/console.abel`) gibt
+ihnen ARP, IPv4, Ping, UDP, DHCP, DNS und mDNS, `inc/tcp.abel` dazu TCP, mit denselben Funktionen wie beim ESP32;
+`wifi_connect_saved()` startet den Chip und verbindet sich mit dem Netz von `wlan set`. Die Beispiele `dhcp`, `ping`,
+`dns`, `ntp`, `arpscan` und `httpget` zeigen es: `run ping` in der Konsole oder F9 in Asmonite. Dafür hat die Konsole
+eine Funktion mehr, `wl_call` (+52, siehe unten; `console_version()` 3): Frames senden und empfangen, die MAC,
+verbinden; ab `console_version()` 4 auch die Netze in der Nähe suchen (`wifi_scan`), ab 5 die Zahl der Pings, die
+die Konsole beantwortet hat (`wifi_pings`). Chip und Netz bleiben nach einem Programm für das nächste. `telnetd` ist die kleine Shell über telnet des
+ESP32 (Dateien, Speicher, Ping, LED; mit `passwd set` fragt sie nach einem Passwort).
+
+**Die Konsole im Netz:** Nach einer Verbindung holt sie sich eine Adresse per DHCP und erneuert sie nach der Hälfte
+der Lease; `wlan` zeigt Adresse, Maske, Router und DNS-Server. Hat das Board ein Netz gespeichert, verbindet sie sich
+nach ihrem Start von selbst damit, sobald sie 3 Sekunden ruhig am Prompt gewartet hat („WiFi: connected, address …“;
+in den 2 bis 5 Sekunden dafür antwortet sie nicht, was getippt wird, wartet). SysTick schaut alle 10 ms beim Chip
+nach und beantwortet ARP und Ping für das Board: am Prompt, während ein Programm läuft und während es an einem
+Breakpoint steht; andere Frames hebt er für das Programm auf. `name set <name>` gibt dem Board einen Namen für den
+Router (sonst `pico2w-` und das Ende der MAC), `passwd set` das Passwort für telnet; beide bleiben im Datensatz des
+Netzes, auch über `wlan set` und `wlan clear`.
+
+**Programme für die Konsole** laufen im RAM: `.target pico2`, `.arch thumb`, `.imagebase 0x20000000` (bis
+0x2006FFFF). Die Konsole ruft `_start` mit dem Text der Argumente in `r0` auf, auf einem eigenen Stack; `bx lr`
+beendet das Programm mit dem Code in `r0` („Program ended (code n).“), ebenso `exit` aus beliebiger Tiefe. Ein Fehler
+im Programm (ein Lesen, wo nichts ist) und Ctrl+C beenden es auch, die Konsole sagt wie und macht weiter. Ihre
+Funktionen stehen als Tabelle von Adressen bei `0x20078140`, in der Reihenfolge des ESP32: +0 `exit`, +4 `version`,
++8 `put_char`, +12 `get_char`, +16 `poll_char`, +20 `print`, +24 `millis`, +28 `file_size`, +32 `file_read`,
++44 `args`, +48 `led` (die LED des Boards, GPIO 25), +52 `wl_call` (das WLAN eines W, für `inc/wifi.abel`;
+`boards/pico/console_wifi.asm`). Ein Aufruf lädt die Adresse aus der Tabelle und springt mit `blx`
+hinein; `r0` bis `r3` sind die Argumente, `r0` das Ergebnis. `examples/pico2/hello_console.asm` zeigt es. Dieselben
+Funktionen gibt es auch als aufrufbaren Code bei `0x20079E00` (je 16 Bytes, in derselben Reihenfolge; der Pico:
+`0x20039E00`).
+
+**Programme in aBelle** für die Konsole: `target "pico2"` (der Pico: `target "pico"`) und
+`include "inc/console.abel"`; `abelle_pico.exe` übersetzt sie, F9 führt sie über die Konsole aus, mit Breakpoint
+debuggen F9, F7 und F8 sie (über das USB-Kabel oder die Probe), mit den Variablen. Beispiele in
+`examples/abelle/pico2` und `examples/abelle/pico`: `hello.abel`, `blink.abel`. Pico W und Pico 2 W haben ihre LED am
+WiFi-Chip: `led()` schaltet sie dort (der erste Aufruf startet den Chip, wie `wlan on`).
+
+**F9** debuggt den Pico 2 über die Probe (SWD), oder über das USB-Kabel (siehe unten: Debuggen über USB). Die
+Konsole bleibt im Flash und meldet sich nach dem nächsten Reset wieder.
+
+**Wo was liegt:** die Konsole im Flash ab `0x10000000`, die Dateien von 1 MB bis 4 MB weniger 8 KB (`0x10100000` bis
+`0x103FE000`, dahinter das WiFi-Netz); im RAM die Programme von `0x20000000` bis `0x2006FFFF`, die Konsole ab `0x20070000`.
+
+**Auf dem Pico (RP2040)** gibt es dieselbe Konsole: `boards/pico/console.asm`, mit denselben Befehlen, Dateien
+und Knöpfen im Board Manager (links „Pico (Debug Probe)“, dann **Prepare Board**). Die Unterschiede:
+
+- Programme: `.target pico`, `.arch thumb` (nur Thumb-1, der Cortex-M0+ hat kein Thumb-2), `.imagebase 0x20000000`
+  (bis 0x2002FFFF); die Tabelle der Funktionen liegt bei `0x20038140`. `examples/pico/hello_console.asm` zeigt es,
+  mit einer eigenen Division (der M0+ hat keine).
+- Die Konsole im RAM ab `0x20030000`, im Flash nach den 256 Bytes von boot2; die Dateien von 1 MB bis 2 MB
+  weniger 8 KB (`0x10100000` bis `0x101FE000`, der Pico hat 2 MB Flash; dahinter das WiFi-Netz).
+- Ein Fehler im Programm meldet nur die Exception und den pc (der M0+ hat keine Register, die mehr sagen).
+- `reset` startet den Chip über den Watchdog neu.
+
+**Über das USB-Kabel:** Steckt auch das USB-Kabel des Boards am PC, meldet sich die Konsole dort als eigener COM-Port
+(„USB Serial Device“, VID/PID 1209:0001, der Treiber von Windows). Seine Seriennummer ist der Chip und die Kennung
+des Boards (beim Pico 2 aus dem OTP des Chips, beim Pico die des Flash-Chips): Jedes Board bekommt einen eigenen
+COM-Port, auch zwei gleiche an einem PC. Sie spricht über beide Wege zugleich: Was sie
+schreibt, geht an den UART und über USB, und sie nimmt, was von einem der beiden kommt. Über USB gehen Dateien rund
+zehnmal so schnell. Ctrl+C hält auch über USB ein Programm an.
+
+**Ganz ohne Probe:** Steck den Pico mit gedrückter BOOTSEL-Taste ein (oder einen neuen, leeren). Der Board Manager
+zeigt ihn im USB-Boot; **Prepare Board** legt die Konsole als UF2-Datei auf sein Laufwerk, das Boot-ROM schreibt sie in
+den Flash und startet sie, und der Board Manager wählt dann „Pico (USB console)“ bzw. „Pico 2 (USB console)“ mit den
+Dateien. Ab da gehen Dateien, Run und F9 (ein Programm im RAM, ohne Breakpoint, der Reiter Serial an diesem Port) über
+das USB-Kabel. **Prepare Board** an der USB-Konsole schreibt eine neue Konsole ohne Taste: Asmonite stellt den Port auf
+1200 Baud, die Konsole startet den Chip in seinen USB-Boot (wie bei den Boards von Arduino), dann die UF2-Datei; die
+Dateien bleiben. **Reset** startet ihn neu.
+
+**Debuggen über USB, ohne Probe:** In beiden Konsolen steckt ein Debug-Monitor. Ist der Reiter Serial mit der
+USB-Konsole verbunden, oder steckt keine Probe und das Board mit seiner Konsole am USB, und ist das Programm eins für
+das RAM der Programme (`.imagebase 0x20000000`), dann geht F9 mit
+Breakpoints (oder F7) über diesen Monitor: Das Log sagt „over the debug monitor of its console“. Breakpoints, F7, F8,
+Run to Cursor, Pause, Stop, die Register und der Speicher gehen wie über die Probe; der Reiter Serial zeigt, was das
+Programm schreibt, und nach der Sitzung wartet die Konsole wieder am Prompt (Stop beendet das Programm). Ohne
+Breakpoint läuft F9 wie bisher einfach über die Konsole.
+
+- Pico 2: Der Cortex-M33 schickt die Breakpoints seiner FPB (7 für Asmonite) und die Einzelschritte in die Exception
+  DebugMonitor. Sie läuft unter der Priorität des USB-Interrupts, so bleibt die Verbindung offen, während das Programm
+  steht.
+- Pico: Der Cortex-M0+ kennt diese Exception nicht. Asmonite schreibt für jeden Breakpoint und jeden Schritt einen
+  `bkpt` ins Programm (nur solange es läuft); der HardFault eines `bkpt` führt in den Monitor (über PendSV, mit der
+  niedrigsten Priorität).
+- Das Programm läuft so, wie die Konsole es startet: auf ihrem Stack, mit ihren Funktionen; `bx lr` am Ende meldet
+  „The program ended: code n“.
+- Ein Programm, das alle Interrupts sperrt, lässt sich in der Zeit nicht anhalten. Programme für das Flash und die
+  RISC-V-Kerne des Pico 2 debuggt Asmonite weiter über die Probe; ebenso alles, wenn die Probe steckt und der Reiter
+  Serial nicht an der Konsole hängt. Ohne Probe und ohne eine Konsole, die zum Programm passt, sagt F9, was zu stecken
+  ist (auch wenn das Programm für den Pico ist und das Board ein Pico 2, oder umgekehrt).
+- Hat die Probe den Kern noch als Debugger (nach einer Sitzung über SWD, die nicht sauber endete), lehnt der Monitor
+  des Pico 2 ab und sagt es: einmal ab- und anstecken hilft.
+
+**Grenzen:** über den UART nur 115200 Baud; beim Pico 2 nur die Arm-Kerne. Öffnet ein Terminal den COM-Port der Probe, während das
+Board ohne Pause sendet, kommen die Zeichen verstümmelt an, bis zur ersten Pause: eine Eigenheit der Probe.
+
+## Ein USB-Gerät ohne SDK
+
+`examples/pico/usb_echo_ram.asm` (Pico) und `examples/pico2/usb_echo_ram.asm` (Pico 2, Arm-Kerne) machen das Board über
+sein eigenes USB-Kabel zu einem COM-Port am PC (USB CDC-ACM), ganz in Assembler, ohne Pico-SDK und ohne TinyUSB. Der
+Code für beide steht in `examples/pico/usb_cdc.asm`; die beiden Dateien setzen nur `CHIP` und holen ihn mit
+`.include`.
+
+So geht es: Die Debug Probe an SWD, **dazu** das USB-Kabel des Boards an den PC, dann F9. Windows 10 und 11 zeigen
+einen neuen COM-Port (Geräte-Manager, „Anschlüsse (COM & LPT)“; Treiber `usbser.sys`, nichts zu installieren). Öffne
+ihn im Reiter Serial oder einem anderen Terminal, die Baudrate ist egal: Das Board grüßt, und was du tippst, kommt
+zurück, Enter als neue Zeile.
+
+Die Kennung 0x1209/0x0001 ist die Testnummer von pid.codes: nur für Versuche am eigenen Tisch. Ein Gerät, das andere
+bekommen, braucht eine eigene.
+
 ## Wenn es sich nicht verbindet
 
 *Test the connection* sagt in klaren Worten, warum:
@@ -199,7 +349,8 @@ den ein Assembler-Programm nicht hat. Ein USB-Seriell-Adapter an GP0 und GND tut
 - Der Assembler schreibt nur Befehle mit 4 Bytes. Die kurzen Befehle (`c.addi` ...) werden gelesen und angezeigt, nicht geschrieben.
 - Kein Gleitkomma, und die atomaren Befehle `lr.w`/`amo*` gibt es nur auf der Assemblerseite (der Assembler schreibt sie, der Kern führt sie aus).
 - Nur Kern 0; kein zweiter Kern, kein Mehrkern-Debuggen.
-- Die W-Modelle (Pico W, Pico 2 W): Ihre LED hängt am Funkchip, den die Beispiele nicht ansteuern.
+- Die W-Modelle (Pico W, Pico 2 W): Ihre LED hängt am Funkchip, den die Beispiele nicht ansteuern (die Konsole fragt
+  den Chip nur, ob er da ist).
 - Variablen eines C- oder Pascal-Programms werden nicht angezeigt: Der Debugger arbeitet mit Assembler-Quelltext.
 
 ## Zum Weiterlesen

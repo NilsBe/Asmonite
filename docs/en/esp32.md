@@ -178,34 +178,36 @@ is gone.
 
 ## The console and its files
 
-`examples/esp32/console.asm` makes the board a small computer with a file system in the flash: it reaches from 2 MB to
+`boards/esp32/console.asm` makes the board a small computer with a file system in the flash: it reaches from 2 MB to
 the end of the flash (2 MB on a flash of 4 MB, 6 MB on one of 8 MB such as a WROVER; the console reads the size from
-the flash chip when it starts). Any terminal program works with it (`ls`, `cat`, `put`, `rm`, `df`, `format`, `run`,
-`load`, `boot`, `wlan`, `help`), and the **Board Manager** of Asmonite (menu Board, see [boards.md](boards.md)) works
+the flash chip when it starts). Any terminal program works with it (`ls`, `cat`, `rm`, `df`, `format`, `run`,
+`boot`, `wlan`, `reset`, `help`), and the **Board Manager** of Asmonite (menu Board, see [boards.md](boards.md)) works
 with it:
 
 - **Prepare Board** writes the console into the flash (over the boot ROM), makes its file system when there
   is none, and brings the WiFi package. F9 replaces a console of an older version of Asmonite by itself (see above).
-  With the console its help goes onto the board as the file `help.txt` (from `examples/esp32/help.txt`); `help` shows
-  it. Without it, after `format` for example, `help` shows a short list of the commands. `put help.txt` changes the
-  help on the board itself; the next update of the console writes the one of Asmonite again.
-- **This Program Autostarts** compiles the program in the editor, uploads it to the board and starts it
-  after every reset.
+  With the console its help goes onto the board as the file `help.txt` (from `boards/esp32/help.txt`); `help` shows
+  it. Without it, after `format` for example, `help` shows a short list of the commands. Another `help.txt` uploaded
+  (Upload File...) changes the help on the board; the next update of the console writes the one of Asmonite again.
 - The Board Manager shows the files of the board, above them what it knows about the board (chip, console, flash),
   and its network: whether the WiFi is off, connecting or connected, the address, the MAC and the name
   (`name.local`). Right after a reset the address is missing for a few seconds: **Refresh** reads it again.
 - **Upload File** and **Download** move files of any kind between the PC and the board (100 KB up in a little under
   4 seconds, down in 2), each checked by its CRC-32; **Delete** removes one.
-- **Upload This Program** compiles the program in the editor (assembler with `.target esp32`, or aBelle) and uploads
-  it as the image that the boot ROM would start from the flash; **Run** starts it (the window closes, the tab Serial
-  shows what it writes), **Autostart** starts it after every reset. After a reset the console waits a short moment
-  first: BOOT or a key in the terminal keeps it in the console; **Reset Board** in the Board Manager does that too.
-- **Read Chip** reads the chip, revision, MAC, crystal and flash over the boot ROM (the board restarts for it).
+- The program in the editor (assembler with `.target esp32`, or aBelle) goes to the board from the menus: **Project >
+  Compile and Upload** (Ctrl+Shift+F9) uploads it as the image that the boot ROM would start from the flash, **Debug >
+  Upload and Run** (Shift+F9) starts it then. In the Board Manager **Run** starts a file (the window closes, the tab
+  Serial shows what it writes), **Autostart** starts it after every reset. After a reset the console waits a short moment
+  first: BOOT or a key in the terminal keeps it in the console; **Reset** in the Board Manager does that too.
+- **Chip Details** reads the chip, revision, MAC, crystal and flash over the boot ROM (the board restarts for it).
 - **Format** makes a new, empty file system.
 - **Erase Flash** erases the whole flash over the boot ROM, as on a new board: no console, no
-  files (8 to 17 seconds on 4 MB). The boot ROM then says "flash read err, 1000" at every start. Prepare Board
-  makes it a board for Asmonite again.
-- **Install WiFi Again** writes the WiFi package anew (seldom needed, see below).
+  files (8 to 17 seconds on 4 MB). Then a small park program goes into the flash: the board starts quietly and says
+  every 3 seconds that it is empty, and the Board Manager asks whether to put the console on it right away (Prepare
+  Board). After a reset with an empty flash the boot ROM
+  restarts again and again ("flash read err, 1000"; the S3 and the C3: "invalid header: 0xffffffff"): the Board
+  Manager and the tab Serial say so, and Prepare Board makes it a board for Asmonite again.
+- **Install WiFi** writes the WiFi package anew (seldom needed, see below).
 - A program for F9 fits as it is: its code may take `0x40080000..0x40092FFF` (76 KB; a larger one up to `0x4009BFFF`,
   then without the WiFi), its data `0x3FFB0000..0x3FFCFFFF`; the console lies above them.
 
@@ -219,7 +221,8 @@ of three ways:
 - by an exception or a `break`: `Program stopped: exception c at pc p, address v` (c is `EXCCAUSE`; `0x106` a
   `break`).
 - with **Ctrl+C** from the terminal: `Program stopped (Ctrl+C).` In the tab Serial of Asmonite the button **Stop**
-  sends it (or Ctrl+C in the tab when nothing is selected there; with a selection it copies). This works in an endless loop with the
+  sends it (or Ctrl+C in the tab when nothing is selected there; with a selection it copies), without a debug session
+  **Debug > Stop** (Ctrl+F2) too. This works in an endless loop with the
   interrupts off too: while a program runs, each byte on UART0 raises the NMI. The console puts the bytes into its
   buffer for `get_char`; Ctrl+C it does not pass on. While the ROM writes the flash, the program stops after that
   command. What the program did not read, the console drops. Only a program that changes `VECBASE` or `INTENABLE`
@@ -248,8 +251,8 @@ program calls them with `callx8`, as a function of the ROM: the arguments in `a1
 | `0x4009C828` | `flash_read(address, buffer, count)`: 0, -1 if the flash cannot be read there |
 | `0x4009C82C` | `args()`: the text of the arguments (see below), empty for `run` |
 
-**Programs as commands.** A program has no extension: `blink.abel` becomes `blink`, on the PC and on the board (Upload
-This Program; one with the same name and `.bin` from an older Asmonite is removed then, and an autostart that named
+**Programs as commands.** A program has no extension: `blink.abel` becomes `blink`, on the PC and on the board (Compile
+and Upload; one with the same name and `.bin` from an older Asmonite is removed then, and an autostart that named
 it names the new one). A word the console does not know it looks for as a file: first `name`, then `name.bin` (the
 programs of older versions). If there is one, the console starts the program; the rest of the line is its arguments,
 in `a2` and by `args()`. So `echo hello world` starts `echo` with `hello world`. As a command
@@ -257,7 +260,7 @@ the console says no `Running` before it and no `Program ended (code 0)` after it
 or Ctrl+C. So commands used rarely can lie in the file system as programs instead of making the console bigger.
 
 A program writes into the flash only through files, so it cannot damage the console or the file system.
-`file_write` puts the new content into a free place first and only then into the directory, as `put` does.
+`file_write` puts the new content into a free place first and only then into the directory, as an upload does.
 `millis()` counts the cycles of the core: a program has to call it at least every 100 seconds (at 40 MHz).
 
 In aBelle, `include "inc/console.abel"` brings these functions, with `println`, `print_int` and the other output
@@ -310,7 +313,7 @@ the flash, `0x100000` to `0x1FFFFF`, below the file system. At `0x1F0000` there 
 part, its place, length and CRC-32. **You do not have to do anything for it:** when you start a program that uses
 `inc/wifi.abel` with F9, Asmonite checks the head on the board and writes the package over the console when it is
 missing or another one than the one of this version of Asmonite (about 370 KB, about 13 seconds); F9 replaces another
-package also for programs without the WiFi. Prepare Board puts it there as well, **Install WiFi Again** in the Board
+package also for programs without the WiFi. Prepare Board puts it there as well, **Install WiFi** in the Board
 Manager does the same by hand. When the WiFi runs on the second core,
 the console switches it off first itself; it starts again at the next start of the console or with `wlan on`.
 
@@ -319,7 +322,8 @@ network and its password (empty for an open network, else WPA2, 2.4 GHz). The co
 the line below shows stars). The board keeps **not the password** but the key that WPA2 makes of it
 (PBKDF2-SHA1 of the password and the name, about 2.5 seconds), in two sectors of its own below the WiFi package.
 Whoever reads the flash gets into this one network with it, but does not learn the password. `wlan` shows the name and
-whether the WiFi is connected, `wlan clear` forgets the network.
+whether the WiFi is connected, `wlan clear` forgets the network. `wlan scan` lists the networks in reach (channel,
+signal, open or with a key, name; the WiFi on for it while it does not run), also on the ESP32-S3.
 
 **The WiFi as a service of the console:** when the board keeps a network, the console starts the WiFi itself at each
 start and connects in the background ("WiFi: connecting to … in the background") while its prompt is there already.
@@ -333,7 +337,9 @@ at once when it is there already.
 of its own, for example "WiFi: connected, address 192.168.1.50 (esp32-789a.local)"; then the prompt and what was typed so far come
 again. From then on the WiFi service on the second core answers ARP requests and ping for this address itself, also
 while a program runs that reads no frames. So the board answers ping after a restart or a power cut without any
-program running. The console asks again at half the lease time. When the connection is lost it says "WiFi: no
+program running. The console asks again at half the lease time (DHCP is in the console, not in the service, only
+because the service has no room left for it; a program that runs for days does not renew the address then; on the
+ESP32-C3 the service does DHCP itself). When the connection is lost it says "WiFi: no
 connection." and gets a new address after the next connection. A network program that calls `dhcp_run` itself gives
 its address to the service the same way. In the large window the WiFi is off, the board does not answer then.
 
@@ -358,9 +364,21 @@ text, the password too: it keeps the curious out of your own network, it is not 
 later, telnetd ends the session and gets an address again after the new connection. It ends only when the board
 keeps no network (`wlan set`).
 
+**The files in the browser (fm):** `run fm` in the console (or open `fm.abel` and press F9), then in the browser
+`http://name.local/fm`. The page shows the facts of the board (chip, name, addresses, flash, free room, autostart) and
+its files; each one can be viewed (as text, or in hex when it holds zero bytes) or downloaded. At `/` fm shows the
+page `index.html` of the board (without it the way leads on to `/fm`), and files with an ending of the web (`.html`,
+`.css`, `.js`, `.json`, `.txt`, `.png`, `.jpg`, `.gif`, `.svg`, `.ico`) are there under their names: so the board
+serves pages of your own. Programs without an ending are not shown there. When a password is set (`passwd set`, the
+same as for telnetd), the browser asks for it at `/fm`, any user name; your own pages stay open. The first check takes
+about two seconds, then fm keeps the right password. As with telnet, everything goes unencrypted (HTTP). A file
+`fm.html` on the board takes the place of the page built in, `/fm?builtin` always shows the one built in. The page
+gets its data as JSON from `/api/info` and `/api/files`, a file from `/file/name` (`?dl` to download it). This first
+version only reads; uploading and editing come later.
+
 **A program with WiFi:** open for example `ntp.abel` and press F9. The examples connect to the network of the board
 with `wifi_connect_saved()`, end with `wifi_done()` and return to the console: the connection of the console stays,
-the next example is in the network at once. The servers (`udpecho`, `webserver`, `telnetd`) run until you press Stop
+the next example is in the network at once. The servers (`udpecho`, `webserver`, `telnetd`, `fm`) run until you press Stop
 in the tab Serial (Ctrl+C). The program loads the service from the WiFi package itself at its first WiFi call
 (`inc/wifi.abel`), with F9 as with `run ntp` in the console or as the autostart. A program that wants to name its
 network itself calls `wifi_connect(name, password)` (`inc/network.abel`).
@@ -368,8 +386,8 @@ network itself calls `wifi_connect(name, password)` (`inc/network.abel`).
 **Writing files while the WiFi runs:** the code of the library and its interrupts run on the second core from the
 flash, through the cache. While the console erases, writes or reads the flash, the cache must not fetch from it. So
 the console parks the second core before each such access: it rings an interrupt between the cores, and the service
-waits with its interrupts off in a loop in the IRAM until the console is done. This happens by itself for uploads,
-for `put` and for `file_write` of a program; a connection stays up. If the second core does not answer within
+waits with its interrupts off in a loop in the IRAM until the console is done. This happens by itself for uploads
+and for `file_write` of a program; a connection stays up. If the second core does not answer within
 200 ms, the console does not write and reports an error of the flash.
 
 **A large program without the WiFi:** beside the WiFi a program has 76 KB for its code. When it needs more,
@@ -396,6 +414,7 @@ and what comes in waits in a buffer of the service (6 frames).
 | `dns_lookup` | turn a name into an address |
 | `ping_send` | send a ping (the WiFi service answers pings to the board) |
 | `wifi_set_ip`, `wifi_get_ip` | the address for which the service answers ARP and ping (`dhcp_run` sets it) |
+| `wifi_pings` | how many pings the service answered (version 11 of the service; `examples/common/pingled.abel` flashes the LED at each one) |
 | `udp_send`, `net_recv` | UDP |
 | `tcp_connect`, `tcp_listen`, `tcp_accept`, `tcp_send`, `tcp_recv`, `tcp_close` | TCP, one connection at a time, as a client or a server |
 | `net_set_name`, `mdns_start` | the name of the board: the router learns it by DHCP, mDNS answers `name.local`; without `net_set_name` the name of the board (`name set` in the console) |
@@ -410,9 +429,9 @@ and what comes in waits in a buffer of the service (6 frames).
 | `examples/esp32/hello_uart_ram.asm` | "Hello, world!" once a second over UART0 (the COM port of the board), the text in `.data` |
 | `examples/esp32/hello_uart_flash.asm` | The same in the flash, at every start of the board (the tab Serial shows it) |
 | `examples/esp32/clock_ram.asm` | The core from the crystal and from the PLL at 80, 160 and 240 MHz, and how fast a loop goes at each clock |
-| `examples/esp32/console.asm` | The console with the file system in the flash (see above) |
-| `examples/abelle/esp32/` | aBelle: blink, hello_uart, chipinfo (MAC, chip, flash), clock, timer, dice, reaction, sieve, temperature |
-| `examples/abelle/esp32/` (WiFi) | scan, dhcp, dns, ping, wol (Wake on LAN), arpscan, ntp, udpecho (with `udpecho.py` on the PC), httpget, webserver (`http://name.local/`), telnetd (`telnet name.local`: files, memory, ping, the LED) |
+| `boards/esp32/console.asm` | The console with the file system in the flash (see above) |
+| `examples/abelle/esp32/` | aBelle: blink, hello_uart, chipinfo (MAC, chip, flash), clock, timer, dice, reaction, sieve, temperature, pins (which GPIO is the LED on?) |
+| `examples/abelle/esp32/` (WiFi) | scan, dhcp, dns, ping, wol (Wake on LAN), arpscan, ntp, udpecho (with `udpecho.py` on the PC), httpget, webserver (`http://name.local/`), telnetd (`telnet name.local`: files, memory, ping, the LED), fm (`http://name.local/fm`: the files in the browser) |
 
 The registers they use are in their comments, with the source: the headers of ESP-IDF and the ESP32 Technical
 Reference Manual. A page with all examples: asmonite.com/en/esp32-examples.html.
@@ -466,7 +485,7 @@ the console (16 KB). It is tight here; in the DRAM there is room.
   flash is erased or written the cache is off; so the console parks core 1 then.
 - **PSRAM** (WROVER modules only, 4 to 8 MB): a RAM chip next to the ESP32, also through the cache (`0x3F800000`) and
   for data only. Asmonite does not use it yet.
-- **eFuses:** bits written once, with the MAC, the chip version and the crystal (Read Chip in the Board Manager).
+- **eFuses:** bits written once, with the MAC, the chip version and the crystal (Chip Details in the Board Manager).
 
 The ESP32-S3 follows the same pattern with more room: 512 KB of SRAM that IRAM and DRAM share more freely, and,
 depending on the module, PSRAM in which even code can run there.
@@ -495,9 +514,9 @@ depending on the module, PSRAM in which even code can run there.
 | "No board with an ESP32 is plugged in" | The USB cable (some carry power only), the driver of the USB serial chip |
 | "… does not go into the download mode by itself: hold the BOOT button" | Hold BOOT down until the program runs |
 | "COM14 is open in another program" | Close the terminal, then F9 again |
-| "The console of Asmonite does not answer" (Board Manager) | A program runs (Reset Board), or the console is not in the flash (Prepare Board) |
+| "The console of Asmonite does not answer" (Board Manager) | A program runs (Reset), or the console is not in the flash (Prepare Board) |
 | "flash read err, 1000" at the COM port | The flash is empty (a new or erased board): Prepare Board in the Board Manager |
-| "wifi_connect: error 2041 (the WiFi package is not on the board …)" | Start the program with F9 (Asmonite writes the package), or Install WiFi Again in the Board Manager |
+| "wifi_connect: error 2041 (the WiFi package is not on the board …)" | Start the program with F9 (Asmonite writes the package), or Install WiFi in the Board Manager |
 | "the board keeps no WiFi network" | `wlan set` in the console (in the tab Serial) |
 | "… the access point said no" / "no answer of the access point" | The password (`wlan set` again), the name of the network, a network on 2.4 GHz in reach |
 | The board starts again every few seconds | A program in the flash that does not switch the watchdogs off |
@@ -515,8 +534,7 @@ depending on the module, PSRAM in which even code can run there.
   connection at a time, no HTTPS, no Bluetooth.
 - While the station is connected, a byte over UART0 comes wrong now and then on the DevKit (measured about one in
   500000; so already before the WiFi service, once a program connected). Packets check their CRC-32 and are sent
-  again, so uploads and the debugger are safe. So upload a big text with the Board Manager rather than pasting it into
-  `put`, or `wlan off` first.
+  again, so uploads and the debugger are safe; a long line typed into the terminal may come wrong now and then.
 - While the console starts the WiFi (at its start, with `wlan on`, after a program in the large window), the first
   byte that comes in over UART0 within these 100 ms or so may be lost. Asmonite sends a packet without an answer
   again; typed text rarely comes in at that moment.

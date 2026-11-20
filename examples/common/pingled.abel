@@ -1,0 +1,82 @@
+# Ping LED: the LED of the board flashes at each ping the board answers. The board connects to the network it keeps
+# (type "wlan set" in the console), gets an address by DHCP and shows it; ping that address from a PC or a phone in the same
+# network ("ping 192.168.1.20" in a command line), and the LED lights for a tenth of a second at each echo request,
+# until you stop the program (Ctrl+C in the console, or Stop in Asmonite).
+#
+# The program does not answer the pings itself: the WiFi service of the board (on the Picos its console) does, whatever
+# a program does, and counts them; wifi_pings() gives that count, and the program flashes the LED when it grows. The
+# same source for the ESP32, the ESP32-S3, the ESP32-C3, the ESP32-S31, the Pico W and the Pico 2 W: set LED_PIN for
+# your board below (as in blink.abel), then start it with F9.
+
+include "console.abel"
+include "net.abel"
+
+# ---------- your board: set these ----------
+#   ESP32 DevKit V1 ............................................ LED_PIN = 2
+#   LilyGO T7-S3 (ESP32-S3) .................................... LED_PIN = 17
+#   ESP32-C3 LuatOS CORE ....................................... LED_PIN = 12   (its other LED: 13)
+#   the clone "Pico W-2023" (RP2040 with an ESP8285) ........... LED_PIN = 25
+#   Raspberry Pi Pico W, Pico 2 W .............................. LED_PIN = WL_GPIO0
+#       (their LED is wired to GPIO 0 of the WiFi chip, the CYW43439; WL_GPIO0 is its name in the datasheet)
+#   a board with an LED at another pin: its number (see the pinout of the board)
+# Boards with an RGB LED (a WS2812, as the ESP32-S3 DevKitC at GPIO 48, the ESP32-S31 board at GPIO 60): an LED at a
+# free pin (with a resistor of about 330 ohms to GND), and its number here.
+LED_PIN = 2
+LED_LOW = 0                     # 1: the LED lights when its pin is low (an LED from the pin to 3.3 V)
+FLASH_MS = 100                  # how long it lights at each ping, in milliseconds
+
+# n milliseconds
+def wait_ms(n):
+    t = millis()
+    while millis() - t < n:
+        pass
+
+# the LED on (1) or off (0)
+def set_led(on):
+    if LED_LOW:
+        gpio_write(LED_PIN, 1 - on)
+    else:
+        gpio_write(LED_PIN, on)
+
+def main():
+    println("Ping LED: the LED flashes at each ping to the board (Ctrl+C ends it)")
+    gpio_output(LED_PIN)
+    set_led(0)
+    net_init()
+    print("connecting to ")
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
+    if r != 0:
+        print("wifi_connect: error ")
+        print_int(r)
+        print(" (")
+        print(wifi_error_text(r))
+        println(")")
+        return
+    if not dhcp_run():
+        println("dhcp: no answer")
+        return
+    start = wifi_pings()
+    if start < 0:
+        print("wifi_pings: the board's console or WiFi service is too old ")
+        println("(\"Prepare Board...\" or \"Install WiFi...\" in the Board Manager to update)")
+        return
+    print("ping this board: ping ")
+    print_ip(net_ip)
+    println("")
+    seen = start
+    while True:
+        # the frames for the program (none it waits for here; the pings to the board do not come to it)
+        net_recv(10)
+        n = wifi_pings()
+        if n < 0:
+            println("the WiFi is off")
+            return
+        if n != seen:
+            seen = n
+            print("ping ")
+            print_int(seen - start)
+            println("")
+            set_led(1)
+            wait_ms(FLASH_MS)
+            set_led(0)

@@ -5,6 +5,344 @@ What changed from version to version. German: [docs/de/aenderungen.md](docs/de/a
 Version numbers: MAJOR.MINOR.PATCH. While MAJOR is 0, a MINOR step may change what
 existing sources mean; such changes are listed under "Changed" and marked **(sources)**.
 
+## 0.15.0 – 2026-11-20
+
+### In short
+- **One console on every board**: the ESP32, the ESP32-S3, the ESP32-C3, the ESP32-S31 and the Raspberry Pi Pico and
+  Pico 2 (W) have a console of Asmonite with the same commands (`ls`, `cat`, `rm`, `df`, `format`, `run`, `boot`,
+  `noboot`, `info`, `reset`, `help`, `wlan`, `name`); `load`, `put` and `mem` are gone. `wlan scan` now on every
+  board with WiFi, also on the ESP32 and the ESP32-S3.
+- **New boards**: the ESP32-C3 and the ESP32-S31 (RISC-V) with console, WiFi, aBelle and the debugger; the Pico and
+  the Pico 2 with a console over their USB cable, without a debug probe.
+- **WiFi on every board with WiFi**, now also the Pico W, the Pico 2 W, the clone "Pico W-2023" (ESP8285), the C3 and
+  the S31: the board keeps its network, answers ping, gets its address by DHCP and answers for `name.local` (mDNS),
+  also while a program runs.
+- **The Board Manager**: the WiFi of the board from a context menu (the networks the PC sees, the password from
+  Windows; WiFi on and off, the mDNS name), the versions of console and WiFi service, plugging in and out followed.
+- **One aBelle program for every board** (no `target` line: Project > aBelle for), and the examples in
+  `examples/common`: hello, blink, runs, scan, arpscan, ping, pingled.
+- **Compile and Upload, Upload and Run**: a program into the flash of the board, started from there; compiling takes
+  the text of the editor, also when it is not saved.
+- **Plainer English** in Asmonite and Dismonite: the progress, the messages and the dialogs.
+
+### New
+- **Compile and Upload, Upload and Run**: Project > Compile and Upload (Ctrl+Shift+F9; Assemble and Upload for
+  assembler) puts the program in the editor over the console as a file into the flash of the board of the tab Serial
+  (ESP32, ESP32-S3, ESP32-C3, Pico and Pico 2 over their USB cable), under the name of its source without the
+  extension; Debug > Upload and Run (Shift+F9) then lets the console start it from there. The program stays on the
+  board after a reset (`run name`, Autostart in the Board Manager). A program that runs is stopped with Ctrl+C first,
+  a console of another version is brought up to date first (as at F9). For a program for a board F9 is called Run in
+  RAM / Continue now. The buttons Upload This Program and This Program Autostarts of the Board Manager are gone (it
+  was not clear that they meant the program in the editor).
+- **The ESP32-S31** (RISC-V, chip id 32 of the boot ROM): Read Chip names the chip, its package and revision, the
+  MAC, the PSRAM in the chip, the crystal and the flash. **A console for it** (`boards/esp32s31`, the one of the
+  ESP32-C3 with the addresses of the S31; in the flash at 0x2000, where its boot ROM looks): the files, programs,
+  autostart, the packets of the Board Manager, Ctrl+C for a program that runs (Stop in the tab Serial: the interrupt
+  of the USB port over the interrupt matrix, source 2, to interrupt 36 of the CLIC of the S31; a race in get_char of
+  a program, which lost a key when two came at once, fixed on the way); the core at 160 MHz (the ROM leaves it at
+  40 MHz from the crystal: the console switches it to the CPLL, 320 MHz / 2, as the bootloader of ESP-IDF does;
+  `info` shows it, `rgb` times its pulses by it); WiFi: see below. In Asmonite: `.target esp32s31` (the RAM 0x2F000000 .. 0x2F07AFBF), the Board
+  Manager (Prepare Board, the files, Run, Autostart, Erase Flash), F9 without a breakpoint over the console, Compile
+  and Upload, Upload and Run. Found on the chip: the super watchdog takes the key of the other
+  watchdogs, and the USB Serial/JTAG does not send a FIFO that filled before the PC opened the port. "ESP32-S31" is no
+  longer taken for an ESP32-S3 where Asmonite looks for the name. Test: src/tests/s31contest (21 checks, also with
+  the whole flash erased); `boards/esp32s31/s31rom.py` is the test bed over the boot ROM. Tested on an ESP32-S31
+  board: revision v0.0, 16 MB PSRAM, 16 MB flash. **aBelle for the S31**: `target "esp32s31"` (or Project > aBelle
+  for > the board of the tab Serial), translated by `abelle_riscv.exe` for the RAM of the programs of its console (the
+  code from 0x2F000000, 304 KB and 16 KB of stack); `abelle\lib\esp32s31\console.abel`: the functions of the console
+  (from 0x2F060200) and `gpio_output`, `gpio_write` (GPIO 0 .. 61, the USB pins 33 and 34 left alone). F9 runs it over
+  the console, Compile and Upload and Upload and Run put it into the files. Tested on the board: `hello.abel`, the
+  pins, `millis`, `file_size`, `exit`. **The RGB LED** of the S31 board (a WS2812 at GPIO 60): `rgb(pin, colour)`
+  (0xRRGGBB, 0 off), a function of its console (version 4, at 0x2F06023C; the pulses timed by mcycle, the core at
+  40 MHz) and of `console.abel`; Prepare Board puts the new console on the board. **The debugger for the S31**: F9
+  with a breakpoint, F7 and F8 debug a program of aBelle or of assembly (`.target esp32s31`) over the USB JTAG of the
+  chip, core 0: its console starts the program (`dbg_run`, as on the C3; an assembler program ends with `ret` or
+  `exit`), breakpoints (4), steps, pause, the registers and the variables; the end of the program ends the session.
+  Found on the chip: its JTAG chain has two TAPs (the LP core at TDO, IDCODE 0x00003C25, in BYPASS; the HP cores
+  0x00020C25), its USB JTAG brings the interface GUID of its own (no setup in Debug targets), the reset with the hart
+  halted is ndmreset. Fix for the C3 too: after Stop the program goes on, and at its end the hart halted in the debug
+  mode for ever at the ebreak behind `dbg_run` (the console was gone until a reset): the debugger puts a nop there
+  when it leaves, and ebreak is an exception again. Test: src/tests/s31dbgtest (27 checks; with the argument c3 the
+  same over the console of the ESP32-C3).
+- **WiFi on the ESP32-S31**: the WiFi libraries of Espressif for the S31 (WiFi 6) linked by `ablink --chip esp32s31`
+  (the same bytes as GNU ld), the OS layer and the service of the ESP32-C3 brought over (one source for both,
+  `wlan/wlanradio_s31.asm` for the clocks of the modem, the CLIC and the analog I2C of the S31), as a WiFi package in
+  the flash (Install WiFi in the Board Manager). In its console as on the C3: `wlan set`, `wlan on`, `wlan off`,
+  `wlan clear`, `wlan scan`; the board connects in the background, gets its address by DHCP, answers ARP and ping and
+  starts the WiFi by itself after a reset. Found on the chip: without the bootloader of ESP-IDF the access filters
+  of the S31 (APM) let only the CPU into the memory, so the WiFi could send but never received a frame (the WiFi
+  service turns them off now, as that bootloader does); and the clock of the WiFi baseband must not stay forced on
+  (then the radio takes no frame of 11n/11ax, ESP-IDF too): the PMU must gate the clocks in the active state
+  (ICG_SYS_CLOCK_EN), the forcing stays for the calibration only. Tests: `wlan/wlantest2_s31` .. `wlantest5_s31`
+  (calibration, scan, frames, a connection with DHCP and 4 pings to the router), src/tests/s31contest (28 checks with
+  the network of the board). Not on the S31 yet: telnet.
+- **aBelle programs in the network on the ESP32-S31**: `abelle/lib/esp32s31/wifi.abel`, the one of the ESP32-C3 at
+  the places of the S31 (its WiFi service at 0x2F03A000, its TRNG), so `net.abel` and `tcp.abel` run there as on the
+  other boards (the tests translate them for the S31 too). On the C3 and the S31 a program starts the WiFi itself
+  now, as on the other boards: the first `wifi_` call asks the console (`wifi_up`, a new function of the console at
+  +64, `console_version()` 5) when no `wlan on` has loaded the WiFi service since the reset.
+- **The examples `examples/common/scan.abel`, `arpscan.abel` and `ping.abel`**: the WiFi networks near the board,
+  who is in the network (ARP), and the ping of the router, of a server or of a host given; one source each for
+  every board with WiFi.
+- **`wifi_scan` on the Pico W and the Pico 2 W**: operation 11 of `wl_call` of their console (`console_version()` 4)
+  scans as `wlan scan` does and gives the networks as on the ESP32 (48 bytes each: BSSID, channel, RSSI, protection,
+  name), so a program that scans runs on every board with WiFi. The protection comes from the IEs of each network
+  (open, WEP, WPA, WPA2, WPA/WPA2, WPA2 Enterprise, WPA3, WPA2/WPA3); the clone "Pico W-2023" gives the one of its
+  ESP8285. Prepare Board brings the console of a Pico up to date.
+- **`wifi_pings()` on every board with WiFi**: how many pings to the board were answered; the program does not see
+  them, the WiFi service (ESP32 and ESP32-S3: version 11, a word at +104; ESP32-C3 and ESP32-S31: version 5, an entry
+  at +0x50) or the console of the Pico W and the Pico 2 W (operation 12 of `wl_call`, `console_version()` 5) answers
+  and counts them. Install WiFi or Prepare Board in the Board Manager brings a board up to date.
+- **The Board Manager shows the versions**: "Console: v2 (current: v2)" (the number `console_version()` gives, from
+  the new packet V of every console, and the one of the console of this Asmonite), on an ESP32, S3, C3 and S31 "WiFi
+  service: v10 (current: v11; "Install WiFi..." to update)" (read out of the WiFi package in the flash). Fewer
+  lines: the WiFi state, the network, the address and the name in one ("connected to <network>, <address>
+  (<name>)"), the serial port only when the name of the device does not end with it, the maker of the driver behind
+  the USB id, no USB serial number (on an ESP32-S3/C3 it is the MAC), on a
+  Pico the board and telnet in short. A right click copies one line (Copy Line) or all of them (Copy All).
+- **The WiFi of the board from the Board Manager**: a right click on the line WiFi (or a double click) offers Set
+  Network..., WiFi On / WiFi Off, Forget Network... and Set mDNS Name... (name.local, the router shows it too; not on
+  the C3 and S31); on the line telnet Set Password... and Clear Password.... Set Network... lists the networks this PC sees (signal, 2.4 or 5 GHz: the boards use 2.4 GHz
+  only) and, on the ESP32-C3, ESP32-S31, Pico W and Pico 2 W, the ones the board sees (Scan with Board); From Windows
+  fills in the password Windows has saved for the network chosen. The Board Manager types the commands of the console
+  (`wlan set`, `wlan on`, `wlan off`, `wlan clear`, `name set`, `passwd set`, `passwd clear`) and answers its questions; no
+  password is written anywhere.
+- **mDNS on the Pico W, the Pico 2 W and the clone "Pico W-2023"**: the console answers questions for
+  `name.local` (the name of `name set`, else the one of the MAC: `picow-1a2b.local`), in the background as it answers
+  ARP and ping: at the prompt and while a program runs (the ESP32 and the S3 at the prompt). As on the ESP32: to all
+  (224.0.0.251) when the question came from port 5353, else to the one who asked. A question the console answered
+  does not go to the program (it would answer it once more). About 500 bytes in each console.
+- **The command `load` is gone** from the consoles of the ESP32, ESP32-S3, ESP32-C3 and ESP32-S31 (the Picos never
+  had it): the WiFi does not need it (the console takes its parts from the WiFi package in the flash), `run name`
+  starts a program as before. The tests of the WiFi stages put the parts of wlan.rom into the RAM over the packet R,
+  which may now also write the room between the programs and the console (ESP32, S3). "Prepare Board..." brings a
+  board to the new console.
+- **The consoles alike**: `reset` on the ESP32 and the ESP32-S3 too (the board starts again as with its reset button;
+  the USB port of the S3 goes away for a moment). `put` (a file typed in) is gone from the consoles of the ESP32, S3,
+  C3 and S31 (the Picos never had it): files go onto the board with the Board Manager (Upload File...) or Compile and
+  Upload. `mem` (a look into the memory) is gone from the consoles of the Pico, Pico 2, C3 and S31: the debugger shows
+  the memory. So all consoles have the same commands for files and programs. The help of the Pico and the Pico 2 is
+  the file `help.txt` now, as on the ESP boards (Prepare Board and Format write it, from `boards/pico/help.txt` and
+  `boards/pico2/help.txt`; without it `help` shows a short list): about 700 bytes more room in their consoles.
+  `file_write` for programs on the Pico and the Pico 2 too (it answered -1 there): a file written as Upload File
+  writes it, with the same answers as on the ESP boards (0, or -1 the directory is full .. -5 no file system).
+  **`name` and mDNS on the ESP32-C3 and the ESP32-S31** too: `name`, `name set keller`, `name clear` as on the other
+  boards (kept in the record of the network; `wlan set` and `wlan clear` keep it); their WiFi service (version 6)
+  gives it to the router (DHCP) and answers mDNS for `keller.local`, also while a program runs. The Board Manager
+  offers Set mDNS Name... for them and shows `.local`. **Ctrl+C** (Stop in the tab Serial) stops a program on the C3
+  and the S31 also when it waits in the WiFi service nearly all the time (pingled: it did not stop).
+- **Compile: the text of the editor** (Project > Save before compile off): the compilers of aBelle, C and Pascal read
+  the text in the editor too, unsaved changes included (as the assembler always did), from a hidden copy `~name` next
+  to the source (its includes are found there), removed afterwards; the messages and the map name the source. Before,
+  they read the file on disk.
+- **Debug > Stop (Ctrl+F2) without a debug session**: when the tab Serial is connected to a board, it sends Ctrl+C as
+  the button Stop of the tab does: a program of F9 or of the autostart stops.
+- **A console for the ESP32-C3** (`boards/esp32c3/console.asm`, RISC-V), as on the ESP32 and the ESP32-S3: over
+  the USB port of the chip (a terminal, such as the tab Serial), in the flash at 0. The files in the flash from 2 MB
+  on (`ls`, `cat`, `rm`, `df`, `format`), programs from the files (`run`, `boot`, `noboot`, the name
+  alone with arguments; a program ends with its code, by exit(), by an exception or by Ctrl+C), `info`,
+  `reset`, `help` (help.txt). The Board Manager knows it: Prepare Board writes the console, help.txt, a file system
+  and the WiFi package; the files, Compile and Upload (`.target esp32c3`, `.arch riscv32`, `.imagebase
+  0x40380000`), Run, Autostart, Format, Reset, Erase Flash. The C3 tells who it is by the new packet H (its USB
+  port looks like the one of the S3).
+- **WiFi on the ESP32-C3**: the WiFi libraries of Espressif for the C3 linked by `ablink --chip esp32c3` (the same
+  bytes as GNU ld), the OS layer, WPA2-PSK and a WiFi service with entries at fixed addresses, all in RISC-V
+  assembler (`wlan/*_c3.asm`), as a WiFi package in the flash as on the ESP32 (Install WiFi in the Board
+  Manager). In the console: `wlan set` (the name and the password of the network; the board keeps the key, not the
+  password), `wlan on`, `wlan off` (they stay over a reset), `wlan clear`, `wlan scan`; the board connects in the
+  background, gets its address by DHCP, answers ARP and ping and starts the WiFi by itself after a reset. The C3 has
+  one core: a timer (every 10 ms) gives the tasks of the WiFi a turn, also while a program computes; a task of the
+  service (`wlan/wlannet_c3.asm`) keeps the connection, answers ARP and ping and renews the address, whatever runs
+  (on the ESP32 and the S3 DHCP is in the console, only because their service has no room for it). A program calls
+  the service itself; `wifi_get_ip` gives the address, the mask, the router and the name server. Tested on the C3 of
+  the LilyGO T-PicoC3, pinged by an ESP32 in the same network, also while a program computes for 60 s. Not on the C3
+  yet: telnet, the bridge for the RP2040 of the T-PicoC3.
+- **aBelle on the ESP32-C3**: the compiler `abelle_riscv.exe` (RISC-V, RV32IM; `target "esp32c3"`), the program in
+  the RAM of the programs of the console from `0x40380000`, `inc/console.abel` with the functions of the console of
+  the C3, the example `hello.abel`. In Asmonite F9, F7, F8 and the variables over the USB JTAG: the console starts the
+  program (its new entry `dbg_run`, console version 3) and is at its prompt again afterwards. Checked without a board
+  against the x86 programs (`abelle/tests/riscv_tests.py`, an emulator of RV32IM: 1000 random programs, the same
+  numbers). The network: `inc/wifi.abel` over the WiFi service of the C3 (it keeps the connection and the address),
+  `inc/net.abel` and `inc/tcp.abel` as on the ESP32, the examples `dhcp`, `ping`, `dns`, `ntp`, `arpscan`, `httpget`.
+- **`info` in the consoles of the ESP32 and the ESP32-S3**, as on the ESP32-C3: the chip and the clock of its core,
+  the flash (its size, its JEDEC id), the MAC of the station, the version of the console. Their `.data` grew from
+  4 KB to 5 KB (buffers moved up), so that each console keeps at least 1 KB of code and 256 bytes of data free.
+- **RISC-V: the compressed instructions of 2 bytes (C)** with `.option rvc` (as GNU as; `.option norvc` switches it
+  off): the assembler writes the short form wherever one fits, about a fifth less code (the console of the ESP32-C3:
+  29.7 KB -> 22.3 KB). `addi`, `li`, `mv`, `add`, `lw`/`sw` (also on `sp`), `ret`, `jr`, the shifts and bit
+  operations; jumps and branches to a label when it is near (`j`, `beqz`, `bnez`; `call` and `tail` as `c.jal`/`c.j`
+  within 2 KB, as `jal` within 1 MB, else auipc + jalr as before). The `c.` instructions (C and Zcb, RV32 and RV64)
+  can also be written by hand. Without the line every program stays byte for byte as it was. Checked: every 16-bit
+  instruction the disassembler reads assembles back to the same 2 bytes; random instructions give the same bytes as
+  GNU as (`tools/rvc_gnu_check.py`); the debugger of the ESP32-C3 steps over a call of 2 bytes. Watch: data words
+  read by `lw` need `align 4` in front, a table of jumps of 4 bytes each `.option norvc` around it.
+- **`pins.abel`** (ESP32): finds out on which GPIO an LED hangs, without a meter. `pins` in the console reads each
+  pin with its pull-up and with its pull-down (an LED to GND or to 3.3 V holds the pin, a free pin follows the pull),
+  then lets the candidates blink with the weakest drive; `pins 2` lets GPIO 2 blink until a key comes.
+- **The Board Manager follows plugging in and out** while it is open: a board plugged in shows in the list (the board
+  chosen stays chosen); the board chosen unplugged: no board chosen and a line that says so, and the next board
+  plugged in is chosen (the same one again, or another one; also when one board is changed for another at once).
+  Two DevKits with the same serial number count by their port. A reset of the board by the window itself (the USB port of an ESP32-S3 goes for a moment) does
+  not count.
+- **`fm.abel`** (ESP32, ESP32-S3): the files of the board in the browser, a first version that only reads. `run fm` in
+  the console, then `http://name.local/fm`: the facts of the board (chip, name, addresses, flash, free room, autostart)
+  and its files, each to view (as text or in hex) or to download. `/` shows `index.html` of the board, and files with
+  an ending of the web (`.html`, `.css`, `.js`, `.png` ...) are there under their names: your own pages from the
+  board. With a password (`passwd set`, the one of telnetd) the browser asks for it at `/fm` (any user name); your own
+  pages stay open. A file `fm.html` on the board takes the place of the page built in (`/fm?builtin` shows that one
+  always); the page gets its data as JSON from `/api/info` and `/api/files`.
+- **A console for the Raspberry Pi Pico 2** (`boards/pico2/console.asm`, its Arm cores), on the way to a console
+  as on the ESP32: in the flash, it copies itself into the RAM (0x20070000) and runs there; UART0 at GPIO 0 and 1
+  with 115200 baud, through the UART of the Raspberry Pi Debug Probe (its connector "U") in the tab Serial. The
+  prompt `> `, `help`, `info` (the chip, its revision, the cores, the boot ROM), `mem addr [n]`, `reset`; a read
+  where nothing is shows the exception and the prompt comes again. The files in the flash from 1 MB to 4 MB, as on
+  the ESP32 (`ls`, `df`, `cat`, `rm`, `format`), written by the functions of the boot ROM, and the packets of
+  Asmonite for them (up, down, list, delete, the program for boot). Programs from the files: `run name [args]` or
+  the name alone, `boot name` (after a reset, a key within a second stays in the console), `noboot`; a program
+  ends with its code, by exit, by a fault or by Ctrl+C (Stop in the tab Serial), and the prompt comes again. The
+  functions of the console for programs (put_char, get_char, print, millis, file_size, file_read, args ...) are a
+  table at 0x20078140; `examples/pico2/hello_console.asm` uses them. In the Board Manager the Pico 2 behind the
+  Debug Probe shows its files with the buttons of the ESP32 (upload a file or the program in the editor, download,
+  delete, run, autostart, format); Prepare Board writes the console into its flash over the probe. F9 debugs over
+  the probe as before.
+- **The same console for the Raspberry Pi Pico** (RP2040, `boards/pico/console.asm`): the commands, the files and
+  the packets as on the Pico 2, in Thumb-1 for its Cortex-M0+. The console runs in the RAM at 0x20030000, the
+  programs at 0x20000000 .. 0x2002FFFF (`.target pico`), the table of the functions at 0x20038140
+  (`examples/pico/hello_console.asm`); the files in the flash from 1 MB to 2 MB; `reset` through the watchdog. The
+  Board Manager shows the Pico behind the Debug Probe with its files and Prepare Board as for the Pico 2.
+- **A USB device of its own on the Pico and the Pico 2** (`examples/pico/usb_echo_ram.asm`,
+  `examples/pico2/usb_echo_ram.asm`, the code in `examples/pico/usb_cdc.asm`), without the SDK: over the USB cable of
+  the board a COM port on the PC (USB CDC-ACM, the driver of Windows), a greeting when a terminal opens it, an echo of
+  what comes (Enter as a new line). F9 loads it into the RAM over the debug probe. Tested on the Pico and the Pico
+  2.
+- **The consoles of the Pico and the Pico 2 over the USB cable of the board as well** (`boards/pico/console_usb.asm`,
+  driven by the interrupt of the USB controller): a COM port of its own on the PC (1209:0001), the prompt, the
+  packets of Asmonite (files about ten times as fast as over the UART), programs, Ctrl+C, reset; the UART of the probe
+  goes on as before. The consoles run at 48 MHz from PLL_USB now.
+- **The Pico and the Pico 2 without the probe:** the Board Manager knows the console at USB ("Pico (USB console)",
+  "Pico 2 (USB console)": the serial number of the device is the chip) with its files, Run, Reset Board; F9 runs a
+  program in the RAM over it (no breakpoint, the tab Serial at its port). Prepare Board for a Pico in its USB boot
+  (BOOTSEL): the console as a UF2 file onto its drive. Prepare Board at the USB console: an update without the button
+  (1200 baud: the console restarts the chip into its USB boot, then the UF2 file; the files stay). Tested on both.
+  The serial number of the console at USB is the chip and the id of the board (the OTP of the RP2350, the unique id
+  of the flash chip on the Pico): each board gets a COM port of its own.
+- **Pico W and Pico 2 W known:** the consoles ask the WiFi chip of the board (CYW43439) at their start
+  (`boards/pico/console_wifi.asm`); the hello, `info` (the line *board*), the new packet H and the Board Manager (the
+  title "Pico W", "Pico 2 W", the photo, the line *Board* with a word on the LED) name the board. Tested on a Pico, a
+  Pico W, a Pico 2 and a Pico 2 W.
+- **aBelle on the Pico and the Pico 2:** a fourth compiler, `abelle_pico.exe`, translates programs with
+  `target "pico"` or `target "pico2"` into Thumb-1 for the console of the board (in its RAM from `0x20000000`). F9 runs
+  them over the console; with a breakpoint F9, F7 and F8 debug them, over the USB cable or the Debug Probe, with the
+  variables. `include "inc/console.abel"` gives the functions of the console (text, `millis()`, the files, `args()`,
+  `led(on)`); examples `hello.abel` and `blink.abel` in `examples/abelle/pico` and `pico2`. The consoles put their
+  functions also as code to call at a fixed place (from `0x20039E00` / `0x20079E00`) and have `led(on)`: the LED of the
+  board (GPIO 25; on a Pico W or Pico 2 W at the WiFi chip, see below).
+- **The WiFi chip of the Pico W and the Pico 2 W starts** (the first step of the WiFi there): `wlan on` in the console
+  sends the firmware of the CYW43439 (Infineon, 7.95.61) from the files `43439A0.bin` and `nvram_rp2040.bin` over the
+  SPI of the chip into its RAM (about 226 KB in 0.6 s), and its Arm core runs; then the console talks to the firmware
+  in packets (SDPCM, ioctl and iovar) and gives it its CLM data (`43439A0_clm.bin`); `wlan off`, `wlan`. `led()` of
+  the programs switches the LED of a W at the chip (its first call starts the chip): `blink.abel` blinks it
+  unchanged. Prepare Board puts the three files onto a W, only those that are not there as they are; the ZIP has
+  them in `wlan\infineon`, unchanged, with the license of Infineon. `wlan scan` lists the networks around (the
+  signal, the channel, open or secured, the name). `wlan set` asks for a network and its password and joins it
+  (WPA2 with AES, or open); as on the ESP32 the console keeps the name and the key of WPA2 (PBKDF2), not the
+  password, in the last two sectors of the flash (the files end 8 KB earlier now); `wlan on` joins it again,
+  `wlan clear` forgets it. Tested on a Pico 2 W (a WPA2 network, a wrong password, a reset, clear) and on a Pico W
+  (the firmware, the scan, wlan set, wlan on after cold starts, `blink.abel` lights its LED).
+- **aBelle programs on the network on the Pico W and the Pico 2 W:** the consoles give programs the frames of the
+  network (`wl_call`, a new function of the console; `console_version()` 3); `inc/wifi.abel` in
+  `abelle/examples/pico` and `pico2` builds the functions of the ESP32 on it (`wifi_connect_saved`, `wifi_send`,
+  `wifi_recv`, `wifi_mac` ...), so `inc/net.abel` (ARP, IPv4, ping, UDP, DHCP, DNS, mDNS) and `inc/tcp.abel` run as
+  on the ESP32. Examples `dhcp`, `ping`, `dns`, `ntp`, `arpscan` and `httpget` for both boards. When a program asks
+  for it, the console starts the chip and joins the network the board keeps (`wlan set`); the chip and the network
+  stay after the program. Tested on a Pico W (all six; Ctrl+C in the middle of one; no network kept) and on a
+  Pico 2 W (all six, cold starts).
+- **The console of a Pico W and a Pico 2 W in the network:** after a join it gets an address by DHCP and renews it
+  at half the lease (`wlan on` and `wlan` show it with the mask, the router and the DNS server); once after its start,
+  after 3 quiet seconds at the prompt, it joins the network it keeps by itself ("WiFi: connected, address ...").
+  SysTick looks at the WiFi chip every 10 ms: it answers ARP and ping for the board at the prompt, while a program runs
+  (also one that does not use the network) and while it stands at a breakpoint; `wlan` counts the answers. `name`,
+  `name set`, `name clear` (the name for the router) and `passwd`, `passwd set`, `passwd clear` (the password for
+  telnet, kept as a key) as on the ESP32. `telnetd.abel` for both boards (the shell over telnet of the ESP32). A join
+  that fails says the answers of the access point ("(events; ... PSK_SUP status 8 reason 15)": a wrong password).
+  The Board Manager shows for a W the WiFi, the address, the MAC, the name, the network kept and whether telnet asks
+  for a password (the packet N, as on the ESP32, with two fields more). Tested on a Pico 2 W, also from a PC: ping
+  (also by the mDNS name while telnetd runs) and telnet with its commands; on a Pico W the start, name, passwd, the
+  packet N, the examples and telnetd. `ping.abel` (ESP32, ESP32-S3, Pico W,
+  Pico 2 W) pings the host of its argument: `ping 192.168.178.20` or `ping example.com` in the console.
+- **Debugging the Pico and the Pico 2 without the probe:** the consoles have a debug monitor
+  (`boards/pico2/console_mon.asm`, `boards/pico/console_mon.asm`). When the tab Serial is at the USB console of
+  the board (or no probe is plugged in and the board is there with its console) and the program is for the RAM, F9 with a breakpoint, F8 and F7 debug over the USB cable: breakpoints,
+  steps, Pause, the registers and the memory; USB and the console go on while the program stands. The Pico 2 takes
+  the breakpoints and steps in its Cortex-M33 (the exception DebugMonitor); the Pico, whose Cortex-M0+ has none, stops
+  at BKPT instructions that Asmonite writes. Write to Flash and the RISC-V cores of the Pico 2 still need the probe.
+- **One aBelle program for every board:** a program without a line `target` is translated for the target of
+  **Project > aBelle for** (Windows x86, Windows x64 or the board in the tab Serial; Asmonite keeps the chip of each
+  board). The compilers take `--target <board>` for it, and an `include` that is not next to the file comes from the
+  library `abelle\lib\<board>\`, then `abelle\lib\common\`: `console.abel` (the same functions of the console on
+  every board and on Windows; `println` and the like in `console_text.abel`), `wifi.abel` per board, `net.abel` and
+  `tcp.abel` for all. `def main():` works on Windows too (exit code 0). Tested: the same `examples/common/hello.abel`,
+  the first example for every board (`include "console.abel"`, `println("Hello, world!")`), writes "Hello, world!"
+  over the serial output on six boards. Pins: `gpio_output(pin)` and `gpio_write(pin, on)` in `console.abel` of
+  every board (the registers of the chip are inside); the Pico W and the Pico 2 W know `WL_GPIO0` too, the pin of
+  their WiFi chip with the LED. The second example, `examples/common/blink.abel`, blinks the LED with them: set
+  `LED_PIN` for your board at its top (the known boards are in its comment).
+- **WiFi on the clone "Pico W-2023"** (an RP2040 with an ESP8285 at UART0 instead of the CYW43439 of a Pico W): a
+  firmware of our own for the ESP8285 (`wlan/esp8285_fw.asm`, Xtensa LX106, with the libraries of the ESP8266 NONOS
+  SDK of Espressif, linked by `ablink --chip esp8266`) that passes the frames over UART0 (SLIP, 460800 baud) to the
+  console. Board Manager > **Install WiFi (ESP8285)** writes it into the ESP8285 through the console of the Pico (the
+  board plugged in with its BOOT button held; about 40 s, with a progress bar). The console finds the ESP8285 at its
+  start ("Raspberry Pi Pico (WiFi: ESP8285)", with a photo in the Board Manager) and uses it as the WiFi chip of a
+  Pico W: `wlan set`, `wlan on`, `wlan off`, `wlan scan`, the WiFi at the start by itself, ARP and ping in the
+  background, DHCP, `inc/wifi.abel` for programs. UART0 belongs to the ESP8285 then, the console talks over USB only.
+  Tested with `ping` (the router and the internet), a wrong password and a network that is not there.
+
+### Changed
+- **The consoles of the boards are in `boards\` now**, next to the photos of the Board Manager:
+  `boards/esp32/console.asm` (with `help.txt` and the DHCP part), `boards/esp32s3`, `boards/esp32c3`,
+  `boards/pico`, `boards/pico2` (also the two blink programs with which the Board Manager switches the cores of
+  the Pico 2). Asmonite looks for them in `boards\` next to Asmonite.exe; `examples\` is for the examples.
+- **The examples are gone through again, one by one.** `examples/` has only those that are tested anew (at
+  first none; aBelle programs for every board will be in `examples/common/`); the ZIP and the public repository
+  take only these. The older examples (in assembly and in aBelle, before in `examples/` and `abelle/examples/`)
+  are in `examples_internal/` of the source repository until then.
+- Board Manager: the button Look Again is called **Scan** now (Alt+N).
+- Board Manager: the button Reset Board is called **Reset** now (Alt+S); as before it restarts the board and keeps it
+  in the console (an autostart program does not run), its tooltip says so. Reset in the tab Serial restarts it as its
+  reset button does (an autostart program runs).
+- Board Manager: the button Install WiFi Again is called **Install WiFi...** now (Alt+W).
+- An empty flash: Erase Flash writes a small park program into the erased flash (`boards/<chip>/park.asm`, ESP32,
+  S3, C3, S31): the board starts quietly and says every 3 s that it is empty, instead of restarting again and again;
+  then the Board Manager asks whether to run Prepare Board right away. A board that restarts again and again with an empty
+  flash ("invalid header: 0xffffffff", "flash read err") is shown as "Console: none (the flash is empty; ...)" in
+  the Board Manager, and the tab Serial says so. While Erase Flash works, its progress bar moves.
+- Plainer English in Asmonite and Dismonite: the progress steps ("Writing the WiFi library"), the messages after a
+  job ("WiFi package installed (352 KB in 9.8 s)") and all dialogs say what happens in plain words.
+- Board Manager: the button Read Chip is called **Chip Details** now (Alt+C); its tooltip names what it reads (chip
+  and revision, MAC, flash, PSRAM, crystal) and that the board restarts.
+
+### Fixed
+- ESP32-C3: an aBelle program that uses `millis()` (a blink with pauses, say) hung under F9 at its first wait. The
+  USB JTAG reset the chip before the load; the console stayed in the RAM but was not set up (its timer stood). Now
+  it only halts the console where it runs, without a reset (it starts the program as `run` does, the WiFi stays);
+  when it is not set up, the console starts from the flash after the reset first.
+- The console of the Pico W would have taken itself for a board with an ESP8285 after its first DHCP: the word for
+  that lay in the same memory as the address of the router (never released, found with the clone).
+- The consoles of the Pico and the Pico 2 changed r7 of a program in their fault handler: on the Pico every step under
+  the debug monitor without the probe goes through it, so a program that keeps something in r7 lost it after a step.
+- The Debug Probe after a program that ended between a command and its answer (a crash): Asmonite said "the probe
+  answers another command" until the probe was plugged in again, as the old answer waited in the probe. It reads the
+  old answers away now when it opens the probe, and drops an answer to another command.
+- The Thumb assembler wrote `adds r0, r0, #39`, `subs r2, r2, #200`, `sub sp, sp, #12` in the 32-bit form of
+  Thumb-2: on the Pico (Cortex-M0+, Thumb-1 only) such a line was refused, on the Pico 2 and the Blue Pill it took 4
+  bytes instead of 2. It takes the 16-bit form now when the constant fits.
+- Buttons, check boxes and radio buttons of Asmonite (the Board Manager, the bar of the tab Serial and the other
+  windows) were invisible after Alt or Alt+Tab until the mouse went over them (found by the user): a fault of Delphi 7
+  with the themes of Windows; they paint themselves again now when Windows shows or hides the underlines of the keys.
+- telnetd (ESP32, ESP32-S3) took the first of the two copies of the directory also when the second one was newer (it
+  compared their marks, not their numbers): `ls` could show the files as they were before the last write of the
+  console.
+
 ## 0.14.0 – 2026-11-14
 
 ### New

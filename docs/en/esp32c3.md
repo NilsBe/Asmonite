@@ -92,6 +92,53 @@ of the session. Connect and Disconnect stay usable. (A terminal of another progr
 The RISC-V core of the C3 reads and writes bytes at the IRAM address of the program too (`lbu`, `sb`): the texts of
 the examples stand next to their code.
 
+## The console of Asmonite
+
+As on the ESP32 and the ESP32-S3, the C3 can run the console of Asmonite (`boards/esp32c3/console.asm`): a prompt
+on the USB serial port, files in the flash, programs from the files, the WiFi. **Board > Board Manager**, choose the
+board, **Prepare Board**: Asmonite writes the console into the flash at 0 (in the place of the program there),
+`help.txt`, an empty file system (from 2 MB of the flash on; files that are there stay) and the WiFi package. Then a
+terminal on the COM port of the board (the tab Serial):
+
+| Command | What it does |
+|---|---|
+| `ls`, `cat name`, `rm name`, `df`, `format` | the files in the flash |
+| `run name`, `name [args]` | starts a program from the files (a program as Compile and Upload writes it) |
+| `boot name`, `noboot` | the program that starts after every reset (a key within 3 seconds stays in the console) |
+| `wlan`, `wlan set`, `wlan on`, `wlan off`, `wlan clear`, `wlan scan` | the WiFi network of the board |
+| `name`, `name set name`, `name clear` | the name of the board in the network (DHCP, mDNS: `name.local`) |
+| `info`, `reset`, `help` | the chip, a reset, the commands |
+
+A program for the console runs in the RAM from `0x40380000` (up to `0x403A7FFF`; above it lie the WiFi and the
+console): `.target esp32c3`, `.arch riscv32`, `.imagebase 0x40380000`, then **Debug > Upload and Run** (or
+**Project > Compile and Upload** and `run name` in the terminal later). It gets the text of its arguments in `a0` and ends with `ret` (its code in
+`a0`), with `exit(code)` from any depth, by an exception (the console says which one and where) or by Ctrl+C. The
+functions of the console for programs are at `0x403CC200`, a jump of 4 bytes each, in the order of the ESP32: exit,
+version, put_char, get_char, poll_char, print, millis, file_size, file_read, file_write, flash_read, args.
+`boards/esp32c3/contest.asm` uses some of them.
+
+The WiFi: `wlan set` asks for the name of the network and its password (without echo; the board keeps the key of
+WPA2, not the password). The board connects in the background, gets an address by DHCP (`WiFi: connected, address
+a.b.c.d (esp32c3-xxxx.local).`), answers ARP, ping and mDNS for its name, and starts the WiFi by itself after a
+reset; `wlan off` keeps it off, also after a reset. `name set keller` gives the board another name (for the router
+and `keller.local`; `name clear`: the one of the MAC again); `wlan set` and `wlan clear` keep it. The C3 has one
+core: the WiFi service at `0x403A8000` gives the tasks of the WiFi a turn every 10 ms by a timer, also while a
+program computes, and its own task keeps the connection, answers ARP, ping and mDNS and renews the address
+(`wlan/wlannet_c3.asm`). A program that needs the WiFi calls the service itself (see
+`wlan/wlansvc_c3.asm`; `wifi_get_ip` gives the address, the mask, the router and the name server). On the ESP32 and
+the ESP32-S3 DHCP is in the console instead, only because their service has no room for it; there the address is
+renewed only while the console runs.
+
+aBelle: a program with `target "esp32c3"` (`include "inc/console.abel"` of `abelle/examples/esp32c3`: the functions of
+the console) is translated by `abelle_riscv.exe`; F9, F7 and F8 load it over the USB JTAG, the console starts it (the
+stack of the programs, Ctrl+C, `exit`; its output and "Program ended" in the tab Serial) and is at its prompt again
+afterwards, the variables show under the mouse. Compile and Upload puts it onto the board as a file. The network
+programs of `abelle/examples/esp32c3` (`ping`, `dns`, `ntp`, `arpscan`, `httpget`, `dhcp`) use `inc/net.abel` and
+`inc/tcp.abel` as on the ESP32; the address comes from the WiFi service.
+
+F9 still runs an assembler program over the USB JTAG as above: a program in the RAM stops the console until the next reset; a
+program for the flash (`.target esp32c3 flash`) takes its place (Prepare Board puts it back; the files stay).
+
 ## If something does not work
 
 | Message or sign | What to do |
@@ -106,6 +153,9 @@ the examples stand next to their code.
 ## Limits
 
 - One core (the ESP32-C3 has one), the RAM from `0x40380000` to `0x403BFFFF`.
-- The assembler has no compressed instructions (C) yet; the disassembler reads them.
-- The flash image is for 4 MB of flash in DIO mode at 40 MHz; WiFi and Bluetooth need the firmware of Espressif.
+- The compressed instructions (C) of 2 bytes with `.option rvc` (F1 on that line: the topic `compressed`); without it
+  every instruction is 4 bytes. The console of Asmonite uses it.
+- The flash image is for 4 MB of flash in DIO mode at 40 MHz. WiFi: with the console of Asmonite (above); no
+  Bluetooth. Not on the C3 yet: telnet. The answer to a ping takes longer while a program computes
+  (up to the 10 ms of the timer, measured 30 to 130 ms instead of 20 to 35 ms).
 - How the chip does the USB JTAG: the protocol of `esp_usb_jtag.c` of OpenOCD and the RISC-V debug spec 0.13.

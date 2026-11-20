@@ -1,0 +1,9 @@
+# Hello, world on every board: the program writes "Hello, world!" over the serial output of the board (the console of
+# Asmonite on it: the tab Serial shows it). The same source for the ESP32, the ESP32-S3, the ESP32-C3, the Raspberry
+# Pi Pico and the Pico 2 (W): it has no line target "...", so Asmonite translates it for the board of Project > aBelle
+# for (the board in the tab Serial), and include "console.abel" takes the functions of the console of that board from
+# abelle\lib. Start it with F9.
+include "console.abel"
+
+def main():
+    println("Hello, world!")

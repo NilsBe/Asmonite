@@ -321,7 +321,7 @@ wrong with the block or its condition:
 `.target pico2` checks the program for the Raspberry Pi Pico 2 (see `.target`). The message says what does
 not fit:
 - **IMAGE_DEF missing:** a program for the flash needs the block in its first 4 KB, else the boot ROM does not
-  start it. Templates: `examples\pico2\blink_flash.asm` (RISC-V), `blink_arm_flash.asm` (Arm).
+  start it. Templates: `boards\pico2\blink_flash.asm` (RISC-V), `blink_arm_flash.asm` (Arm).
 - **IMAGE_TYPE does not fit:** `0x1101` is RISC-V, `0x1021` Arm; with the wrong value the boot ROM starts the
   other cores.
 - **Vector table:** an Arm program in the flash starts with the stack pointer (an address in the RAM) and the
