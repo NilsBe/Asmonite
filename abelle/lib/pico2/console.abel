@@ -1,0 +1,70 @@
+# The functions of the console of the Pico 2 for a program that it starts (run in the console, Run in the Board
+# Manager, F9 over the console), for include "console.abel": text to the terminal and from it, milliseconds, the
+# files of the console, and exit. The console puts them at fixed places as code to call (from 0x20079E00, 16 bytes
+# each; boards/pico2/console.asm, jt_init) and they are called as the Arm ABI calls (the arguments in r0 .. r3).
+# The text goes to UART0 (the Debug Probe) and over the USB cable, as the text of the console.
+# The names of the parameters and local variables here begin with c_: in aBelle a local name may not be the one of a
+# global of the program that includes this file (an assignment would change that global).
+
+# the program ends at once, from any depth: the console says "Program ended (code n)"
+def exit(c_code) at 0x20079E00
+# which functions the console has: 3 (the ones here and wl_call of wifi.abel; 2: without wl_call, 1: without led)
+def console_version() i32 at 0x20079E10
+# a byte to the terminal
+def put_char(c_c) at 0x20079E20
+# the next byte from the terminal: waits for it
+def get_char() i32 at 0x20079E30
+# the next byte from the terminal, -1 if none came
+def poll_char() i32 at 0x20079E40
+# a text up to its 0
+def print(c_s: pchar) at 0x20079E50
+# milliseconds since the start of the chip
+def millis() i32 at 0x20079E60
+# the length of a file of the console, -1 if there is none
+def file_size(c_name: pchar) i32 at 0x20079E70
+# up to c_count bytes of the file from c_offset on into c_buf: how many (0 from its end on), -1 no such file
+def file_read(c_name: pchar, c_buf: pchar, c_offset, c_count) i32 at 0x20079E80
+# a file with c_count bytes from c_buf (a new one, or a new text for one): 0 done, -1 the directory is full (64
+# files), -2 no room in the flash, -3 the flash cannot be written, -4 not a valid name (1 to 19 characters, no
+# spaces), -5 no file system (format in the console)
+def file_write(c_name: pchar, c_buf: pchar, c_count) i32 at 0x20079E90
+# bytes of the flash: not yet on the Pico (the flash is readable at 0x10000000): -1
+def flash_read(c_address: u32, c_buf: pchar, c_count) i32 at 0x20079EA0
+# the arguments of the program: the rest of the line when the console started it as a command ("runs 5" in the
+# console starts runs with "5"), "" for run
+def args() pchar at 0x20079EB0
+# the LED of the board on (c_on not 0) or off: GPIO 25. The Pico 2 W has its LED at its WiFi chip: the console
+# switches it there (the first call starts the chip with its firmware when wlan on has not; without its files it
+# says so once)
+def led(c_on) at 0x20079EC0
+
+# println, print_int, put_hex, print_byte, print_mac, print_ip (abelle/lib/common)
+include "console_text.abel"
+
+# ---------- the pins: gpio_output, gpio_write (the same names on every board) ----------
+# A pin as an output and its level; the registers differ from chip to chip, these functions not. A W (Pico W, Pico
+# 2 W) has pins at its WiFi chip too (the CYW43439), with the names of the datasheet: WL_GPIO0 is its GPIO 0, where
+# the LED of the board hangs. Only the console talks to that chip: gpio_write switches it through led() (its
+# first use starts the WiFi chip, about a second); on a board without it led() switches GPIO 25.
+WL_GPIO0 = 100
+
+con_sio: u32[16] at 0xD0000000         # the SIO: the outputs of the pins
+con_io: u32[128] at 0x40028000         # IO_BANK0: GPIOn_CTRL at 0x04 + 8 * n
+con_pads: u32[64] at 0x40038000        # PADS_BANK0: GPIOn at 0x04 + 4 * n
+
+# the pin an output of the SIO, low first (WL_GPIO0: nothing to do); the pins 0 .. 29 of the Pico 2
+def gpio_output(c_pin):
+    if c_pin < 0 or c_pin > 29: return
+    con_pads[1 + c_pin] = 0x52                     # the input on, 4 mA, Schmitt trigger, no pulls, ISO 0
+    con_io[1 + 2 * c_pin] = 5                      # FUNCSEL 5: the SIO
+    gpio_write(c_pin, 0)
+    con_sio[0x38 / 4] = u32(1 << c_pin)               # GPIO_OE_SET
+
+# the pin high (c_on not 0) or low
+def gpio_write(c_pin, c_on):
+    if c_pin == WL_GPIO0:
+        led(c_on)
+        return
+    if c_pin < 0 or c_pin > 29: return
+    if c_on: con_sio[0x18 / 4] = u32(1 << c_pin)      # GPIO_OUT_SET
+    else: con_sio[0x20 / 4] = u32(1 << c_pin)         # GPIO_OUT_CLR

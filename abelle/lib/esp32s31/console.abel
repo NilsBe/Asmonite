@@ -1,0 +1,75 @@
+# The functions of the console of the ESP32-S31 for a program that it starts (run in the console, Run in the Board
+# Manager), for include "console.abel": text to the terminal and from it, milliseconds, the files of the console,
+# the flash, and exit. They lie at fixed places in the console (from 0x2F060200, a jump of 4 bytes each, in the order
+# of the ESP32-C3; boards/esp32s31/console.asm, CON_API) and are called as the RISC-V ABI calls (the arguments in
+# a0 .. a7, the value in a0). The text goes over the USB port of the chip, as the text of the console.
+# The names of the parameters and local variables here begin with c_: in aBelle a local name may not be the one of a
+# global of the program that includes this file (an assignment would change that global).
+
+# the program ends at once, from any depth: the console says "Program ended (code n)"
+def exit(c_code) at 0x2F060200
+# which functions the console has: 4 (the ones here, with rgb), 3 or 2 without rgb
+def console_version() i32 at 0x2F060204
+# a byte to the terminal
+def put_char(c_c) at 0x2F060208
+# the next byte from the terminal: waits for it
+def get_char() i32 at 0x2F06020C
+# the next byte from the terminal, -1 if none came
+def poll_char() i32 at 0x2F060210
+# a text up to its 0
+def print(c_s: pchar) at 0x2F060214
+# milliseconds since the start of the console
+def millis() i32 at 0x2F060218
+# the length of a file of the console, -1 if there is none
+def file_size(c_name: pchar) i32 at 0x2F06021C
+# up to c_count bytes of the file from c_offset on into c_buf: how many (0 from its end on), -1 no such file
+def file_read(c_name: pchar, c_buf: pchar, c_offset, c_count) i32 at 0x2F060220
+# a file with c_count bytes from c_buf (a new one, or a new text for one): 0 done, -1 the directory is full (64
+# files), -2 no room in the flash, -3 the flash cannot be written, -4 not a valid name (1 to 19 characters, no
+# spaces), -5 no file system (format in the console)
+def file_write(c_name: pchar, c_buf: pchar, c_count) i32 at 0x2F060224
+# c_count bytes of the flash from c_address on into c_buf: 0 done, -1 the flash cannot be read there
+def flash_read(c_address: u32, c_buf: pchar, c_count) i32 at 0x2F060228
+# the arguments of the program: the rest of the line when the console started it as a command ("runs 5" in the
+# console starts runs with "5"), "" for run
+def args() pchar at 0x2F06022C
+# an RGB LED WS2812 at the pin (the ESP32-S31 board: GPIO 60) shows the colour 0xRRGGBB: rgb(60, 0x200000) a dim red,
+# rgb(60, 0) off. The pin becomes an output first; 33 and 34 (the USB port) and pins that are not there do nothing.
+# Version 4 of the console (console_version()): Prepare Board puts it on the board.
+def rgb(c_pin, c_colour) at 0x2F06023C
+
+# println, print_int, put_hex, print_byte, print_mac, print_ip (abelle/lib/common)
+include "console_text.abel"
+
+# ---------- the pins: gpio_output, gpio_write (the same names on every board) ----------
+# A pin as an output and its level; the registers differ from chip to chip, these functions not. The S31 has GPIO 0 to
+# 61 (no 29 and 41: SOC_GPIO_VALID_GPIO_MASK of ESP-IDF); 33 and 34 are the USB port of the console (D- and D+): left
+# alone, else the connection to the PC is gone.
+
+con_gpio: u32[0x300] at 0x20583000     # the GPIO registers (FUNCn_OUT_SEL_CFG from 0xAF4)
+con_iomux: u32[64] at 0x20582000       # IO_MUX: GPIOn at 4 * n
+
+# a pin that these functions may switch
+def gpio_pin_ok(c_pin) i32:
+    if c_pin < 0 or c_pin > 61: return False
+    if c_pin == 29 or c_pin == 41 or c_pin == 33 or c_pin == 34: return False
+    return True
+
+# the pin an output (the function GPIO, a simple output of the GPIO matrix), low first
+def gpio_output(c_pin):
+    if not gpio_pin_ok(c_pin): return
+    con_iomux[c_pin] = 0x1800                      # MCU_SEL 1: GPIO, FUN_DRV 2
+    con_gpio[0xAF4 / 4 + c_pin] = 0x100            # FUNCn_OUT_SEL_CFG: the level of GPIO_OUT
+    gpio_write(c_pin, 0)
+    if c_pin < 32: con_gpio[0x38 / 4] = u32(1 << c_pin)          # GPIO_ENABLE_W1TS
+    else: con_gpio[0x44 / 4] = u32(1 << (c_pin - 32))            # GPIO_ENABLE1_W1TS
+
+# the pin high (c_on not 0) or low
+def gpio_write(c_pin, c_on):
+    if not gpio_pin_ok(c_pin): return
+    if c_pin < 32:
+        if c_on: con_gpio[0x08 / 4] = u32(1 << c_pin)            # GPIO_OUT_W1TS
+        else: con_gpio[0x0C / 4] = u32(1 << c_pin)               # GPIO_OUT_W1TC
+    else:
+        if c_on: con_gpio[0x14 / 4] = u32(1 << (c_pin - 32))     # GPIO_OUT1_W1TS
+        else: con_gpio[0x18 / 4] = u32(1 << (c_pin - 32))        # GPIO_OUT1_W1TC

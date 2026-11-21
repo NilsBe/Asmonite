@@ -1,0 +1,304 @@
+# The WiFi of the ESP32-S31 for aBelle programs, for include "wifi.abel" (after console.abel): the one of the ESP32-C3
+# (abelle/lib/esp32c3/wifi.abel) at the places of the S31, so net.abel and tcp.abel run alike. They call the entries
+# of the WiFi service (wlan/wlansvc_s31.asm: wlansvc_c3.asm for the S31, at 0x2F03A000), which the console loads out
+# of the WiFi package of the board (Prepare Board writes it) the first time it starts the WiFi after a reset (wlan on,
+# wlan set, or at its start with a network kept); when it has not, the first wifi_ call of a program asks it to
+# (wifi_start).
+#
+# The service keeps the connection and the address by DHCP itself (a task of it, also while a program runs), and it
+# answers ARP for its address and pings to it: a program does not see these frames (nor the replies of DHCP). The
+# connection and the address stay after a program: the next one (and wlan in the console) finds them.
+#
+# The names of the parameters and local variables here begin with wl_: in aBelle a local name may not be the one of a
+# global of the program that includes this file.
+
+# the entries of the service
+def wsvc_on() i32 at 0x2F03A008
+def wsvc_off() i32 at 0x2F03A00C
+def wsvc_scan(buf: pchar, max: i32) i32 at 0x2F03A010
+def wsvc_trace(on: i32) i32 at 0x2F03A014
+def wsvc_wait(ms: i32) i32 at 0x2F03A018
+def wsvc_connect(ssid: pchar, password: pchar) i32 at 0x2F03A01C
+def wsvc_status() i32 at 0x2F03A020
+def wsvc_send(frame: pchar, n: i32) i32 at 0x2F03A024
+def wsvc_recv(buf: pchar, max: i32, ms: i32) i32 at 0x2F03A028
+def wsvc_mac(buf: pchar) i32 at 0x2F03A02C
+def wsvc_disconnect() i32 at 0x2F03A030
+def wsvc_summary() i32 at 0x2F03A034
+def wsvc_begin(ssid: pchar, password: pchar) i32 at 0x2F03A040
+def wsvc_get_ip(p: pchar) i32 at 0x2F03A048     # the address, the mask, the router, the name server (16 bytes)
+def wsvc_pings() i32 at 0x2F03A050              # version 5
+wl_svc: u32[2] at 0x2F03A000                    # "WSVC", the version
+# wifi_up of the console (console_version 5): the service out of the WiFi package and the WiFi on, as wlan on does
+# but without a network; 0, or the text of the problem
+def wl_console_up() pchar at 0x2F060240
+wl_up_text: pchar = 0                           # its text when it failed
+
+WIFI_E_LINK = 0x7F6     # wifi_connect: the access point said no (the reason in wifi_status)
+WIFI_E_TIME = 0x7F7     # wifi_connect: nothing came in 15 seconds
+WIFI_E_FILES = 0x7F9    # the WiFi service did not start (no WiFi package on the board? an older console?)
+WIFI_E_NONET = 0x7FA    # wifi_connect_saved: the board keeps no network (wlan set in the console)
+
+# a network of wifi_scan
+WIFI_REC = 48
+WIFI_BSSID = 0          # 6 bytes
+WIFI_CHANNEL = 6
+WIFI_RSSI = 7           # signed: 0xC0 is -64 dBm
+WIFI_AUTH = 8           # 0 open, 1 WEP, 2 WPA, 3 WPA2, 4 WPA/WPA2, 5 WPA2 Enterprise, 6 WPA3, 7 WPA2/WPA3, ...
+WIFI_SSID = 12          # up to 32 bytes and a 0
+
+# ---------- the entries for the program ----------
+
+# the service is in the RAM (its mark "WSVC" and version 4 or later): 0. When it is not (no wlan on since the reset),
+# the console loads it now (wifi_up, console_version 5); WIFI_E_FILES when that fails
+def wifi_start() i32:
+    if wl_svc[0] == 0x43565357 and wl_svc[1] >= 4: return 0
+    if console_version() < 5: return WIFI_E_FILES
+    wl_up_text = wl_console_up()
+    if wl_up_text != pchar(0): return WIFI_E_FILES
+    if wl_svc[0] != 0x43565357 or wl_svc[1] < 4: return WIFI_E_FILES
+    return 0
+
+# the WiFi on as a station (when it is not)
+def wifi_on() i32:
+    if wifi_start() != 0: return WIFI_E_FILES
+    return wsvc_on()
+
+# the WiFi off (the radio off; the service keeps no connection then)
+def wifi_off() i32:
+    if wifi_start() != 0: return WIFI_E_FILES
+    return wsvc_off()
+
+# a scan of all channels (the WiFi on if it is not): up to wl_max networks into wl_buf, WIFI_REC bytes each; the
+# number found, or minus the error
+def wifi_scan(wl_buf: pchar, wl_max: i32) i32:
+    if wifi_start() != 0: return -WIFI_E_FILES
+    return wsvc_scan(wl_buf, wl_max)
+
+# 1: the service shows each call of its OS layer over the USB port, 0: it says nothing; the value before
+def wifi_trace(wl_on: i32) i32:
+    if wifi_start() != 0: return 0
+    return wsvc_trace(wl_on)
+
+# waits wl_ms milliseconds (the tasks of the WiFi run meanwhile)
+def wifi_wait(wl_ms: i32) i32:
+    if wifi_start() != 0: return WIFI_E_FILES
+    return wsvc_wait(wl_ms)
+
+# a connection to the network wl_ssid (the WiFi on if it is not): open (password "") or WPA2 (the password, or its key
+# as 64 hex digits): 0 when the station is connected, WIFI_E_LINK when the access point said no (the reason in
+# wifi_status), WIFI_E_TIME when nothing came in 15 seconds, else the error
+def wifi_connect(wl_ssid: pchar, wl_password: pchar) i32:
+    if wifi_start() != 0: return WIFI_E_FILES
+    return wsvc_connect(wl_ssid, wl_password)
+
+# bit 0: the station is connected; bits 15..8: the reason of the last disconnection (wifi_err_reason_t of ESP-IDF);
+# bits 23..16: the state of WPA2 (4: the keys are in)
+def wifi_status() i32:
+    if wifi_start() != 0: return 0
+    return wsvc_status()
+
+# an Ethernet frame (destination, source, type, data; no FCS) of wl_n bytes through the station; 0 or the error
+def wifi_send(wl_frame: pchar, wl_n: i32) i32:
+    if wifi_start() != 0: return WIFI_E_FILES
+    return wsvc_send(wl_frame, wl_n)
+
+# the next frame the station received (up to wl_max bytes of it into wl_buf), waiting for one up to wl_ms
+# milliseconds; its length (it may be more than wl_max), 0 when none came
+def wifi_recv(wl_buf: pchar, wl_max: i32, wl_ms: i32) i32:
+    if wifi_start() != 0: return 0
+    return wsvc_recv(wl_buf, wl_max, wl_ms)
+
+# the MAC of the station into the 6 bytes at wl_buf; 0
+def wifi_mac(wl_buf: pchar) i32:
+    if wifi_start() != 0: return WIFI_E_FILES
+    return wsvc_mac(wl_buf)
+
+# the connection ended (the service no longer keeps it); 0 or the error
+def wifi_disconnect() i32:
+    if wifi_start() != 0: return WIFI_E_FILES
+    return wsvc_disconnect()
+
+# at the end of a program: nothing (the service keeps the connection for the console and the next program); 0
+def wifi_done() i32:
+    return 0
+
+# over the USB port: how often each function of the OS layer was called, the free heap, the tick; 0
+def wifi_summary() i32:
+    if wifi_start() != 0: return WIFI_E_FILES
+    return wsvc_summary()
+
+# the milliseconds of the console (millis)
+def wifi_millis() i32:
+    return millis()
+
+# (the ESP32: the address of dhcp_run to the service; on the S31 the service gets it by DHCP itself); 0
+def wifi_set_ip(wl_p: pchar) i32:
+    return 0
+
+# the address of the board (by DHCP of the service) into the 4 bytes at wl_p (zeros: none): 1 when it has one, else 0
+def wifi_get_ip(wl_p: pchar) i32:
+    for wl_i in 0..4: wl_p[wl_i] = 0
+    if wifi_start() != 0: return 0
+    if wsvc_get_ip(wl_addr16) == 0: return 0
+    for wl_i in 0..4: wl_p[wl_i] = wl_addr16[wl_i]
+    return 1
+
+# the addresses of DHCP of the service into the 16 bytes at wl_p: the address of the board, the mask, the router, the
+# name server (zeros: none yet); 1 when it has an address, else 0
+def wifi_addresses(wl_p: pchar) i32:
+    for wl_i in 0..16: wl_p[wl_i] = 0
+    if wifi_start() != 0: return 0
+    return wsvc_get_ip(wl_p) != 0
+
+# how many pings (echo requests to the board) the service answered since it was loaded, for example to flash the LED at
+# each one; -1 when the service on the board is older (version 5 has it: Prepare Board puts the new one on it)
+def wifi_pings() i32:
+    if wifi_start() != 0 or wl_svc[1] < 5: return -1
+    return wsvc_pings()
+
+# a connection to the network the board keeps (wlan set in the console keeps its name and its key, not the
+# password): 0 when the station is connected, else as wifi_connect; WIFI_E_NONET when the board keeps none. When the
+# service keeps a connection already (the console began it), the program waits for it a moment first; else it begins
+# one with the network of the board (the service keeps it from then on, after the program too)
+def wifi_connect_saved() i32:
+    if wifi_saved(wl_name_buf, wl_key_buf) == 0: return WIFI_E_NONET
+    if wifi_start() != 0: return WIFI_E_FILES
+    if (wifi_status() & 1) != 0: return 0
+    if wifi_wait_connected(3000) == 0: return 0
+    wl_r = wsvc_on()
+    if wl_r != 0: return wl_r
+    if wl_key_buf[0] == 0: wl_r = wsvc_begin(wl_name_buf, pchar(0))
+    else: wl_r = wsvc_begin(wl_name_buf, wl_key_buf)
+    if wl_r != 0: return wl_r
+    if wifi_wait_connected(20000) == 0: return 0
+    if ((wifi_status() >> 8) & 255) != 0: return WIFI_E_LINK
+    return WIFI_E_TIME
+
+# waits up to wl_ms milliseconds until the station is connected: 0, else WIFI_E_TIME
+def wifi_wait_connected(wl_ms: i32) i32:
+    if wifi_start() != 0: return WIFI_E_FILES
+    wl_t0 = wifi_millis()
+    while (wifi_status() & 1) == 0:
+        if wifi_millis() - wl_t0 > wl_ms: return WIFI_E_TIME
+        wifi_wait(20)
+    return 0
+
+# the name of the network the board keeps, "(none: wlan set in the console)" when it keeps none
+def wifi_saved_name() pchar:
+    if wifi_saved(wl_name_buf, wl_key_buf) == 0: return "(none: wlan set in the console)"
+    return wl_name_buf
+
+# the network the board keeps: its name into wl_name (up to 32 characters and a 0: 33 bytes), its key for WPA2 into
+# wl_key as 64 hex digits and a 0 (65 bytes; wifi_connect takes them in place of the password), "" for an open
+# network; 1 when the board keeps one, else 0
+def wifi_saved(wl_name: pchar, wl_key: pchar) i32:
+    if wl_best_record() == 0: return 0
+    wl_n = wl_rec_in_use[12]
+    if wl_n == 0 or wl_n > 32: return 0
+    for wl_i in 0..wl_n: wl_name[wl_i] = wl_rec_in_use[16 + wl_i]
+    wl_name[wl_n] = 0
+    wl_key[0] = 0
+    if (wl_rec_in_use[8] & 1) != 0: return 1
+    for wl_i in 0..32:
+        wl_key[2 * wl_i] = wl_hex_digit(wl_rec_in_use[48 + wl_i] >> 4)
+        wl_key[2 * wl_i + 1] = wl_hex_digit(wl_rec_in_use[48 + wl_i] & 15)
+    wl_key[64] = 0
+    return 1
+
+# the name of the board: the S31 has no name set (its name in the network is esp32s31- and the end of its MAC, as
+# net.abel and the service make it); 0, wl_s empty
+def wifi_board_name(wl_s: pchar) i32:
+    wl_s[0] = 0
+    return 0
+
+# a password for telnet: none on the S31 (no passwd in its console yet); 0
+def wifi_login_set() i32:
+    return 0
+
+def wifi_login_check(wl_p: pchar) i32:
+    return 0
+
+# a random number of the TRNG (the service switched it on)
+def wifi_random() u32:
+    return wl_rng[0]
+
+# a sentence for an error of the functions above (for the output of a program)
+def wifi_error_text(wl_r: i32) pchar:
+    if wl_r < 0: wl_r = 0 - wl_r
+    if wl_r == 0: return "no error"
+    if wl_r == WIFI_E_FILES:
+        if wl_up_text != pchar(0): return wl_up_text
+        if console_version() < 5: return "the console of the board is older than wifi.abel: Prepare Board in the Board Manager updates it"
+        return "the WiFi service did not start (Prepare Board writes the WiFi package)"
+    if wl_r == WIFI_E_NONET: return "the board keeps no WiFi network: wlan set in the console"
+    if wl_r == WIFI_E_LINK: return "the access point said no (the password? the reason in wifi_status)"
+    if wl_r == WIFI_E_TIME: return "no connection within 20 s (the name of the network? in reach?)"
+    if wl_r == 0x7F5: return "the heap of the WiFi service has no room"
+    if wl_r == 0x101: return "no memory left (ESP_ERR_NO_MEM)"
+    if wl_r == 0x300A: return "the name of the network is not valid (ESP_ERR_WIFI_SSID)"
+    if wl_r == 0x300B: return "the password is not valid (ESP_ERR_WIFI_PASSWORD; WPA2: 8 to 63 characters)"
+    if wl_r >= 0x3000 and wl_r < 0x3100: return "an error of the WiFi (ESP_ERR_WIFI_..., see esp_wifi.h)"
+    return "an error (esp_err_t of ESP-IDF)"
+
+# ---------- the network the board keeps (wlan set in the console) ----------
+
+# The console keeps it in two sectors of the flash, 0xFE000 and 0xFF000 (boards/esp32s31/console_wifi.asm); the
+# valid record with the higher number counts. A record (128 bytes, as on the ESP32): +0 "AWN1", +4 the number, +8 bit
+# 0: an open network, +12 the length of the name, +16 the name (32 bytes), +48 the key (32 bytes), +124 the CRC-32 of
+# the bytes before it
+wl_rng: u32[1] at 0x20814048            # the data of the TRNG (the service keeps it on)
+wl_rec: char[128]                       # a record read from the flash
+wl_rec_in_use: char[128]                # the one with the higher number
+wl_name_buf: char[36]
+wl_key_buf: char[68]
+wl_addr16: char[16]
+
+# the valid record with the higher number into wl_rec_in_use: 1, or 0 when there is none
+def wl_best_record() i32:
+    wl_best: u32 = 0
+    for wl_s in 0..2:
+        wl_no = wl_record(0xFE000 + wl_s * 4096)
+        if wl_no > wl_best:
+            wl_best = wl_no
+            for wl_i in 0..128: wl_rec_in_use[wl_i] = wl_rec[wl_i]
+    return wl_best != 0
+
+# the record in the sector at wl_at (flash_read of the console): its number + 1 when it is valid (the console of the
+# S31 counts from 0), else 0
+def wl_record(wl_at: i32) u32:
+    if flash_read(u32(wl_at), wl_rec, 128) != 0: return 0
+    if wl_word(wl_rec, 0) != 0x314E5741: return 0
+    if wl_crc(0, wl_rec, 124) != wl_word(wl_rec, 124): return 0
+    return wl_word(wl_rec, 4) + 1
+
+# the word at wl_p + wl_i (little-endian)
+def wl_word(wl_p: pchar, wl_i: i32) u32:
+    return u32(wl_p[wl_i]) | (u32(wl_p[wl_i + 1]) << 8) | (u32(wl_p[wl_i + 2]) << 16) | (u32(wl_p[wl_i + 3]) << 24)
+
+# the CRC-32 (as zlib) of wl_n bytes at wl_p, going on from wl_crc0 (0 at the start)
+def wl_crc(wl_crc0: u32, wl_p: pchar, wl_n: i32) u32:
+    wl_c = wl_crc0 ^ 0xFFFFFFFF
+    for wl_i in 0..wl_n:
+        wl_c = wl_c ^ u32(wl_p[wl_i])
+        for wl_k in 0..8:
+            if (wl_c & 1) != 0:
+                wl_c = (wl_c >> 1) ^ 0xEDB88320
+            else:
+                wl_c = wl_c >> 1
+    return wl_c ^ 0xFFFFFFFF
+
+# the hex digit of wl_d (0 .. 15)
+def wl_hex_digit(wl_d: i32) i32:
+    if wl_d < 10: return 48 + wl_d
+    return 87 + wl_d
+
+# ---- the same on every board (abelle/lib/common/net.abel uses them)
+
+# the start of the name of the board that net.abel makes from its MAC when the console keeps none ("esp32s31-789a")
+def wifi_name_prefix() pchar:
+    return "esp32s31-"
+
+# the WiFi service gets the address by DHCP itself (wifi_addresses): 1
+def wifi_dhcp_by_service() i32:
+    return 1

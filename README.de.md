@@ -87,6 +87,7 @@ Mit den Prüfsummen lässt sich nachprüfen, dass die Datei die veröffentlichte
 | [`docs/`](docs) | Anleitungen und die Unterschiede zu NASM, auf Deutsch und Englisch |
 | [`reference/`](reference) | Die Befehlsinfo der Programme (F1) als Text: x86, x64, ARM, ARM64, RISC-V, Windows-API, DOS |
 | [`examples/`](examples) | Die Beispielprogramme, jedes noch einmal durchgesehen und auf seinen Boards getestet: in `examples/common` aBelle-Programme für jedes Board (hello, blink, runs, scan, arpscan, ping, pingled), in `examples/<board>` die für ein Board; weitere folgen nach und nach |
+| [`abelle/lib/`](abelle/lib) | Die Bibliothek von aBelle, die die Beispiele mit `include` einbinden: `common/` (`net.abel`: das kleine IP-Netz, `tcp.abel`, `console_text.abel`) und je Board `console.abel` und `wifi.abel`; dieselben Dateien wie in der ZIP-Datei neben den Compilern |
 | [`CHANGELOG.md`](CHANGELOG.md) | Was sich in welcher Version geändert hat |
 
 Die Programme selbst liegen in der ZIP-Datei der Releases, nicht in diesem Repository.

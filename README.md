@@ -87,6 +87,7 @@ The sums let you check that the file is the one that was published.
 | [`docs/`](docs) | Guides and the differences to NASM, in English and German |
 | [`reference/`](reference) | The instruction help of the programs (F1) as text: x86, x64, ARM, ARM64, RISC-V, Windows API, DOS |
 | [`examples/`](examples) | The example programs, each one gone through again and tested on its boards: in `examples/common` aBelle programs for every board (hello, blink, runs, scan, arpscan, ping, pingled), in `examples/<board>` the ones for one board; more follow one by one |
+| [`abelle/lib/`](abelle/lib) | The library of aBelle that the examples take in with `include`: `common/` (`net.abel`: the small IP stack, `tcp.abel`, `console_text.abel`) and for each board `console.abel` and `wifi.abel`; the same files as in the ZIP next to the compilers |
 | [`CHANGELOG.md`](CHANGELOG.md) | What changed in each version |
 
 The programs themselves are in the release ZIP, not in this repository.

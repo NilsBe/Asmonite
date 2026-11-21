@@ -1,0 +1,222 @@
+# The WiFi of the Pico 2 W for aBelle programs, for include "wifi.abel" (after console.abel): the functions of
+# abelle/lib/esp32/wifi.abel of the ESP32, so net.abel and tcp.abel run alike. The console does the
+# work (boards/pico/console_wifi.asm): it starts the WiFi chip with its firmware (the files Prepare Board puts on a
+# W) and joins the network it keeps (wlan set in the console); a program calls it through wl_call, one function of the
+# console with the operation in its first argument. The chip and the network stay after a program: the next one (and
+# wlan in the console) finds them.
+#
+# The chip keeps the frames that come until wifi_recv takes them (a few; more are lost): a program calls wifi_recv
+# (net_recv of net.abel) again and again while it waits for something.
+#
+# The names of the parameters and local variables here begin with wl_: in aBelle a local name may not be the one of a
+# global of the program that includes this file.
+
+# wl_call of the console (console_version 3; 4 with the scan): the operation, then up to three arguments
+def wl_call(wl_op, wl_a, wl_b, wl_c) i32 at 0x20079ED0
+def wl_call_p(wl_op, wl_p: pchar, wl_n, wl_ms) i32 at 0x20079ED0
+def wl_call_text(wl_op, wl_a, wl_b, wl_c) pchar at 0x20079ED0
+
+WIFI_E_LINK = 0x7F6     # wifi_connect_saved: the network did not take the board (wifi_error_text says why)
+WIFI_E_TIME = 0x7F7     # (the ESP32: no answer of the access point)
+WIFI_E_FILES = 0x7F9    # the WiFi chip did not start (its files are not on the board? Prepare Board puts them there)
+WIFI_E_NONET = 0x7FA    # wifi_connect_saved: the board keeps no network (wlan set in the console)
+WIFI_E_NOWIFI = 0x7FB   # the board has no WiFi chip (a Pico 2, not a Pico 2 W)
+WIFI_E_OFF = 0x7FC      # wifi_send: the board is in no network
+WIFI_E_LEN = 0x7FD      # wifi_send: a frame longer than 1514 bytes
+WIFI_E_CHIP = 0x7FE     # the firmware of the WiFi chip did not answer
+WIFI_E_CONSOLE = 0x7FF  # the console is older than this file (console_version below 3: Prepare Board updates it)
+
+# a network of wifi_scan (as on the ESP32)
+WIFI_REC = 48
+WIFI_BSSID = 0          # 6 bytes
+WIFI_CHANNEL = 6
+WIFI_RSSI = 7           # signed: 0xC0 is -64 dBm
+WIFI_AUTH = 8           # 0 open, 1 WEP, 2 WPA, 3 WPA2, 4 WPA/WPA2, 5 WPA2 Enterprise, 6 WPA3, 7 WPA2/WPA3
+WIFI_SSID = 12          # up to 32 bytes and a 0
+
+# ---------- the entries for the program ----------
+
+# the WiFi chip on (the first time: its firmware, about a second); 0 or the error
+def wifi_on() i32:
+    if console_version() < 3: return WIFI_E_CONSOLE
+    if (wl_call(0, 0, 0, 0) & 2) != 0: return 0
+    return wl_call_p(5, wl_mac6, 0, 0)
+
+# the WiFi chip off; 0
+def wifi_off() i32:
+    if console_version() < 3: return WIFI_E_CONSOLE
+    return wl_call(2, 0, 0, 0)
+
+# bit 0: the board is in the network; bit 1: the WiFi chip runs; bit 24: the console keeps them after the program
+def wifi_status() i32:
+    if console_version() < 3: return 0
+    return wl_call(0, 0, 0, 0)
+
+# an Ethernet frame (destination, source, type, data; no FCS) of wl_n bytes through the WiFi chip; 0 or the error
+def wifi_send(wl_frame: pchar, wl_n: i32) i32:
+    if console_version() < 3: return WIFI_E_CONSOLE
+    return wl_call_p(3, wl_frame, wl_n, 0)
+
+# the next frame the WiFi chip received (up to wl_max bytes of it into wl_buf), waiting for one up to wl_ms
+# milliseconds; its length (it may be more than wl_max), 0 when none came
+def wifi_recv(wl_buf: pchar, wl_max: i32, wl_ms: i32) i32:
+    if console_version() < 3: return 0
+    return wl_call_p(4, wl_buf, wl_max, wl_ms)
+
+# the MAC of the WiFi chip into the 6 bytes at wl_buf (the chip on when it is off); 0 or the error
+def wifi_mac(wl_buf: pchar) i32:
+    if console_version() < 3: return WIFI_E_CONSOLE
+    return wl_call_p(5, wl_buf, 0, 0)
+
+# a scan of all channels (the WiFi chip on when it is off; some seconds): up to wl_max networks into wl_buf, WIFI_REC
+# bytes each, each BSSID once; the number found, or minus the error (console_version 4: wl_call 11)
+def wifi_scan(wl_buf: pchar, wl_max: i32) i32:
+    if console_version() < 4: return -WIFI_E_CONSOLE
+    wl_r = wl_call_p(11, wl_buf, wl_max, 0)
+    if wl_r > wl_max: return -wl_r      # (a board without the WiFi chip: WIFI_E_NOWIFI)
+    return wl_r
+
+# how many pings (echo requests to the board) the console answered since its start, for example to flash the LED at
+# each one; -1 when the console is older (console_version 5: wl_call 12; Prepare Board updates it) or the WiFi chip
+# is off (a board without it too)
+def wifi_pings() i32:
+    if console_version() < 5 or wl_call(0, 0, 0, 0) == 0: return -1
+    return wl_call(12, 0, 0, 0)
+
+# at the end of a program: nothing (the console keeps the chip and the network for itself and the next program); 0
+def wifi_done() i32:
+    return 0
+
+# the milliseconds of the console (millis)
+def wifi_millis() i32:
+    return millis()
+
+# waits wl_ms milliseconds (the frames that come meanwhile wait in the chip); 0
+def wifi_wait(wl_ms: i32) i32:
+    wl_t0 = millis()
+    while millis() - wl_t0 < wl_ms: pass
+    return 0
+
+# the IPv4 address of the board (the 4 bytes at wl_p; zeros: none) to the console (dhcp_run of net.abel calls
+# it); 0
+def wifi_set_ip(wl_p: pchar) i32:
+    if console_version() < 3: return -1
+    return wl_call_p(6, wl_p, 0, 0)
+
+# the IPv4 address the console knows (the last wifi_set_ip) into the 4 bytes at wl_p: 1, 0 when there is none
+def wifi_get_ip(wl_p: pchar) i32:
+    if console_version() < 3: return 0
+    return wl_call_p(7, wl_p, 0, 0)
+
+# the WiFi chip on and in the network the board keeps (wlan set in the console), as wlan on does it: 0 when the board
+# is in it (at once when it is already), else the error (wifi_error_text). The first time some seconds (the firmware,
+# the join)
+def wifi_connect_saved() i32:
+    if console_version() < 3: return WIFI_E_CONSOLE
+    return wl_call(1, 0, 0, 0)
+
+# the name of the network the board keeps (for the output of a program)
+def wifi_saved_name() pchar:
+    if wl_best_record() == 0: return "(none: wlan set in the console)"
+    wl_n = wl_rec_in_use[12]
+    if wl_n == 0 or wl_n > 32: return "(none: wlan set in the console)"
+    for wl_i in 0..wl_n: wl_name_buf[wl_i] = wl_rec_in_use[16 + wl_i]
+    wl_name_buf[wl_n] = 0
+    return wl_name_buf
+
+# the name of the board (name set in the console: up to 31 characters) into wl_s: 1, else 0 (wl_s "")
+def wifi_board_name(wl_s: pchar) i32:
+    wl_s[0] = 0
+    if wl_best_record() == 0 or wl_rec_in_use[80] == 0: return 0
+    for wl_i in 0..31: wl_s[wl_i] = wl_rec_in_use[80 + wl_i]
+    wl_s[31] = 0
+    return 1
+
+# a password for telnet set (passwd set in the console)? 1, else 0
+def wifi_login_set() i32:
+    if console_version() < 3: return 0
+    return wl_call(9, 0, 0, 0)
+
+# the password wl_p (a 0 at its end) the one of passwd set? 1, else 0. The console makes its key as passwd does
+# (PBKDF2-SHA1 with the MAC of the board as its salt): about a second, a brake for one who tries many
+def wifi_login_check(wl_p: pchar) i32:
+    if console_version() < 3: return 0
+    return wl_call_p(10, wl_p, 0, 0)
+
+# a random number: the microseconds of TIMER, then 32 bits of the ring oscillator (ROSC RANDOMBIT)
+def wifi_random() u32:
+    wl_r: u32 = wl_timer[10] * 1103515245
+    for wl_i in 0..32: wl_r = ((wl_r << 1) | (wl_r >> 31)) ^ (wl_rosc[7] & 1)
+    return wl_r
+
+# a sentence for an error of the functions above (for the output of a program): the words of the console for its
+# errors (why the chip did not start, why the network did not take the board ...)
+def wifi_error_text(wl_r: i32) pchar:
+    if wl_r < 0: wl_r = 0 - wl_r
+    if wl_r == 0: return "no error"
+    if wl_r == WIFI_E_CONSOLE: return "the console of the board is older than wifi.abel: Prepare Board in the Board Manager updates it"
+    if wl_r >= WIFI_E_LINK and wl_r <= WIFI_E_CHIP:
+        wl_t = wl_call_text(8, 0, 0, 0)
+        if wl_t != pchar(0): return wl_t
+    if wl_r == WIFI_E_NONET: return "the board keeps no WiFi network: wlan set in the console"
+    return "an error of the WiFi"
+
+# ---------- the network the board keeps (wlan set in the console) ----------
+
+# The console keeps it in the two sectors behind its files (boards/pico/console_wifi.asm, wl_net_load), at the end
+# of the flash: 0x3FE000 and 0x3FF000, readable at 0x10000000 + them (XIP). The valid record with the higher number
+# counts. A record (128 bytes, as on the ESP32): +0 "AWN1", +4 the number, +8 bit 0: an open network, +12 the length of
+# the name, +16 the name (32 bytes), +48 the key (32 bytes), +80 the name of the board (31 characters and a 0; 0:
+# none), +112 the password for telnet (12 bytes of its key), +124 the CRC-32 of the bytes before it
+wl_net_flash: char[8192] at 0x103FE000
+wl_timer: u32[16] at 0x400B0000         # TIMER0: [10] TIMERAWL, the microseconds
+wl_rosc: u32[8] at 0x400E8000           # ROSC: [7] RANDOMBIT
+wl_rec_in_use: char[128]                # the record with the higher number
+wl_name_buf: char[36]
+wl_mac6: char[8]
+
+# the valid record with the higher number into wl_rec_in_use: 1, or 0 when there is none
+def wl_best_record() i32:
+    wl_best: u32 = 0
+    for wl_s in 0..2:
+        wl_no = wl_record(wl_net_flash + wl_s * 4096)
+        if wl_no > wl_best:
+            wl_best = wl_no
+            for wl_i in 0..128: wl_rec_in_use[wl_i] = wl_net_flash[wl_s * 4096 + wl_i]
+    return wl_best != 0
+
+# the record at wl_p: its number when it is valid, else 0
+def wl_record(wl_p: pchar) u32:
+    if wl_word(wl_p, 0) != 0x314E5741: return 0
+    if wl_crc(0, wl_p, 124) != wl_word(wl_p, 124): return 0
+    return wl_word(wl_p, 4)
+
+# the word at wl_p + wl_i (little-endian)
+def wl_word(wl_p: pchar, wl_i: i32) u32:
+    return u32(wl_p[wl_i]) | (u32(wl_p[wl_i + 1]) << 8) | (u32(wl_p[wl_i + 2]) << 16) | (u32(wl_p[wl_i + 3]) << 24)
+
+# the CRC-32 (as zlib) of wl_n bytes at wl_p, going on from wl_crc0 (0 at the start)
+def wl_crc(wl_crc0: u32, wl_p: pchar, wl_n: i32) u32:
+    wl_c = wl_crc0 ^ 0xFFFFFFFF
+    for wl_i in 0..wl_n:
+        wl_c = wl_c ^ u32(wl_p[wl_i])
+        for wl_k in 0..8:
+            if (wl_c & 1) != 0:
+                wl_c = (wl_c >> 1) ^ 0xEDB88320
+            else:
+                wl_c = wl_c >> 1
+    return wl_c ^ 0xFFFFFFFF
+
+# ---- the same on every board (abelle/lib/common/net.abel uses them)
+
+# the start of the name of the board that net.abel makes from its MAC when the console keeps none ("pico2w-789a")
+def wifi_name_prefix() pchar:
+    return "pico2w-"
+
+# the WiFi service gets the address by DHCP itself: not here, net.abel asks DHCP (dhcp_run): 0
+def wifi_dhcp_by_service() i32:
+    return 0
+
+# the addresses of DHCP of the service: none here (wifi_dhcp_by_service): 0
+def wifi_addresses(wl_p: pchar) i32:
+    return 0

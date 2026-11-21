@@ -4,7 +4,9 @@ Die Beispiele von Asmonite, in Assembler und in aBelle. Jedes hier ist noch einm
 getestet, für die es gedacht ist; weitere folgen nach und nach.
 
 - `common/`: Programme in aBelle, die auf jedem Board laufen (ESP32, ESP32-S3, ESP32-C3, ESP32-S31, Raspberry Pi
-  Pico und Pico 2 (W)); Asmonite übersetzt sie für das Board, das du benutzt.
+  Pico und Pico 2 (W)); Asmonite übersetzt sie für das Board, das du benutzt. Was sie mit `include` einbinden
+  (`console.abel`, `net.abel`), ist die Bibliothek von aBelle in [`abelle/lib`](../abelle/lib): `common/` für jedes
+  Board, `<board>/` für eines; in der ZIP-Datei liegt sie neben den Compilern.
   - `common/hello.abel`: schreibt „Hello, world!“ über die serielle Ausgabe des Boards (F9).
   - `common/blink.abel`: lässt die LED des Boards blinken; vorher oben `LED_PIN` für dein Board setzen.
   - `common/runs.abel`: zählt, wie oft es gelaufen ist, in der Datei `runs.txt` auf dem Board (`file_size`,

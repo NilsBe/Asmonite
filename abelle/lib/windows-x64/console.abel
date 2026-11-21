@@ -1,0 +1,2 @@
+# The functions of console.abel on Windows x64: the same as on Windows x86 (abelle/lib/windows-x86/console.abel).
+include "../windows-x86/console.abel"

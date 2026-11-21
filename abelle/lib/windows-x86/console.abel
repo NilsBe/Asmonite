@@ -1,0 +1,101 @@
+# The functions of console.abel on Windows: the same names as on the boards (abelle/lib/<board>/console.abel), so a
+# program for every board runs on the PC as well, with F7 and F8 in the debugger of Windows: text to the console
+# window and from the keyboard, milliseconds, the files (in the current folder), the arguments, and exit. The flash
+# and the LED a PC does not have.
+# The names of the parameters and local variables here begin with c_: in aBelle a local name may not be the one of a
+# global of the program that includes this file (an assignment would change that global).
+
+extern "kernel32.dll":
+    def GetStdHandle(n) u32
+    def WriteFile(h: u32, buf: pchar, n: u32, written: pchar, ov: u32) i32
+    def ReadFile(h: u32, buf: pchar, n: u32, got: pchar, ov: u32) i32
+    def CreateFileA(name: pchar, access: u32, share: u32, sec: u32, disp: u32, flags: u32, tmpl: u32) u32
+    def CloseHandle(h: u32) i32
+    def GetFileSize(h: u32, high: u32) u32
+    def SetFilePointer(h: u32, dist: i32, high: u32, method: u32) u32
+    def GetTickCount() u32
+    def GetCommandLineA() pchar
+    def ExitProcess(code: u32)
+
+con_byte: char[4]
+con_count: char[4]
+
+# the program ends at once, from any depth, with this exit code
+def exit(c_code):
+    ExitProcess(u32(c_code))
+
+# which functions there are: 2, as the consoles of the boards
+def console_version() i32:
+    return 2
+
+# a byte to the console window
+def put_char(c_c):
+    con_byte[0] = c_c
+    WriteFile(GetStdHandle(-11), con_byte, 1, con_count, 0)
+
+# the next byte from the keyboard (a line comes when Enter is pressed): waits for it; -1 at the end of the input
+def get_char() i32:
+    if ReadFile(GetStdHandle(-10), con_byte, 1, con_count, 0) == 0 or con_count[0] == 0: return -1
+    return con_byte[0]
+
+# the next byte from the keyboard without waiting: not on Windows yet, -1
+def poll_char() i32:
+    return -1
+
+# a text up to its 0
+def print(c_s: pchar):
+    c_n = 0
+    while c_s[c_n] != 0: c_n += 1
+    WriteFile(GetStdHandle(-11), c_s, u32(c_n), con_count, 0)
+
+# milliseconds since Windows started
+def millis() i32:
+    return i32(GetTickCount())
+
+# the size of a file in the current folder, -1 if it is not there
+def file_size(c_name: pchar) i32:
+    c_h = CreateFileA(c_name, 0x80000000, 1, 0, 3, 0, 0)
+    if c_h == 0xFFFFFFFF: return -1
+    c_size = i32(GetFileSize(c_h, 0))
+    CloseHandle(c_h)
+    return c_size
+
+# c_count bytes of the file from c_offset on into c_buf: how many came, -1 if it is not there
+def file_read(c_name: pchar, c_buf: pchar, c_offset, c_count) i32:
+    c_h = CreateFileA(c_name, 0x80000000, 1, 0, 3, 0, 0)
+    if c_h == 0xFFFFFFFF: return -1
+    SetFilePointer(c_h, c_offset, 0, 0)
+    c_got = 0
+    if ReadFile(c_h, c_buf, u32(c_count), con_count, 0) != 0:
+        c_got = con_count[0] | (con_count[1] << 8) | (con_count[2] << 16) | (con_count[3] << 24)
+    CloseHandle(c_h)
+    return c_got
+
+# the file with the c_count bytes at c_buf (new, or in place of the one before): 0 done (as on the boards), -1 if
+# it cannot be written
+def file_write(c_name: pchar, c_buf: pchar, c_count) i32:
+    c_h = CreateFileA(c_name, 0x40000000, 0, 0, 2, 0x80, 0)
+    if c_h == 0xFFFFFFFF: return -1
+    c_ok = WriteFile(c_h, c_buf, u32(c_count), con_count, 0)
+    CloseHandle(c_h)
+    if c_ok == 0: return -1
+    return 0
+
+# bytes of the flash: a PC has none, -1
+def flash_read(c_address: u32, c_buf: pchar, c_count) i32:
+    return -1
+
+# the text behind the name of the program on its command line ("" without one)
+def args() pchar:
+    c_p = GetCommandLineA()
+    if c_p[0] == '"':
+        c_p += 1
+        while c_p[0] != 0 and c_p[0] != '"': c_p += 1
+        if c_p[0] == '"': c_p += 1
+    else:
+        while c_p[0] != 0 and c_p[0] != ' ' and c_p[0] != '\t': c_p += 1
+    while c_p[0] == ' ' or c_p[0] == '\t': c_p += 1
+    return c_p
+
+# println, print_int, put_hex, print_byte, print_mac, print_ip (abelle/lib/common)
+include "console_text.abel"
