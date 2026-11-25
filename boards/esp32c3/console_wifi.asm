@@ -641,6 +641,13 @@ wl_up:
     la   a0, s_wlstart
     call print
     call flush
+    li   t0, SYSTEM                     ; the core from the crystal (cpu_clock of a program, 40 .. 10 MHz): the radio
+    lw   t1, 0x58(t0)                   ; needs the PLL, back to 160 MHz (a clock from the PLL stays)
+    srli t1, t1, 10
+    andi t1, t1, 3
+    bnez t1, wlu_pll
+    call clock_160
+wlu_pll:
     li   t0, SVC_ON
     jalr ra, 0(t0)
     beqz a0, wlu_on
@@ -670,10 +677,17 @@ wl_halt:
     call net_stop
     la   t0, wifi_up
     lw   t1, 0(t0)
-    beqz t1, wlx_done
+    beqz t1, wlx_svc
     sw   zero, 0(t0)
     li   t0, SVC_DISC
     jalr ra, 0(t0)
+    li   t0, SVC_OFF
+    jalr ra, 0(t0)
+    j    wlx_done
+wlx_svc:                                ; the console did not start it, a program may have (wifi_on of wifi.abel): off
+    la   t0, svc_loaded                 ; as well when the service is in the RAM (its wifi_off does nothing when the
+    lw   t1, 0(t0)                      ; WiFi does not run)
+    beqz t1, wlx_done
     li   t0, SVC_OFF
     jalr ra, 0(t0)
 wlx_done:
