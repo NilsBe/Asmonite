@@ -14,10 +14,10 @@ console; `info` in the console and the line **CPU clock** in the Board Manager s
 only for a while notes the one it found at its start (`cpu_clock(0)`) and sets it again at the end. The console only
 refuses to keep clocks at which it could no longer be reached: on the ESP32 below 1 MHz (it goes back to 40 MHz), on
 the ESP32-S3 and the ESP32-C3 below 10 MHz (it goes back to 40 MHz), on the Pico and the Pico 2 the clocks from the
-crystal below 48 MHz (it goes back to 48 MHz).
+crystal below 48 MHz (it goes back to 48 MHz); the ESP32-S31 keeps every clock.
 
-This works today on the **ESP32**, the **ESP32-S3**, the **ESP32-C3**, the **Raspberry Pi Pico** and the **Raspberry Pi
-Pico 2** (with or without the W). The ESP32-S31 does not have these functions yet (see [Other boards](#other-boards)).
+This works on the **ESP32**, the **ESP32-S3**, the **ESP32-C3**, the **ESP32-S31**, the **Raspberry Pi Pico** and the
+**Raspberry Pi Pico 2** (with or without the W).
 
 ## A first example
 
@@ -42,13 +42,14 @@ def main():
 function of an included file: every program would otherwise grow by several KB, even one that never changes the clock.
 
 Ready-made examples: `examples/esp32/clockspeed.abel`, `examples/esp32s3/clockspeed.abel`,
-`examples/esp32c3/clockspeed.abel`, `examples/pico/clockspeed.abel` and `examples/pico2/clockspeed.abel` run the same
-work at each clock and show how long it takes. `slowclock.abel` in the folders of the ESP32 and the Picos blinks the LED
-once a second at each clock, down to 5 kHz (ESP32) or 1 kHz (Pico, Pico 2), and keeps time by counting cycles (see
-[Time without `millis()`](#time-without-millis)); the ESP32-S3 and the ESP32-C3 have no such example, as their clock
-only goes down to 10 MHz. `setclock.abel` sets the clock of the console: upload it, then type `setclock 240` (ESP32,
-ESP32-S3), `setclock 160` (ESP32-C3), `setclock 133` (Pico) or `setclock 150` (Pico 2) in the console; `setclock`
-without a number shows the clock.
+`examples/esp32c3/clockspeed.abel`, `examples/esp32s31/clockspeed.abel`, `examples/pico/clockspeed.abel` and
+`examples/pico2/clockspeed.abel` run the same work at each clock and show how long it takes. `slowclock.abel` in the
+folders of the ESP32 and the Picos blinks the LED once a second at each clock, down to 5 kHz (ESP32) or 1 kHz (Pico,
+Pico 2), and keeps time by counting cycles (see [Time without `millis()`](#time-without-millis)); the ESP32-S3 and the
+ESP32-C3 have no such example, as their clock only goes down to 10 MHz, nor does the ESP32-S31, whose RGB LED needs a
+high clock. `setclock.abel` sets the clock of the console: upload it, then type `setclock 240` (ESP32, ESP32-S3),
+`setclock 160` (ESP32-C3), `setclock 320` (ESP32-S31), `setclock 133` (Pico) or `setclock 150` (Pico 2) in the
+console; `setclock` without a number shows the clock.
 
 ## The functions
 
@@ -68,7 +69,8 @@ without a number shows the clock.
 | a value within the board's range | sets the nearest possible clock and returns it in kHz |
 | a value outside it | -1, nothing changes |
 
-From 1000 kHz (ESP32), 10000 kHz (ESP32-S3, ESP32-C3) or 48000 kHz (Pico, Pico 2) up, `cpu_clock_khz` simply calls `cpu_clock` with the whole MHz;
+From 1000 kHz (ESP32, ESP32-S31), 10000 kHz (ESP32-S3, ESP32-C3) or 48000 kHz (Pico, Pico 2) up, `cpu_clock_khz`
+simply calls `cpu_clock` with the whole MHz;
 the value must then be one that `cpu_clock` supports. Below that, the function divides a clock source by a whole
 number and picks the divider that comes closest to the value asked for. That is why the return value matters: it
 tells what is really set (on the Pico, `cpu_clock_khz(2500)` gives 2400, for example).
@@ -206,6 +208,47 @@ The same work as on the ESP32 (`clockspeed`), timed with `millis()`, and 3 s of 
 
 With the WiFi connected, at each change between 80 and 160 MHz: 4 of 4 pings to the router and a DNS lookup each time.
 
+## ESP32-S31
+
+### The clocks
+
+| Clock | Source | with `cpu_clock` | with `cpu_clock_khz` | while the WiFi runs |
+|---|---|---|---|---|
+| 320, 160, 80, 53 MHz | CPLL (320 MHz divided by 1, 2, 4, 6) | ✓ | ✓ (320000 … 53333) | ✓ |
+| 40, 20, 10, 8, 5, 4, 2, 1 MHz | crystal (40 MHz divided by 1 … 40) | ✓ | ✓ (40000 … 1000) | – |
+| 975 kHz to 156 kHz | crystal divided by 41 … 255 | – | ✓ | – |
+
+After a reset the console runs at 160 MHz. 53 MHz is really 53.3 MHz (`cpu_clock` returns 53, `cpu_clock_khz`
+53333).
+
+- **The USB port does not run from the clock of the core:** unlike on the ESP32-S3 and the ESP32-C3, the console of the
+  S31 keeps working at every clock. Tried down to 156 kHz: output, `info`, `ls` and even uploading a program (2.8 s
+  instead of 0.9 s at 1 MHz). So the console keeps every clock.
+- **320 MHz** needs one step more voltage on the core. `cpu_clock` raises it before the switch and leaves it there
+  until a reset (see [How it works inside](#how-it-works-inside)). There is no 240 MHz: it would need a second PLL, and
+  320 MHz is faster anyway.
+- **WiFi:** the WiFi needs the PLL. While it runs, the crystal clocks return -1; type `wlan off` in the console first.
+  Between 320, 160, 80 and 53 MHz the connection stays up. `wlan on` at a crystal clock switches back to 160 MHz first.
+- **`millis()` and the terminal** keep running correctly at every clock; `millis()` counts a timer that runs from the
+  crystal. Below 1 MHz the ROM counts with one cycle per microsecond, so its delays get longer there; `millis()` stays
+  right.
+- **`info`** works the clock out from the registers and shows kHz below 1 MHz ("core at 156 kHz"); the Board Manager
+  shows it the same way.
+- **The RGB LED** (the console's `rgb` function) needs a high clock, about 160 MHz: its timing is counted in cycles of
+  the core.
+
+### Measured
+
+The same work as on the ESP32 (`clockspeed`), timed with `millis()`; 3 s of `millis()` took 2979 to 3033 ms on the PC
+at every clock from 160 MHz down to 156 kHz:
+
+| Clock | 320 | 160 | 80 | 53 | 40 | 20 | 10 | 5 | 2 | 1 MHz |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Time (ms) | 10 | 19 | 39 | 58 | 77 | 155 | 310 | 620 | 1550 | 3101 |
+
+At 320 MHz, 2000 runs of a checksum computation (15 ms each, with a lot of memory access) all came out right. With the
+WiFi connected, at each change between 320, 160, 80 and 53 MHz: 4 of 4 pings to the router and a DNS lookup each time.
+
 ## Raspberry Pi Pico and Pico 2
 
 ### The clocks
@@ -295,7 +338,6 @@ On the Pico, `khz * 50000` no longer fits into 32 bits from about 43 MHz up; abo
 
 | Board | Status |
 |---|---|
-| ESP32-S31 | not yet; its clock system has not been looked into |
 | Raspberry Pi Pico W-2023 (clone with an ESP8285) | the Pico library applies; the WiFi over the ESP8285 at a low clock is untested |
 | LilyGO T-PicoC3 | the RP2040 side like a Pico (untested), the C3 side like the ESP32-C3 |
 
@@ -359,6 +401,25 @@ only at its first start after a reset; from version 7 it keeps a clock from the 
 160 MHz. At the end of a program the console only checks whether the core runs from the crystal below 10 MHz (or from
 RC_FAST), and then switches back to the undivided crystal (`boards/esp32c3/console_clock.asm`).
 
+**ESP32-S31.** As in ESP-IDF (`rtc_clk.c` and `clk_tree_ll.h` for the S31): the console sets the CPLL to 320 MHz at its
+start and leaves it on. In `HP_SYS_CLKRST` (0x20587000), `SOC_CLK_SEL` chooses the source (0 the crystal, 1 the
+CPLL); behind it the core (8 bits), the memory (1 bit, from the core), the system bus (from the core) and the APB (from
+the system bus) each have a divider, and `SOC_CLK_UPDATE` takes them all at once. 320 MHz: core / 1, memory / 2
+(160 MHz), system bus / 3 (106.7 MHz), APB / 2 (53.3 MHz); 160 MHz: / 2, / 1, / 2, / 2; 80 MHz: / 4, / 1, / 1, / 2;
+53 MHz: / 6 and / 1 for the rest; from the crystal all but the core / 1. Then the ROM gets the cycles per microsecond
+(`ets_update_cpu_frequency`).
+
+The voltage of the core sits in `PMU_HP_ACTIVE_HP_REGULATOR0` (0x20704034), in the field `dbias` (bits 31 … 27); with
+`DBIAS_SEL` 1 this register applies. The boot ROM leaves 24; without automatic regulation (PVT) ESP-IDF sets a fixed 26
+for every clock. `cpu_clock(320)` raises it to 26 when it is lower. In the tests 320 MHz also ran without errors at 24;
+26 is the margin ESP-IDF provides. With PVT, the ESP-IDF default, the chip regulates the voltage itself from its
+calibration in the eFuse; Asmonite does not do that.
+
+For the WiFi to work at every clock, the console needed two things: `wlan on` from a crystal clock switches to 160 MHz
+first (`clock_init`), as the radio needs the PLL; and `wlan off` switches the WiFi off even when a program started it,
+otherwise the crystal clocks would stay locked. Whether the WiFi runs is told by the WiFi service through `wifi_state`
+(the same service as on the C3, from version 7).
+
 **Pico, Pico 2.** In the console clk_sys comes from the USB PLL (48 MHz). `cpu_clock` sets up PLL_SYS the way the
 Pico SDK does: 12 MHz × FBDIV / (POSTDIV1 × POSTDIV2), with the VCO between 750 and 1600 MHz; the post dividers are
 searched from the top until a VCO fits. The switch follows the datasheet: clk_sys to clk_ref (glitchless), PLL_SYS
@@ -372,6 +433,7 @@ registers.
 ## More
 
 - The libraries: `abelle/lib/esp32/cpuclock.abel`, `abelle/lib/esp32s3/cpuclock.abel`,
-  `abelle/lib/esp32c3/cpuclock.abel`, `abelle/lib/pico/cpuclock.abel`, `abelle/lib/pico2/cpuclock.abel` (the head of each file describes it in detail).
+  `abelle/lib/esp32c3/cpuclock.abel`, `abelle/lib/esp32s31/cpuclock.abel`, `abelle/lib/pico/cpuclock.abel`,
+  `abelle/lib/pico2/cpuclock.abel` (the head of each file describes it in detail).
 - The aBelle language: [abelle/README.en.md](../../abelle/README.en.md).
 - The boards and their consoles: [boards.md](boards.md).

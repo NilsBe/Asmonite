@@ -147,15 +147,15 @@ example bench
     board, with the time of each and the sum; it runs on Windows too, as a yardstick.
 
 example clockspeed
-  files: esp32/clockspeed.abel esp32s3/clockspeed.abel esp32c3/clockspeed.abel pico/clockspeed.abel pico2/clockspeed.abel
-  boards: esp32 esp32s3 esp32c3 pico picow pico2 pico2w
+  files: esp32/clockspeed.abel esp32s3/clockspeed.abel esp32c3/clockspeed.abel esp32s31/clockspeed.abel pico/clockspeed.abel pico2/clockspeed.abel
+  boards: esp32 esp32s3 esp32c3 esp32s31 pico picow pico2 pico2w
   title.de: Dieselbe Arbeit bei jedem Takt
   title.en: The same work at each clock
   de: misst die Zeit einer Schleife bei jedem Takt des Kerns; `cpu_clock` aus `cpuclock.abel` setzt den Takt
-    (ESP32 1 bis 240 MHz, ESP32-S3 10 bis 240 MHz, ESP32-C3 10 bis 160 MHz, Pico 48 bis 133 MHz, Pico 2 48 bis 150 MHz). Am Ende stellt es den Takt wieder ein, den es
+    (ESP32 1 bis 240 MHz, ESP32-S3 10 bis 240 MHz, ESP32-C3 10 bis 160 MHz, ESP32-S31 1 bis 320 MHz, Pico 48 bis 133 MHz, Pico 2 48 bis 150 MHz). Am Ende stellt es den Takt wieder ein, den es
     vorgefunden hat.
   en: measures the time of a loop at each clock of the core; `cpu_clock` of `cpuclock.abel` sets the clock
-    (ESP32 1 to 240 MHz, ESP32-S3 10 to 240 MHz, ESP32-C3 10 to 160 MHz, Pico 48 to 133 MHz, Pico 2 48 to 150 MHz). At the end it sets the clock it found again.
+    (ESP32 1 to 240 MHz, ESP32-S3 10 to 240 MHz, ESP32-C3 10 to 160 MHz, ESP32-S31 1 to 320 MHz, Pico 48 to 133 MHz, Pico 2 48 to 150 MHz). At the end it sets the clock it found again.
 
 example slowclock
   files: esp32/slowclock.abel pico/slowclock.abel pico2/slowclock.abel
@@ -168,14 +168,14 @@ example slowclock
     (Pico, Pico 2); for that the program counts cycles instead of milliseconds. On the ESP32 `wlan off` first.
 
 example setclock
-  files: esp32/setclock.abel esp32s3/setclock.abel esp32c3/setclock.abel pico/setclock.abel pico2/setclock.abel
-  boards: esp32 esp32s3 esp32c3 pico picow pico2 pico2w
+  files: esp32/setclock.abel esp32s3/setclock.abel esp32c3/setclock.abel esp32s31/setclock.abel pico/setclock.abel pico2/setclock.abel
+  boards: esp32 esp32s3 esp32c3 esp32s31 pico picow pico2 pico2w
   title.de: Den Takt der Konsole setzen
   title.en: Set the clock of the console
-  de: der Takt gilt dann für die Konsole und jedes Programm danach, bis zum Reset: hochladen, dann `setclock 240` (ESP32, ESP32-S3), `setclock 160` (ESP32-C3),
+  de: der Takt gilt dann für die Konsole und jedes Programm danach, bis zum Reset: hochladen, dann `setclock 240` (ESP32, ESP32-S3), `setclock 160` (ESP32-C3), `setclock 320` (ESP32-S31),
     `setclock 133` (Pico) oder `setclock 150` (Pico 2) in der Konsole; `setclock` allein zeigt den Takt, `info` und der
     Board Manager zeigen ihn auch.
-  en: the clock then holds for the console and every program after it, until a reset: upload it, then `setclock 240` (ESP32, ESP32-S3), `setclock 160` (ESP32-C3),
+  en: the clock then holds for the console and every program after it, until a reset: upload it, then `setclock 240` (ESP32, ESP32-S3), `setclock 160` (ESP32-C3), `setclock 320` (ESP32-S31),
     `setclock 133` (Pico) or `setclock 150` (Pico 2) in the console; `setclock` alone shows the clock, `info` and the
     Board Manager show it too.
 

@@ -228,11 +228,35 @@ cmd_info:
     sw   s0, 4(sp)
     la   a0, s_chip
     call print
-    li   t0, ROM_CPU_FREQ
+    li   t0, CLKRST                     ; the clock from the registers (cpu_clock of a program may have set any): the
+    lw   t1, 0(t0)                      ; source (0 the crystal, 1 the CPLL at 320 MHz) / the divider of the CPU, in kHz
+    andi t1, t1, 3
+    lw   t2, 4(t0)
+    andi t2, t2, 0xFF
+    addi t2, t2, 1
+    li   a0, 40000
+    beqz t1, ci_div
+    li   a0, 320000
+    li   t3, 1
+    beq  t1, t3, ci_div
+    li   t0, ROM_CPU_FREQ               ; another source: the MHz the ROM counts with
     jalr ra, 0(t0)
+    j    ci_mhz
+ci_div:
+    divu a0, a0, t2
+    li   t3, 1000
+    bltu a0, t3, ci_khz
+    divu a0, a0, t3
+ci_mhz:
     call print_dec
     la   a0, s_mhz
     call print
+    j    ci_flash
+ci_khz:
+    call print_dec                      ; below 1 MHz (cpu_clock_khz)
+    la   a0, s_khz
+    call print
+ci_flash:
     la   a0, s_flash                    ; the flash: its size, its JEDEC id
     call print
     la   t0, flash_size
@@ -1081,6 +1105,7 @@ s_unknown: db 'Unknown command: ', 0
 s_unknown2: db ' (help shows the commands)', 13, 10, 0
 s_chip:    db 'Chip: ESP32-S31 (RISC-V), core at ', 0
 s_mhz:     db ' MHz', 13, 10, 0
+s_khz:     db ' kHz', 13, 10, 0
 s_mac:     db 'MAC: ', 0
 s_conver:  db 'Console: ', 0
 s_reset:   db 'Reset.', 13, 10, 0

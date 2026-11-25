@@ -55,18 +55,19 @@ the core](../docs/en/clock.md).
 - `common/bench.abel`: **How fast is the board?** Four small tasks (the sieve of Eratosthenes, CRC-32, divisions,
   calls of a function), the same work on every board, with the time of each and the sum; it runs on Windows too, as a
   yardstick.
-- `esp32/clockspeed.abel`, `esp32s3/clockspeed.abel`, `esp32c3/clockspeed.abel`, `pico/clockspeed.abel`,
-  `pico2/clockspeed.abel`: **The same work at each clock.** Measures the time of a loop at each clock of the core;
-  `cpu_clock` of `cpuclock.abel` sets the clock (ESP32 1 to 240 MHz, ESP32-S3 10 to 240 MHz, ESP32-C3 10 to 160 MHz,
-  Pico 48 to 133 MHz, Pico 2 48 to 150 MHz). At the end it sets the clock it found again.
+- `esp32/clockspeed.abel`, `esp32s3/clockspeed.abel`, `esp32c3/clockspeed.abel`, `esp32s31/clockspeed.abel`,
+  `pico/clockspeed.abel`, `pico2/clockspeed.abel`: **The same work at each clock.** Measures the time of a loop at
+  each clock of the core; `cpu_clock` of `cpuclock.abel` sets the clock (ESP32 1 to 240 MHz, ESP32-S3 10 to 240 MHz,
+  ESP32-C3 10 to 160 MHz, ESP32-S31 1 to 320 MHz, Pico 48 to 133 MHz, Pico 2 48 to 150 MHz). At the end it sets the
+  clock it found again.
 - `esp32/slowclock.abel`, `pico/slowclock.abel`, `pico2/slowclock.abel`: **Blinking at a few kHz.** The LED blinks
   once a second, also when `cpu_clock_khz` takes the core down to about 5 kHz (ESP32) or 1 kHz (Pico, Pico 2); for
   that the program counts cycles instead of milliseconds. On the ESP32 `wlan off` first.
-- `esp32/setclock.abel`, `esp32s3/setclock.abel`, `esp32c3/setclock.abel`, `pico/setclock.abel`,
-  `pico2/setclock.abel`: **Set the clock of the console.** The clock then holds for the console and every program
-  after it, until a reset: upload it, then `setclock 240` (ESP32, ESP32-S3), `setclock 160` (ESP32-C3), `setclock
-  133` (Pico) or `setclock 150` (Pico 2) in the console; `setclock` alone shows the clock, `info` and the Board
-  Manager show it too.
+- `esp32/setclock.abel`, `esp32s3/setclock.abel`, `esp32c3/setclock.abel`, `esp32s31/setclock.abel`,
+  `pico/setclock.abel`, `pico2/setclock.abel`: **Set the clock of the console.** The clock then holds for the console
+  and every program after it, until a reset: upload it, then `setclock 240` (ESP32, ESP32-S3), `setclock 160`
+  (ESP32-C3), `setclock 320` (ESP32-S31), `setclock 133` (Pico) or `setclock 150` (Pico 2) in the console; `setclock`
+  alone shows the clock, `info` and the Board Manager show it too.
 
 ## For one board
 

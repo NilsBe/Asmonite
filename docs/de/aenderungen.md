@@ -41,6 +41,13 @@ vorhandene Quelltexte bedeuten; solche Änderungen stehen unter „Geändert“ 
   dieselbe Arbeit dauert bei 10, 40, 80 und 160 MHz 350, 87, 44 und 22 ms. Neue Konsole (Prepare Board) und WLAN-Dienst
   Version 7 (Install WiFi; er sagt, ob das WLAN läuft, und sein erster Start behält einen Takt vom PLL). Beispiele
   `examples/esp32c3/clockspeed.abel` und `setclock.abel`.
+- **aBelle: der Takt des Kerns beim ESP32-S31**: `cpu_clock(mhz)` aus `abelle/lib/esp32s31/cpuclock.abel`: 320, 160, 80
+  oder 53 MHz vom PLL, vom Quarz 40 MHz geteilt durch eine ganze Zahl bis 1 MHz (nicht bei laufendem WLAN), mit
+  `cpu_clock_khz` bis 156 kHz. Der USB-Anschluss des S31 arbeitet bei jedem Takt weiter, die Konsole behält deshalb
+  jeden Takt; für 320 MHz geht die Spannung des Kerns eine Stufe hoch. `info` zeigt den echten Takt, unter 1 MHz in
+  kHz (der Board Manager auch). Gemessen: dieselbe Arbeit dauert bei 1, 10, 40, 160 und 320 MHz 3101, 310, 77, 19 und
+  10 ms; mit verbundenem WLAN gehen Pings und DNS bei 320, 160, 80 und 53 MHz. Neue Konsole (Prepare Board). Beispiele
+  `examples/esp32s31/clockspeed.abel` und `setclock.abel`.
 - **Board Manager: ein Kontextmenü für die Dateien, Examples...**: Ein Rechtsklick auf eine Datei gibt Run bei einem
   Programm, Open in Editor bei einer Textdatei (eine Kopie; beides auch Enter oder ein Doppelklick), Autostart, Download
   und Delete (auch Entf), statt ihrer Knöpfe; Upload File und Refresh (F5) bleiben Knöpfe und stehen auch im Menü.
@@ -103,8 +110,8 @@ vorhandene Quelltexte bedeuten; solche Änderungen stehen unter „Geändert“ 
   liegt jetzt auch dort (in der ZIP-Datei war es schon immer).
 
 ### Behoben
-- **ESP32-C3: wlan off ohne gespeichertes Netz**: Kannte das Board kein Netz, tat `wlan off` nichts; ein WLAN, das ein
-  Programm gestartet hatte, blieb also an. Jetzt schaltet es das WLAN in jedem Fall ab.
+- **ESP32-C3, ESP32-S31: wlan off ohne gespeichertes Netz**: Kannte das Board kein Netz oder hatte ein Programm das WLAN
+  selbst gestartet, tat `wlan off` nichts, und das WLAN blieb an. Jetzt schaltet es das WLAN in jedem Fall ab.
 - **Tab Serial: Meldungen „Integer overflow“ direkt nach dem Verbinden**: In der ersten halben Sekunde, nachdem sich der
   Tab Serial mit einem Board verbunden hatte, konnte ein Zeitgeber einen Integer-Überlauf melden, mehrmals
   hintereinander.

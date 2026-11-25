@@ -15,10 +15,10 @@ der Konsole ein; `info` in der Konsole und die Zeile **CPU clock** im Board Mana
 Takt nur für eine Weile braucht, merkt sich am Anfang den vorgefundenen (`cpu_clock(0)`) und stellt ihn am Ende wieder
 ein. Nur Takte, bei denen die Konsole nicht mehr erreichbar wäre, behält sie nicht: beim ESP32 unter 1 MHz (dann
 40 MHz), beim ESP32-S3 und ESP32-C3 unter 10 MHz (dann 40 MHz), beim Pico und Pico 2 die Takte vom Quarz unter 48 MHz
-(dann 48 MHz).
+(dann 48 MHz); der ESP32-S31 behält jeden.
 
-Das geht heute auf dem **ESP32**, dem **ESP32-S3**, dem **ESP32-C3**, dem **Raspberry Pi Pico** und dem **Raspberry Pi
-Pico 2** (auch mit W). Für den ESP32-S31 gibt es die Funktionen noch nicht (siehe [Andere Boards](#andere-boards)).
+Das geht auf dem **ESP32**, dem **ESP32-S3**, dem **ESP32-C3**, dem **ESP32-S31**, dem **Raspberry Pi Pico** und dem
+**Raspberry Pi Pico 2** (auch mit W).
 
 ## Ein erstes Beispiel
 
@@ -43,14 +43,14 @@ def main():
 eingebundenen Datei übersetzt: Jedes Programm wäre sonst um mehrere KB größer, auch wenn es den Takt nie ändert.
 
 Fertige Beispiele: `examples/esp32/clockspeed.abel`, `examples/esp32s3/clockspeed.abel`,
-`examples/esp32c3/clockspeed.abel`, `examples/pico/clockspeed.abel` und `examples/pico2/clockspeed.abel` lassen dieselbe
-Arbeit bei jedem Takt laufen und zeigen, wie lange sie dauert.
+`examples/esp32c3/clockspeed.abel`, `examples/esp32s31/clockspeed.abel`, `examples/pico/clockspeed.abel` und
+`examples/pico2/clockspeed.abel` lassen dieselbe Arbeit bei jedem Takt laufen und zeigen, wie lange sie dauert.
 `slowclock.abel` in den Ordnern des ESP32 und der Picos lässt die LED bei jedem Takt einmal pro Sekunde blinken, bis
 hinunter zu 5 kHz (ESP32) bzw. 1 kHz (Pico, Pico 2), und misst die Zeit dabei mit gezählten Takten (siehe
 [Zeit ohne `millis()`](#zeit-ohne-millis)); für den ESP32-S3 und den ESP32-C3 gibt es dieses Beispiel nicht, ihr Takt
-geht nur bis 10 MHz hinunter. `setclock.abel` stellt den Takt der Konsole ein: hochladen, dann in der Konsole
-`setclock 240` (ESP32, ESP32-S3), `setclock 160` (ESP32-C3), `setclock 133` (Pico) oder `setclock 150` (Pico 2);
-`setclock` ohne Zahl zeigt den Takt.
+geht nur bis 10 MHz hinunter, und beim ESP32-S31 nicht, seine RGB-LED braucht einen hohen Takt. `setclock.abel` stellt
+den Takt der Konsole ein: hochladen, dann in der Konsole `setclock 240` (ESP32, ESP32-S3), `setclock 160` (ESP32-C3),
+`setclock 320` (ESP32-S31), `setclock 133` (Pico) oder `setclock 150` (Pico 2); `setclock` ohne Zahl zeigt den Takt.
 
 ## Die Funktionen
 
@@ -70,8 +70,8 @@ geht nur bis 10 MHz hinunter. `setclock.abel` stellt den Takt der Konsole ein: h
 | ein Wert im Bereich des Boards | stellt den nächstmöglichen Takt ein und gibt ihn in kHz zurück |
 | ein Wert außerhalb | -1, nichts ändert sich |
 
-Ab 1000 kHz (ESP32), ab 10000 kHz (ESP32-S3, ESP32-C3) bzw. ab 48000 kHz (Pico, Pico 2) ruft `cpu_clock_khz` einfach `cpu_clock` mit den ganzen MHz auf;
-der Wert muss dann einer sein, den `cpu_clock` kann. Darunter teilt die Funktion eine Taktquelle durch eine ganze Zahl
+Ab 1000 kHz (ESP32, ESP32-S31), ab 10000 kHz (ESP32-S3, ESP32-C3) bzw. ab 48000 kHz (Pico, Pico 2) ruft
+`cpu_clock_khz` einfach `cpu_clock` mit den ganzen MHz auf; der Wert muss dann einer sein, den `cpu_clock` kann. Darunter teilt die Funktion eine Taktquelle durch eine ganze Zahl
 und nimmt den Teiler, der dem gewünschten Wert am nächsten kommt. Deshalb ist der Rückgabewert wichtig: Er sagt, was
 wirklich eingestellt ist (beim Pico ergibt `cpu_clock_khz(2500)` zum Beispiel 2400).
 
@@ -211,6 +211,47 @@ Dieselbe Arbeit wie beim ESP32 (`clockspeed`), die Zeiten mit `millis()`, und 3 
 Mit verbundenem WLAN, bei jedem Wechsel zwischen 80 und 160 MHz: jeweils 4 von 4 Pings zum Router und eine
 DNS-Abfrage.
 
+## ESP32-S31
+
+### Die Takte
+
+| Takt | Quelle | mit `cpu_clock` | mit `cpu_clock_khz` | bei laufendem WLAN |
+|---|---|---|---|---|
+| 320, 160, 80, 53 MHz | CPLL (320 MHz geteilt durch 1, 2, 4, 6) | ✓ | ✓ (320000 … 53333) | ✓ |
+| 40, 20, 10, 8, 5, 4, 2, 1 MHz | Quarz (40 MHz geteilt durch 1 … 40) | ✓ | ✓ (40000 … 1000) | – |
+| 975 kHz bis 156 kHz | Quarz geteilt durch 41 … 255 | – | ✓ | – |
+
+Nach einem Reset läuft die Konsole mit 160 MHz. 53 MHz sind genau 53,3 MHz (`cpu_clock` gibt 53 zurück,
+`cpu_clock_khz` 53333).
+
+- **Der USB-Anschluss hängt nicht am Takt des Kerns:** Anders als beim ESP32-S3 und ESP32-C3 arbeitet die Konsole des
+  S31 bei jedem Takt weiter. Ausprobiert bis 156 kHz: Ausgabe, `info`, `ls` und sogar das Hochladen eines Programms
+  (bei 1 MHz 2,8 s statt 0,9 s). Deshalb behält die Konsole jeden Takt.
+- **320 MHz** braucht eine Stufe mehr Spannung am Kern. `cpu_clock` hebt sie vor dem Wechsel an und lässt sie danach
+  dort bis zum Reset (siehe [Wie es innen arbeitet](#wie-es-innen-arbeitet)). 240 MHz gibt es nicht: Dafür wäre ein
+  zweiter PLL nötig, und 320 MHz sind ohnehin schneller.
+- **WLAN:** Das WLAN braucht den PLL. Läuft es, geben die Takte vom Quarz -1; vorher in der Konsole `wlan off`.
+  Zwischen 320, 160, 80 und 53 MHz bleibt die Verbindung bestehen. `wlan on` bei einem Takt vom Quarz schaltet zuerst
+  auf 160 MHz zurück.
+- **`millis()` und das Terminal** laufen bei jedem Takt richtig weiter, `millis()` zählt einen Zeitgeber vom Quarz.
+  Unter 1 MHz rechnet das ROM mit einem Takt pro Mikrosekunde, seine Wartezeiten werden dort länger; `millis()` stimmt.
+- **`info`** rechnet den Takt aus den Registern aus und zeigt unter 1 MHz kHz an („core at 156 kHz“); der Board
+  Manager zeigt es ebenso.
+- **Die RGB-LED** (die Funktion `rgb` der Konsole) braucht einen hohen Takt, etwa 160 MHz: Ihr Zeitverhalten ist in
+  Takten des Kerns gemessen.
+
+### Gemessen
+
+Dieselbe Arbeit wie beim ESP32 (`clockspeed`), die Zeiten mit `millis()`; 3 s nach `millis()` am PC bei jedem Takt
+von 160 MHz bis 156 kHz 2979 bis 3033 ms:
+
+| Takt | 320 | 160 | 80 | 53 | 40 | 20 | 10 | 5 | 2 | 1 MHz |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Zeit (ms) | 10 | 19 | 39 | 58 | 77 | 155 | 310 | 620 | 1550 | 3101 |
+
+Bei 320 MHz liefen 2000 Rechnungen mit Prüfsumme (je 15 ms, mit viel Speicherzugriff) alle richtig. Mit verbundenem
+WLAN, bei jedem Wechsel zwischen 320, 160, 80 und 53 MHz: jeweils 4 von 4 Pings zum Router und eine DNS-Abfrage.
+
 ## Raspberry Pi Pico und Pico 2
 
 ### Die Takte
@@ -302,7 +343,6 @@ Beim Pico passt `khz * 50000` ab etwa 43 MHz nicht mehr in 32 Bit; dort rechnet 
 
 | Board | Stand |
 |---|---|
-| ESP32-S31 | noch nicht; sein Taktsystem ist noch nicht untersucht |
 | Raspberry Pi Pico W-2023 (Klon mit ESP8285) | die Bibliothek des Pico gilt; ungetestet ist das WLAN über den ESP8285 bei tiefem Takt |
 | LilyGO T-PicoC3 | die RP2040-Seite wie ein Pico (ungetestet), die C3-Seite wie der ESP32-C3 |
 
@@ -365,6 +405,24 @@ WLAN-Dienst stellt den Takt nur beim ersten Start nach einem Reset ein; ab Versi
 PLL, statt immer 160 MHz zu nehmen. Am Programmende prüft die Konsole nur, ob der Kern vom Quarz unter 10 MHz läuft
 (oder von RC_FAST), und schaltet dann auf den Quarz ungeteilt zurück (`boards/esp32c3/console_clock.asm`).
 
+**ESP32-S31.** Wie ESP-IDF (`rtc_clk.c` und `clk_tree_ll.h` für den S31): Die Konsole stellt beim Start den CPLL auf
+320 MHz und lässt ihn an. In `HP_SYS_CLKRST` (0x20587000) wählt `SOC_CLK_SEL` die Quelle (0 Quarz, 1 CPLL); dahinter
+haben Kern (8 Bit), Speicher (1 Bit, vom Kern), Systembus (vom Kern) und APB (vom Systembus) je einen Teiler, und
+`SOC_CLK_UPDATE` übernimmt alles auf einmal. 320 MHz: Kern /1, Speicher /2 (160 MHz), Systembus /3 (106,7 MHz), APB /2
+(53,3 MHz); 160 MHz: /2, /1, /2, /2; 80 MHz: /4, /1, /1, /2; 53 MHz: /6 und sonst /1; vom Quarz alles bis auf den Kern
+/1. Danach bekommt das ROM die Takte pro Mikrosekunde (`ets_update_cpu_frequency`).
+
+Die Spannung des Kerns steht in `PMU_HP_ACTIVE_HP_REGULATOR0` (0x20704034), im Feld `dbias` (Bits 31 … 27); mit
+`DBIAS_SEL` 1 gilt dieses Register. Das Boot-ROM lässt 24, ESP-IDF stellt ohne automatische Regelung (PVT) fest 26 ein,
+für alle Takte. `cpu_clock(320)` hebt auf 26 an, wenn es tiefer steht. Gemessen lief 320 MHz auch mit 24 fehlerfrei;
+26 ist die Reserve, die ESP-IDF vorsieht. Mit PVT, dem Standard von ESP-IDF, regelt der Chip die Spannung nach seiner
+Kalibrierung im eFuse selbst nach; das macht Asmonite nicht.
+
+Damit das WLAN mit allen Takten fehlerfrei läuft, waren in der Konsole zwei Dinge nötig: `wlan on` schaltet von einem
+Takt vom Quarz zuerst auf 160 MHz (`clock_init`), denn der Funkteil braucht den PLL; und `wlan off` schaltet das WLAN
+auch dann ab, wenn ein Programm es selbst gestartet hat, sonst blieben die Takte vom Quarz gesperrt. Ob das WLAN
+läuft, sagt der WLAN-Dienst über `wifi_state` (derselbe Dienst wie beim C3, ab Version 7).
+
 **Pico, Pico 2.** clk_sys kommt in der Konsole vom USB-PLL (48 MHz). `cpu_clock` stellt den PLL_SYS ein, wie es das
 Pico SDK tut: 12 MHz × FBDIV / (POSTDIV1 × POSTDIV2), der VCO zwischen 750 und 1600 MHz; gesucht werden die
 Nachteiler von oben, bis ein VCO passt. Der Wechsel geht, wie das Datenblatt es verlangt: clk_sys auf clk_ref
@@ -377,6 +435,7 @@ USB-PLL statt von clk_sys. Am Programmende schaltet die Konsole nur zurück, wen
 ## Mehr
 
 - Die Bibliotheken: `abelle/lib/esp32/cpuclock.abel`, `abelle/lib/esp32s3/cpuclock.abel`,
-  `abelle/lib/esp32c3/cpuclock.abel`, `abelle/lib/pico/cpuclock.abel`, `abelle/lib/pico2/cpuclock.abel` (der Kopf jeder Datei beschreibt sie genau).
+  `abelle/lib/esp32c3/cpuclock.abel`, `abelle/lib/esp32s31/cpuclock.abel`, `abelle/lib/pico/cpuclock.abel`,
+  `abelle/lib/pico2/cpuclock.abel` (der Kopf jeder Datei beschreibt sie genau).
 - Die Sprache aBelle: [abelle/README.md](../../abelle/README.md).
 - Die Boards und ihre Konsolen: [boards.md](boards.md).

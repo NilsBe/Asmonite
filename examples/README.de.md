@@ -56,19 +56,19 @@ des Kerns ändern](../docs/de/takt.md).
 - `common/bench.abel`: **Wie schnell ist das Board?** Vier kleine Aufgaben (das Sieb des Eratosthenes, CRC-32,
   Divisionen, Aufrufe einer Funktion), auf jedem Board dieselbe Arbeit, mit der Zeit für jede und der Summe; es läuft
   auch unter Windows, als Maßstab.
-- `esp32/clockspeed.abel`, `esp32s3/clockspeed.abel`, `esp32c3/clockspeed.abel`, `pico/clockspeed.abel`,
-  `pico2/clockspeed.abel`: **Dieselbe Arbeit bei jedem Takt.** Misst die Zeit einer Schleife bei jedem Takt des
-  Kerns; `cpu_clock` aus `cpuclock.abel` setzt den Takt (ESP32 1 bis 240 MHz, ESP32-S3 10 bis 240 MHz, ESP32-C3 10
-  bis 160 MHz, Pico 48 bis 133 MHz, Pico 2 48 bis 150 MHz). Am Ende stellt es den Takt wieder ein, den es vorgefunden
-  hat.
+- `esp32/clockspeed.abel`, `esp32s3/clockspeed.abel`, `esp32c3/clockspeed.abel`, `esp32s31/clockspeed.abel`,
+  `pico/clockspeed.abel`, `pico2/clockspeed.abel`: **Dieselbe Arbeit bei jedem Takt.** Misst die Zeit einer Schleife
+  bei jedem Takt des Kerns; `cpu_clock` aus `cpuclock.abel` setzt den Takt (ESP32 1 bis 240 MHz, ESP32-S3 10 bis 240
+  MHz, ESP32-C3 10 bis 160 MHz, ESP32-S31 1 bis 320 MHz, Pico 48 bis 133 MHz, Pico 2 48 bis 150 MHz). Am Ende stellt
+  es den Takt wieder ein, den es vorgefunden hat.
 - `esp32/slowclock.abel`, `pico/slowclock.abel`, `pico2/slowclock.abel`: **Blinken bei wenigen kHz.** Die LED blinkt
   einmal je Sekunde, auch wenn `cpu_clock_khz` den Kern auf etwa 5 kHz (ESP32) oder 1 kHz (Pico, Pico 2) bringt; das
   Programm zählt dafür Takte statt Millisekunden. Auf dem ESP32 vorher `wlan off`.
-- `esp32/setclock.abel`, `esp32s3/setclock.abel`, `esp32c3/setclock.abel`, `pico/setclock.abel`,
-  `pico2/setclock.abel`: **Den Takt der Konsole setzen.** Der Takt gilt dann für die Konsole und jedes Programm
-  danach, bis zum Reset: hochladen, dann `setclock 240` (ESP32, ESP32-S3), `setclock 160` (ESP32-C3), `setclock 133`
-  (Pico) oder `setclock 150` (Pico 2) in der Konsole; `setclock` allein zeigt den Takt, `info` und der Board Manager
-  zeigen ihn auch.
+- `esp32/setclock.abel`, `esp32s3/setclock.abel`, `esp32c3/setclock.abel`, `esp32s31/setclock.abel`,
+  `pico/setclock.abel`, `pico2/setclock.abel`: **Den Takt der Konsole setzen.** Der Takt gilt dann für die Konsole
+  und jedes Programm danach, bis zum Reset: hochladen, dann `setclock 240` (ESP32, ESP32-S3), `setclock 160`
+  (ESP32-C3), `setclock 320` (ESP32-S31), `setclock 133` (Pico) oder `setclock 150` (Pico 2) in der Konsole;
+  `setclock` allein zeigt den Takt, `info` und der Board Manager zeigen ihn auch.
 
 ## Für ein Board
 

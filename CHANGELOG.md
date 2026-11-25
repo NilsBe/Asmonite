@@ -39,6 +39,13 @@ existing sources mean; such changes are listed under "Changed" and marked **(sou
   10, 40, 80 and 160 MHz. New console (Prepare Board) and WiFi service version 7 (Install WiFi; it can say whether the
   WiFi runs, and its first start keeps a clock from the PLL). Examples `examples/esp32c3/clockspeed.abel` and
   `setclock.abel`.
+- **aBelle: the clock of the core on the ESP32-S31**: `cpu_clock(mhz)` of `abelle/lib/esp32s31/cpuclock.abel`: 320, 160,
+  80 or 53 MHz from the PLL, 40 MHz divided by a whole number from the crystal down to 1 MHz (not while the WiFi runs),
+  with `cpu_clock_khz` down to 156 kHz. The USB port of the S31 keeps working at every clock, so the console keeps
+  every clock too; for 320 MHz the voltage of the core goes up one step. `info` shows the real clock, below 1 MHz in
+  kHz (the Board Manager too). Measured: the same work takes 3101, 310, 77, 19 and 10 ms at 1, 10, 40, 160 and 320 MHz;
+  with the WiFi connected, pings and DNS work at 320, 160, 80 and 53 MHz. New console (Prepare Board). Examples
+  `examples/esp32s31/clockspeed.abel` and `setclock.abel`.
 - **Board Manager: a context menu for the files, Examples...**: a right click on a file gives Run for a program, Open in
   Editor for a text file (a copy; both also Enter or a double click), Autostart, Download and Delete (also Del), instead
   of their buttons; Upload File and Refresh (F5) stay as buttons and are in the menu too. Files dragged from the
@@ -97,8 +104,8 @@ existing sources mean; such changes are listed under "Changed" and marked **(sou
   there too now (in the ZIP it always was).
 
 ### Fixed
-- **ESP32-C3: wlan off without a saved network**: when the board kept no network, `wlan off` did nothing, so a WiFi that
-  a program had started stayed on. It now switches the WiFi off in any case.
+- **ESP32-C3, ESP32-S31: wlan off without a saved network**: when the board kept no network, or when a program had
+  started the WiFi itself, `wlan off` did nothing and the WiFi stayed on. It now switches the WiFi off in any case.
 - **Serial tab: "Integer overflow" messages right after connecting**: in the first half second after the tab Serial
   connected to a board, a timer could report an integer overflow, several times in a row.
 - **File > Open starts in the folder of the file opened last**: also when it was opened from Open Recent or from

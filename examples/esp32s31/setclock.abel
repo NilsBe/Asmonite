@@ -1,0 +1,45 @@
+# Setclock: the clock of the core for the console and every program after it, until a reset. Upload it, then type
+# in the console:
+#   setclock 80       the core at 80 MHz from now on (also 320, 160, 53; 40, 20, 10, 8, 5, 4, 2, 1 with the WiFi off)
+#   setclock          says the clock now
+# The console keeps the clock a program leaves (cpu_clock of cpuclock.abel); info and the Board Manager (the line
+# "CPU clock") show it, and the WiFi keeps it too. After a reset the console runs at its own clock again (160 MHz);
+# for another clock from the start, make a program for boot ("boot <name>") that calls cpu_clock.
+
+target "esp32s31"
+
+include "console.abel"
+include "cpuclock.abel"
+
+# the number at the start of a ("80"), -1 when there is none
+def number(a: pchar) i32:
+    k = 0
+    while a[k] == ' ':
+        k += 1
+    if a[k] < '0' or a[k] > '9':
+        return -1
+    v = 0
+    while a[k] >= '0' and a[k] <= '9':
+        v = v * 10 + a[k] - '0'
+        k += 1
+    return v
+
+def main():
+    mhz = number(args())
+    if mhz <= 0:
+        print("the core runs at ")
+        print_int(cpu_clock(0))
+        println(" MHz (setclock <MHz> sets another: 320, 160, 80, 53; 40, 20, 10, 8, 5, 4, 2, 1 with the WiFi off)")
+        return
+    got = cpu_clock(mhz)
+    if got < 0:
+        print_int(mhz)
+        print(" MHz is not possible")
+        if mhz <= 40 and 40 % mhz == 0:
+            println(" while the WiFi runs (\"wlan off\" first)")
+        else:
+            println(": 320, 160, 80, 53, or 40 divided by a whole number")
+        return
+    print("the core runs at ")
+    print_int(got)
+    println(" MHz now, also after this program (until a reset)")

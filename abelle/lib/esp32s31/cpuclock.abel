@@ -1,0 +1,103 @@
+# The clock of the core of the ESP32-S31 for aBelle programs, for include "cpuclock.abel" (after include "console.abel").
+# The same names as on the other boards: cpu_clock, cpu_clock_khz. The names of the parameters and local variables here
+# begin with c_, the globals with con_ (as in console.abel).
+#
+# cpu_clock(mhz): the core at 320, 160, 80 or 53 MHz from the CPLL (320 MHz), or at 40, 20, 10, 8, 5, 4, 2 or 1 MHz
+# from the crystal (40 MHz / n; less current, but not while the WiFi runs); 0: only ask. The clock after it, -1 for another
+# value (nothing changes). millis() counts on right (timer 0 of the console counts the crystal), and so does the
+# terminal: the USB port of the S31 does not run from the clock of the core (seen 2026-11-25: the console, its output
+# and an upload at 1 MHz, unlike the ESP32-S3 and the ESP32-C3). The clock stays after the program (the console keeps
+# it, info and the Board Manager show it) until another program changes it or a reset (then 160 MHz); a program that
+# only wants it for a while sets the one it found (cpu_clock(0) at its start) again before it ends.
+#
+# 320 MHz (the default of ESP-IDF on the S31): before it the voltage of the core goes up to dbias 26 (PMU
+# HP_ACTIVE_HP_REGULATOR0 bits 31 .. 27, with DBIAS_SEL 1 the register sets it), the fixed value ESP-IDF takes without
+# PVT (pmu_param.c HP_CALI_DBIAS_DEFAULT) for every clock; the boot ROM leaves 24. It stays at 26 (until a reset). Seen
+# 2026-11-25: 2000 of 2000 checksums right at 320 MHz with 26 (and 20 of 20 with 24). ESP-IDF with PVT (the default, the
+# chip has its calibration: eFuse block version 2) regulates it by itself; not here. Not 240 MHz (another PLL, the
+# BBPLL, and slower than 320). An RGB LED (rgb of the console) needs 160 MHz or so: its timing is in cycles of the core.
+#
+# As ESP-IDF (components/esp_hw_support/port/esp32s31/rtc_clk.c, clk_tree_ll.h; a crystal of 40 MHz): the console sets
+# the CPLL to 320 MHz at its start and leaves it on. HP_SYS_CLKRST: SOC_CLK_SEL (0 the crystal, 1 the CPLL), the
+# dividers of CPU (8 bits and a fraction), MEM (1 bit, from the CPU clock), SYS (from the CPU clock) and APB (from SYS),
+# then SOC_CLK_UPDATE. From the CPLL: 320 = 320 / 1 (MEM 160, SYS 106.7, APB 53.3), 160 = / 2 (MEM 160, SYS 80, APB
+# 40), 80 = / 4 (MEM 80, SYS 80, APB 40), 53 = / 6 (all 53.3); from the crystal all dividers but the one of the CPU 1. Then the cycles in a microsecond for the ROM
+# (ets_update_cpu_frequency: ets_delay_us, the waits of the console, the WiFi service).
+#
+# cpu_clock_khz(khz): the same in kHz, for programs that run on every board: from 1000 kHz in whole MHz as cpu_clock;
+# below, 40000 kHz / n for n up to 255 (the nearest; down to 157 kHz). There the ROM counts with 1 cycle in a
+# microsecond (its delays are too long then); millis() stays right. 0 only asks (in kHz).
+
+con_clk: u32[6] at 0x20587000           # HP_SYS_CLKRST: [0] SOC_CLK_SEL (bits 1 .. 0), [1] CPU_FREQ_CTRL0 (the divider
+                                        # - 1 bits 7 .. 0, numerator 10 .. 8, denominator 13 .. 11), [2] MEM (bit 0),
+                                        # [3] SYS, [4] APB (bits 7 .. 0), [5] ROOT_CLK_CTRL0 (bit 0 SOC_CLK_UPDATE)
+def con_set_ticks(c_mhz) at 0x2F800044  # ets_update_cpu_frequency
+def con_delay_us(c_us) at 0x2F80003C    # ets_delay_us
+con_svc: u32[2] at 0x2F03A000           # "WSVC" when the WiFi service is there, then its version
+def con_svc_state() i32 at 0x2F03A058   # wifi_state of the service (version 7): 2 while the WiFi runs
+con_reg0: u32[1] at 0x20704034          # PMU_HP_ACTIVE_HP_REGULATOR0: dbias bits 31 .. 27 (the voltage of the core)
+
+def cpu_clock(c_mhz) i32:
+    c_now = con_clock_khz()
+    if c_mhz == 0: return c_now / 1000
+    if c_now >= 1000 and c_mhz == c_now / 1000: return c_mhz
+    if c_mhz == 320:
+        if (con_reg0[0] >> u32(27)) < u32(26):
+            con_reg0[0] = (con_reg0[0] & ~u32(0xF8000000)) | (u32(26) << u32(27))
+            con_delay_us(40)                    # the voltage first (as the other chips: some 10 us)
+        con_switch(1, 1, 2, 3, 2)
+    elif c_mhz == 160:
+        con_switch(1, 2, 1, 2, 2)
+    elif c_mhz == 80:
+        con_switch(1, 4, 1, 1, 2)
+    elif c_mhz == 53:
+        con_switch(1, 6, 1, 1, 1)
+    elif c_mhz >= 1 and c_mhz <= 40 and 40 % c_mhz == 0:
+        if con_wifi_runs(): return -1           # the WiFi needs the PLL
+        con_switch(0, 40 / c_mhz, 1, 1, 1)
+    else:
+        return -1
+    con_set_ticks(c_mhz)
+    return con_clock_khz() / 1000
+
+def cpu_clock_khz(c_khz) i32:
+    if c_khz == 0: return con_clock_khz()
+    if c_khz >= 1000:
+        if c_khz % 1000 != 0: return -1
+        c_r = cpu_clock(c_khz / 1000)
+        if c_r < 0: return -1
+        return con_clock_khz()
+    if c_khz < 157: return -1
+    if con_wifi_runs(): return -1
+    c_n = (40000 + c_khz / 2) / c_khz            # the nearest divider
+    if c_n > 255: c_n = 255
+    con_set_ticks(1)
+    con_switch(0, c_n, 1, 1, 1)
+    return con_clock_khz()
+
+# the clock now in kHz: the source (the CPLL 320 MHz, the crystal 40 MHz) / the divider of the CPU (53 MHz: 53333)
+def con_clock_khz() i32:
+    c_n = i32(con_clk[1] & 0xFF) + 1
+    if (con_clk[0] & 3) == 1: return 320000 / c_n
+    if (con_clk[0] & 3) == 0: return 40000 / c_n
+    return 0
+
+# the dividers (the CPU from the source, MEM and SYS from the CPU, APB from SYS), the source, then the update
+def con_switch(c_src, c_cpu, c_mem, c_sys, c_apb):
+    con_clk[1] = (con_clk[1] & ~u32(0x3FFF)) | u32(c_cpu - 1)
+    con_clk[2] = (con_clk[2] & ~u32(1)) | u32(c_mem - 1)
+    con_clk[3] = (con_clk[3] & ~u32(0xFF)) | u32(c_sys - 1)
+    con_clk[4] = (con_clk[4] & ~u32(0xFF)) | u32(c_apb - 1)
+    con_clk[0] = (con_clk[0] & ~u32(3)) | u32(c_src)
+    con_clk[5] = con_clk[5] | u32(1)
+    c_v = con_clk[5]
+    while (c_v & u32(1)) != u32(0):
+        c_v = con_clk[5]
+
+# 1 while the WiFi of the service runs (its mark there and wifi_state 2), else 0; a service before version 7 has no
+# wifi_state: there it counts as running
+def con_wifi_runs() i32:
+    if con_svc[0] != u32(0x43565357): return 0
+    if con_svc[1] < u32(7): return 1
+    if con_svc_state() == 2: return 1
+    return 0

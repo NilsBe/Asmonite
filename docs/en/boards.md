@@ -153,7 +153,7 @@ them now. "–" is missing yet; the aim is the same on every board, as far as it
 | aBelle: F9 (over the console), `gpio_output`, `gpio_write` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | aBelle: F9 with a breakpoint, F7, F8, the variables | ✓ | ✓ | ✓ | ✓ | ✓ |
 | aBelle: network programs (`ping`, `dns`, `ntp`, `httpget` …) | ✓ | ✓ | ✓ (W, clone) | ✓ | `scan`, `arpscan`, `ping` ✓, the others not tried yet |
-| aBelle: the clock of the core (`cpu_clock`, `cpu_clock_khz`; [clock.md](clock.md)) | ✓ (5 kHz … 240 MHz) | ✓ (10 … 240 MHz) | ✓ (1 kHz … 133 or 150 MHz) | ✓ (10 … 160 MHz) | – |
+| aBelle: the clock of the core (`cpu_clock`, `cpu_clock_khz`; [clock.md](clock.md)) | ✓ (5 kHz … 240 MHz) | ✓ (10 … 240 MHz) | ✓ (1 kHz … 133 or 150 MHz) | ✓ (10 … 160 MHz) | ✓ (156 kHz … 320 MHz) |
 | aBelle: `telnetd` | ✓ | ✓ | ✓ (W) | – | – |
 | aBelle: `fm`, `webserver` (the board as a web server) | ✓ | ✓ | – | – | – |
 

@@ -158,7 +158,7 @@ jetzt hat. „–“ fehlt noch; das Ziel ist auf jedem Board dasselbe, soweit s
 | aBelle: F9 (über die Konsole), `gpio_output`, `gpio_write` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | aBelle: F9 mit Breakpoint, F7, F8, die Variablen | ✓ | ✓ | ✓ | ✓ | ✓ |
 | aBelle: Netzwerkprogramme (`ping`, `dns`, `ntp`, `httpget` …) | ✓ | ✓ | ✓ (W, Klon) | ✓ | `scan`, `arpscan`, `ping` ✓, die anderen noch nicht ausprobiert |
-| aBelle: der Takt des Kerns (`cpu_clock`, `cpu_clock_khz`; [takt.md](takt.md)) | ✓ (5 kHz … 240 MHz) | ✓ (10 … 240 MHz) | ✓ (1 kHz … 133 bzw. 150 MHz) | ✓ (10 … 160 MHz) | – |
+| aBelle: der Takt des Kerns (`cpu_clock`, `cpu_clock_khz`; [takt.md](takt.md)) | ✓ (5 kHz … 240 MHz) | ✓ (10 … 240 MHz) | ✓ (1 kHz … 133 bzw. 150 MHz) | ✓ (10 … 160 MHz) | ✓ (156 kHz … 320 MHz) |
 | aBelle: `telnetd` | ✓ | ✓ | ✓ (W) | – | – |
 | aBelle: `fm`, `webserver` (das Board als Webserver) | ✓ | ✓ | – | – | – |
 
