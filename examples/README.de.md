@@ -40,6 +40,27 @@ Für die Boards mit WLAN. Außer `scan` brauchen sie ein Netz: einmal `wlan set`
   aus dem ausgeschalteten Zustand startet (oben in `pc_mac()` die MAC des PCs setzen, oder `wol 02:00:00:12:34:56`);
   mit der Adresse des PCs nach der MAC wartet es danach, bis der PC auf einen Ping antwortet. Board und PC müssen im
   selben Netz sein.
+- `common/udpecho.abel`: **UDP-Echo.** Schickt jedes UDP-Paket an Port 7777 unverändert an den Absender zurück und
+  zeigt es an; vom PC aus mit einer Zeile Python oder PowerShell (oben in der Datei). Board und PC müssen im selben
+  Netz sein.
+- `common/dhcp.abel`: **Die Adresse vom Router (DHCP).** Holt eine Adresse per DHCP und zeigt, was der Router
+  mitgibt: Adresse, Maske, Netz- und Broadcast-Adresse, wie viele Geräte ins Netz passen, Router, DNS- und
+  DHCP-Server, Lease-Zeit und den Namen des Boards.
+- `common/dns.abel`: **Namen in Adressen (DNS).** Fragt den DNS-Server des Routers nach den Adressen einiger Namen
+  und zeigt jede mit der Zeit der Antwort, dann noch einmal (aus seinem Cache, schneller); `dns asmonite.com` in der
+  Konsole fragt nur diesen Namen.
+- `common/ntp.abel`: **Die Uhrzeit aus dem Netz (NTP).** Fragt den Zeitserver der PTB (oder `ntp pool.ntp.org` einen
+  anderen) und zeigt Datum und Uhrzeit in UTC und in MEZ bzw. MESZ (die Sommerzeit nach der Regel der EU) und wie
+  lange die Antwort brauchte.
+- `common/webserver.abel`, `common/index.html`: **Ein Webserver für die Dateien des Boards.** Liefert die Dateien des
+  Boards an den Browser: `http://<adresse>/` gibt `index.html` (daneben eine kleine zum Hochladen), `/hello.txt` die
+  Datei hello.txt; der Typ kommt aus der Endung (html, txt, css, js, png, jpg ...), ein unbekannter Name gibt 404.
+  Auch unter `http://<name>.local/` (mDNS). Große Dateien kommen langsam (etwa 14 KB/s).
+- `esp32/telnetd.abel`, `esp32s3/telnetd.abel`, `pico/telnetd.abel`, `pico2/telnetd.abel`: **Eine kleine Shell über
+  das Netz (telnet).** Wartet auf Port 23 auf einen Telnet-Client (`telnet esp32.local` oder PuTTY mit Telnet) und
+  hat Befehle für die Dateien (`ls`, `cat`, `hex`, `df`), den Speicher (`mem`), das Netz (`ip`, `ping`, `dns`), die
+  LED (beim S3 die RGB-LED: `led 0 0 32`), `uptime` und `reset`; mit `passwd set` in der Konsole fragt es nach dem
+  Passwort, mit `boot telnetd` startet es nach jedem Reset.
 - `common/httpget.abel`: **Eine Webseite holen.** Über TCP, wie ein Browser sie anfragt: die Statuszeile und die
   Kopfzeilen der Antwort, der Titel der Seite, ihre Bytes und die Zeit (`httpget` fragt example.com, `httpget
   neverssl.com/` oder `httpget http://192.168.1.20:8080/status` eine andere Adresse); nur http.

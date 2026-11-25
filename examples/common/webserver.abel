@@ -1,0 +1,250 @@
+# A web server for the files of the board: the board connects to the network it keeps (wlan set in the console), gets
+# an address by DHCP and answers each request on TCP port 80 with a file of its file system (the files the Board
+# Manager shows): http://<address>/hello.txt gives the file hello.txt, http://<address>/ gives index.html. A browser in
+# the same network shows them; the board can be found by its name too (mDNS: http://<name>.local/, the name of "name"
+# in the console). The same source for the ESP32, the ESP32-S3, the ESP32-C3, the ESP32-S31, the Pico W and the Pico
+# 2 W: Asmonite translates it for the board of Project > aBelle for, include "tcp.abel" takes the small IP stack of
+# aBelle with TCP and the WiFi of that board from abelle\lib. Start it with F9, or upload it and type "webserver" in
+# the console; it runs until Ctrl+C (Stop in the tab Serial of Asmonite).
+#
+# A page: upload index.html (next to this file: a small one) with the Board Manager ("Upload File..."), then open the
+# address the board shows. Without an index.html the board answers with a page of its own that says so. A file name
+# on the board has 1 to 19 characters and no folders: a page refers to its pictures and style sheets by their names
+# ("logo.png", "style.css"). The type of a file comes from its ending (html, txt, css, js, json, png, jpg, gif, svg,
+# ico); a name that is not on the board gives "404 Not Found".
+#
+# HTTP as simple as it gets: one connection at a time, closed after each answer (HTTP/1.0, Connection: close); GET and
+# HEAD; the head of a request may be 1 KB long (the rest of a longer one is not read). A page comes in a fraction of a
+# second; a large file slowly (about 14 KB/s, a picture of 100 KB in 7 s): TCP of aBelle has one segment of 1400
+# bytes on its way at a time, and a PC waits up to 200 ms before it acknowledges a single one.
+include "console.abel"
+include "tcp.abel"
+
+PORT = 80
+REQ_MAX = 1024
+CHUNK = 1400                        # the bytes of a file read and sent at a time (one TCP segment)
+req: char[1028]                     # the request
+out: char[1400]                     # the head of the answer, then the parts of the file
+fname: char[24]                     # the name of the file asked for
+page: char[512]                     # a page of the board itself
+digits10: char[12]
+
+# the text s at p: the place behind it
+def add_text(p: pchar, s: pchar) pchar:
+    i = 0
+    while s[i] != 0:
+        p[i] = s[i]
+        i += 1
+    return p + i
+
+# the number v (0 or more) at p in decimal: the place behind it
+def add_int(p: pchar, v) pchar:
+    k = 0
+    while True:
+        digits10[k] = '0' + v % 10
+        k += 1
+        v = v / 10
+        if v == 0:
+            break
+    for i in 0..k:
+        p[i] = digits10[k - 1 - i]
+    return p + k
+
+# 1 when the head of the request (up to an empty line) is in its n bytes
+def head_done(n) i32:
+    for i in 0..n - 3:
+        if req[i] == 13 and req[i + 1] == 10 and req[i + 2] == 13 and req[i + 3] == 10:
+            return True
+    return False
+
+# 1 when the name ends with ext (".html"), the case of the letters aside
+def ends_with(name: pchar, ext: pchar) i32:
+    n = text_len(name)
+    e = text_len(ext)
+    if n < e:
+        return False
+    for i in 0..e:
+        c = name[n - e + i]
+        if c >= 'A' and c <= 'Z':
+            c = c + 32
+        if c != ext[i]:
+            return False
+    return True
+
+# the type of a file by its ending
+def content_type(name: pchar) pchar:
+    if ends_with(name, ".html") or ends_with(name, ".htm"):
+        return "text/html; charset=utf-8"
+    if ends_with(name, ".txt"):
+        return "text/plain; charset=utf-8"
+    if ends_with(name, ".css"):
+        return "text/css"
+    if ends_with(name, ".js"):
+        return "text/javascript"
+    if ends_with(name, ".json"):
+        return "application/json"
+    if ends_with(name, ".png"):
+        return "image/png"
+    if ends_with(name, ".jpg") or ends_with(name, ".jpeg"):
+        return "image/jpeg"
+    if ends_with(name, ".gif"):
+        return "image/gif"
+    if ends_with(name, ".svg"):
+        return "image/svg+xml"
+    if ends_with(name, ".ico"):
+        return "image/x-icon"
+    return "application/octet-stream"
+
+# the file name of the path in the first line of the request ("GET /hello.txt HTTP/1.1") into fname: "index.html"
+# for "/"; 1 when it is one the board can have (1 to 19 letters, digits, '.', '-', '_'), else 0
+def path_name(start) i32:
+    k = start
+    while req[k] == ' ':
+        k += 1
+    if req[k] != '/':
+        return False
+    k += 1
+    n = 0
+    while req[k] != ' ' and req[k] != '?' and req[k] != '#' and req[k] != 13 and req[k] != 0:
+        c = req[k]
+        ok = (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c >= '0' and c <= '9') or c == '.' or c == '-'
+        if not ok and c != '_':
+            return False
+        if n == 19:
+            return False
+        fname[n] = c
+        n += 1
+        k += 1
+    fname[n] = 0
+    if n == 0:
+        copy(fname, "index.html", 11)
+    return True
+
+# the head of an answer: its status line, the type and the length of the body
+def send_head(status: pchar, ctype: pchar, length):
+    p = add_text(out, "HTTP/1.0 ")
+    p = add_text(p, status)
+    p = add_text(p, "\r\nContent-Type: ")
+    p = add_text(p, ctype)
+    p = add_text(p, "\r\nContent-Length: ")
+    p = add_int(p, length)
+    p = add_text(p, "\r\nConnection: close\r\n\r\n")
+    tcp_send(out, p - out)
+
+# a short page of the board itself (404, no index.html, a method it does not know)
+def send_page(status: pchar, title: pchar, text: pchar, body):
+    p = add_text(page, "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>")
+    p = add_text(p, title)
+    p = add_text(p, "</title></head><body><h1>")
+    p = add_text(p, title)
+    p = add_text(p, "</h1><p>")
+    p = add_text(p, text)
+    p = add_text(p, "</p></body></html>\r\n")
+    n = p - page
+    send_head(status, "text/html; charset=utf-8", n)
+    if body:
+        tcp_send(page, n)
+
+# the file fname (size bytes) in parts of CHUNK bytes; the bytes sent
+def send_file(size) i32:
+    off = 0
+    while off < size:
+        k = file_read(fname, out, off, CHUNK)
+        if k <= 0:
+            break
+        if tcp_send(out, k) < 0:
+            break
+        off += k
+    return off
+
+# one request, after the connection stands: read its head, answer, log a line
+def serve(count):
+    t0 = wifi_millis()
+    n = 0
+    while n < REQ_MAX:
+        k = tcp_recv(req + n, REQ_MAX - n, 3000)
+        if k <= 0:
+            break
+        n += k
+        if head_done(n):
+            break
+    req[n] = 0
+    status = 0
+    sent = 0
+    body = True
+    if n > 4 and req[0] == 'G' and req[1] == 'E' and req[2] == 'T' and req[3] == ' ':
+        ok = path_name(4)
+    elif n > 5 and req[0] == 'H' and req[1] == 'E' and req[2] == 'A' and req[3] == 'D' and req[4] == ' ':
+        ok = path_name(5)
+        body = False
+    else:
+        ok = -1
+    if ok < 0:
+        copy(fname, "-", 2)
+        send_page("501 Not Implemented", "501 Not Implemented", "The board answers GET and HEAD only.", body)
+        status = 501
+    elif not ok:
+        copy(fname, "-", 2)
+        send_page("404 Not Found", "404 Not Found", "No such file on the board.", body)
+        status = 404
+    else:
+        size = file_size(fname)
+        if size >= 0:
+            send_head("200 OK", content_type(fname), size)
+            if body:
+                sent = send_file(size)
+            status = 200
+        elif text_len(fname) == 10 and ends_with(fname, "index.html"):
+            hint = "No index.html on the board yet: upload one with the Board Manager (Upload File...)."
+            send_page("200 OK", "aBelle web server", hint, body)
+            status = 200
+        else:
+            send_page("404 Not Found", "404 Not Found", "No such file on the board.", body)
+            status = 404
+    tcp_close()
+    print_int(count)
+    print(": ")
+    print_ip(tcp_ip)
+    put_char(' ')
+    for i in 0..n:
+        if req[i] == 13 or req[i] == 10 or i == 60:
+            break
+        put_char(req[i])
+    print(" -> ")
+    print_int(status)
+    if sent > 0:
+        print(", ")
+        print_int(sent)
+        print(" bytes")
+    print(", ")
+    print_int(wifi_millis() - t0)
+    println(" ms")
+
+def main():
+    println("web server")
+    net_init()
+    print("connecting to ")
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
+    if r != 0:
+        print("wifi_connect: error ")
+        print_int(r)
+        print(" (")
+        print(wifi_error_text(r))
+        println(")")
+        return
+    if not dhcp_run():
+        println("dhcp: no answer")
+        return
+    mdns_start()
+    print("listening on http://")
+    print_ip(net_ip)
+    print("/ and http://")
+    print(net_name)
+    println(".local/ (Ctrl+C ends it)")
+    count = 0
+    while True:
+        tcp_listen(PORT)
+        if tcp_accept(60000):
+            count += 1
+            serve(count)

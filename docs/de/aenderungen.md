@@ -6,7 +6,19 @@ Versionsnummern: MAJOR.MINOR.PATCH. Solange MAJOR 0 ist, darf ein MINOR-Schritt 
 vorhandene Quelltexte bedeuten; solche Änderungen stehen unter „Geändert“ und sind mit
 **(Quelltexte)** markiert.
 
-## Noch nicht veröffentlicht
+## 0.16.0 – 2026-11-25
+
+### Kurz gesagt
+- **Der Takt des Kerns in einem Programm, auf jedem Board**: `cpu_clock(mhz)` auf ESP32, ESP32-S3, ESP32-C3,
+  ESP32-S31, Pico und Pico 2, von 320 MHz (ESP32-S31) bis hinunter zu wenigen kHz; die Konsole behält den Takt, den ein
+  Programm hinterlässt, `info` und der Board Manager zeigen ihn.
+- **Beispiele für das Netz** auf jedem Board mit WLAN: udpecho, dns, ntp, dhcp, webserver (die Dateien des Boards im
+  Browser), httpget, wol und httpsget (HTTPS mit TLS 1.3, in aBelle geschrieben); telnetd, eine kleine Shell über
+  telnet, auf ESP32, ESP32-S3, Pico W und Pico 2 W.
+- **Der Board Manager**: ein Kontextmenü für die Dateien, Examples..., Dateien aus dem Explorer hineinziehen; der Tab
+  Serial arbeitet wie ein Terminal (Strg+C hält das Programm an).
+- **Kryptografie in aBelle** für jedes Board und für Windows: SHA-256, ChaCha20-Poly1305, X25519; und ein Compiler von
+  aBelle für RISC-V, der optimiert (etwa 27 % weniger Code).
 
 ### Neu
 - **aBelle: der Takt des Kerns in einem Programm (ESP32, Pico, Pico 2)**: `cpu_clock(mhz)` aus dem neuen `cpuclock.abel`
@@ -108,8 +120,25 @@ vorhandene Quelltexte bedeuten; solche Änderungen stehen unter „Geändert“ 
   bleibt, wie er ist; Asmonite nimmt den neuen noch nicht.
 - **Die Bibliothek von aBelle im öffentlichen Repository**: `abelle/lib`, das die Beispiele mit `include` einbinden,
   liegt jetzt auch dort (in der ZIP-Datei war es schon immer).
+- **Mehr Beispiele für das Netz, für jedes Board mit WLAN** (in `examples/common`): `udpecho.abel` schickt jedes
+  UDP-Paket an Port 7777 an den Absender zurück; `dns.abel` fragt den DNS-Server des Routers nach einigen Namen, mit der
+  Zeit jeder Antwort; `ntp.abel` zeigt Datum und Uhrzeit von einem Zeitserver, in UTC und in MEZ bzw. MESZ; `dhcp.abel`
+  zeigt, was der Router per DHCP mitgibt (Adresse, Maske, Router, DNS-Server, Lease ...); `webserver.abel` liefert die
+  Dateien des Boards an den Browser (`http://<adresse>/` gibt `index.html`, der Typ aus der Endung, 404 für einen
+  unbekannten Namen; daneben eine kleine `index.html` zum Hochladen).
+- **telnetd, eine kleine Shell über das Netz** (`examples/esp32/telnetd.abel`, `esp32s3`, `pico`, `pico2`; ESP32,
+  ESP32-S3, Pico W und Pico 2 W): `telnet esp32.local` oder PuTTY mit Telnet, Befehle für die Dateien (`ls`, `cat`,
+  `hex`, `df`), den Speicher (`mem`), das Netz (`ip`, `ping`, `dns`), die LED (beim S3 die RGB-LED), `uptime` und
+  `reset`; mit einem Passwort aus `passwd set` in der Konsole fragt es danach.
 
 ### Behoben
+- **Pico W, Pico 2 W: name.local ging nach etwa zwei Minuten nicht mehr**: Der WLAN-Chip der Picos verwarf die
+  mDNS-Fragen (sein Multicast-Filter ließ die Adresse von mDNS nicht durch), der PC fand das Board also nur, solange er
+  sich an die Ankündigung erinnerte. Die Konsole lässt sie jetzt durch; das Board antwortet jederzeit für `name.local`
+  (neue Konsole: Prepare Board).
+- **Die Meldung für ein Programm des Pico auf einem Pico 2** (und umgekehrt) nannte eine Datei, die nicht in der
+  ZIP-Datei ist; jetzt sagt sie, die Zeile `target` zu ändern oder das Board unter Project > aBelle for zu wählen. Drei
+  Meldungen des Board Managers nannten `inc/wifi.abel` statt `net.abel` oder `wifi.abel`.
 - **ESP32-C3, ESP32-S31: wlan off ohne gespeichertes Netz**: Kannte das Board kein Netz oder hatte ein Programm das WLAN
   selbst gestartet, tat `wlan off` nichts, und das WLAN blieb an. Jetzt schaltet es das WLAN in jedem Fall ab.
 - **Tab Serial: Meldungen „Integer overflow“ direkt nach dem Verbinden**: In der ersten halben Sekunde, nachdem sich der

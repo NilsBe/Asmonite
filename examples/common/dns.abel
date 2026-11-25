@@ -1,0 +1,80 @@
+# Names into addresses: the board connects to the network it keeps (wlan set in the console), gets an address by DHCP
+# and asks the DNS server the router gave for the IPv4 address (the A record) of some names; it shows each with the
+# time its answer took, then asks once more (the server has them in its cache now: its answers come faster). One name
+# has a CNAME before its address (www.wikipedia.org), one does not exist (.invalid is never a real name). The same
+# source for the ESP32, the ESP32-S3, the ESP32-C3, the ESP32-S31, the Pico W and the Pico 2 W: Asmonite translates it
+# for the board of Project > aBelle for, include "net.abel" takes the small IP stack of aBelle and the WiFi of that
+# board from abelle\lib. Start it with F9, or upload it and type "dns" in the console; "dns asmonite.com" there asks
+# for that name only.
+#
+# How a question looks (dns_lookup of net.abel): a UDP packet to port 53 with a number, the flag "recursion desired"
+# and the name as labels ("example.com" is 7 example 3 com 0), type A, class IN. The answer has the same number and the
+# question again, then its records: dns_lookup skips the ones that are no A record (a CNAME) and takes the first
+# address.
+include "console.abel"
+include "net.abel"
+
+NAMES = 5
+found: char[4]
+
+# the names to ask for, 0 .. NAMES - 1
+def query_name(i) pchar:
+    if i == 0:
+        return "example.com"
+    if i == 1:
+        return "ptbtime1.ptb.de"
+    if i == 2:
+        return "www.wikipedia.org"
+    if i == 3:
+        return "asmonite.com"
+    return "no-such-name.invalid"
+
+# one name: "example.com = 172.66.147.243  (42 ms)"
+def lookup(name: pchar):
+    print(name)
+    t0 = wifi_millis()
+    ok = dns_lookup(name, found)
+    t = wifi_millis() - t0
+    if ok:
+        print(" = ")
+        print_ip(found)
+    else:
+        print(": no address")
+    print("  (")
+    print_int(t)
+    println(" ms)")
+
+def main():
+    println("DNS")
+    net_init()
+    print("connecting to ")
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
+    if r != 0:
+        print("wifi_connect: error ")
+        print_int(r)
+        print(" (")
+        print(wifi_error_text(r))
+        println(")")
+        return
+    if not dhcp_run():
+        println("dhcp: no answer")
+        return
+    print("ip: ")
+    print_ip(net_ip)
+    print("  dns server: ")
+    print_ip(net_dns)
+    println("")
+    a = args()
+    while a[0] == ' ':
+        a += 1
+    if a[0] != 0:
+        lookup(a)
+    else:
+        for i in 0..NAMES:
+            lookup(query_name(i))
+        println("once more:")
+        for i in 0..NAMES:
+            lookup(query_name(i))
+    wifi_done()
+    println("dns end")

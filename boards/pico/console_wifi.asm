@@ -1658,6 +1658,20 @@ wl_events_up:
     adr  r0, wl_n_mpdu
     movs r1, #4
     bl   wl_set_u32
+    adr  r0, wl_n_mcast             ; mcast_list: one address, the MAC of mDNS (without it the chip drops the
+    ldr  r1, wl9_data               ; questions to 224.0.0.251: name.local only from the cache of the PC; the
+    bl   wl_copy_name               ; drivers set it as cyw43_wifi_update_multicast_filter does)
+    mov  r4, r0
+    ldr  r0, wl9_data
+    adds r0, r0, r4
+    adr  r1, wl_mcast_val
+    movs r2, #10
+    bl   wl_memcpy
+    ldr  r0, wl9_setvar
+    movs r1, #2
+    mov  r2, r4
+    adds r2, r2, #10
+    bl   wl_ioctl
     ldr  r0, wl9_100ms
     bl   wl_wait
     adr  r0, wl_n_events
@@ -2058,6 +2072,12 @@ wl_n_bawsize:
     align 4
 wl_n_mpdu:
     db   'ampdu_mpdu', 0
+    align 4
+wl_n_mcast:
+    db   'mcast_list', 0
+    align 4
+wl_mcast_val:                           ; the count (1), then 01:00:5E:00:00:FB
+    db   1, 0, 0, 0, 0x01, 0x00, 0x5E, 0x00, 0x00, 0xFB
     align 4
 wl_n_escan:
     db   'escan', 0

@@ -1,0 +1,159 @@
+# The time from the internet: the board connects to the network it keeps (wlan set in the console), gets an address
+# by DHCP, finds the time server of the PTB (Physikalisch-Technische Bundesanstalt, Braunschweig, which keeps the
+# official time of Germany) by DNS, asks it by NTP (UDP, port 123) and shows the date and the time in UTC and in the
+# time of Central Europe (CET, in summer CEST: from the last Sunday of March to the last Sunday of October, 01:00 UTC
+# each, as in all of the EU), and how long the answer took. The same source for the ESP32, the ESP32-S3, the ESP32-C3,
+# the ESP32-S31, the Pico W and the Pico 2 W: Asmonite translates it for the board of Project > aBelle for, include
+# "net.abel" takes the small IP stack of aBelle and the WiFi of that board from abelle\lib. Start it with F9, or
+# upload it and type "ntp" in the console; "ntp pool.ntp.org" there asks another time server.
+#
+# NTP: the question is 48 bytes, the first one 0x23 (no leap second warning, version 4, mode 3: a client), the rest 0.
+# The answer has the time the server sent it at byte 40: the seconds since 1900-01-01 (32 bits, big endian), then
+# their fraction. The board has no clock of its own that keeps the date: this is how it learns it.
+include "console.abel"
+include "net.abel"
+
+ntp_server: char[4]                 # the address of the time server
+NTP_TO_UNIX = 0x83AA7E80            # the seconds from 1900 to 1970 (2208988800)
+
+# the time server unless one is given
+def ntp_name() pchar:
+    return "ptbtime1.ptb.de"
+
+# 1 in a leap year
+def leap(year) i32:
+    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+
+# the days of a month
+def month_days(year, month) i32:
+    if month == 2:
+        return 28 + leap(year)
+    if month == 4 or month == 6 or month == 9 or month == 11:
+        return 30
+    return 31
+
+# the days from 1970-01-01 to a date
+def days_since_1970(year, month, day) i32:
+    d = day - 1
+    for y in 1970..year:
+        d += 365 + leap(y)
+    for m in 1..month:
+        d += month_days(year, m)
+    return d
+
+# the day of the last Sunday of a month (1970-01-01 was a Thursday)
+def last_sunday(year, month) i32:
+    last = month_days(year, month)
+    weekday = (days_since_1970(year, month, last) + 4) % 7          # 0 Sunday .. 6 Saturday
+    return last - weekday
+
+# the year of the time t (seconds since 1970)
+def year_of(t: u32) i32:
+    days = i32(t / u32(86400))
+    year = 1970
+    while days >= 365 + leap(year):
+        days -= 365 + leap(year)
+        year += 1
+    return year
+
+# 1 when Central Europe has summer time at t (UTC)
+def summer(t: u32) i32:
+    year = year_of(t)
+    start = u32(days_since_1970(year, 3, last_sunday(year, 3))) * u32(86400) + u32(3600)
+    end = u32(days_since_1970(year, 10, last_sunday(year, 10))) * u32(86400) + u32(3600)
+    return t >= start and t < end
+
+# two digits
+def print_2(v):
+    if v < 10:
+        put_char('0')
+    print_int(v)
+
+# the time t (seconds since 1970) as "2026-11-25 17:30:05"
+def print_time(t: u32):
+    secs = i32(t % u32(86400))
+    days = i32(t / u32(86400))
+    year = 1970
+    while days >= 365 + leap(year):
+        days -= 365 + leap(year)
+        year += 1
+    month = 1
+    while days >= month_days(year, month):
+        days -= month_days(year, month)
+        month += 1
+    print_int(year)
+    put_char('-')
+    print_2(month)
+    put_char('-')
+    print_2(days + 1)
+    put_char(' ')
+    print_2(secs / 3600)
+    put_char(':')
+    print_2(secs / 60 % 60)
+    put_char(':')
+    print_2(secs % 60)
+
+# a question to the time server, the answer up to 3 s: its time (seconds since 1970), 0 when none came
+def ask() u32:
+    p = udp_payload()
+    clear(p, 48)
+    p[0] = 0x23
+    if udp_send(ntp_server, 123, 123, 48) != 0:
+        return u32(0)
+    for i in 0..30:
+        n = net_recv(100)
+        if n >= 48 and udp_sport == 123:
+            return get32(rx + udp_off + 40) - u32(NTP_TO_UNIX)
+    return u32(0)
+
+def main():
+    println("NTP")
+    net_init()
+    print("connecting to ")
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
+    if r != 0:
+        print("wifi_connect: error ")
+        print_int(r)
+        print(" (")
+        print(wifi_error_text(r))
+        println(")")
+        return
+    if not dhcp_run():
+        println("dhcp: no answer")
+        return
+    name = args()
+    while name[0] == ' ':
+        name += 1
+    if name[0] == 0:
+        name = ntp_name()
+    if not dns_lookup(name, ntp_server):
+        print("dns: no address for ")
+        println(name)
+        wifi_done()
+        return
+    print(name)
+    print(" = ")
+    print_ip(ntp_server)
+    println("")
+    t = u32(0)
+    for attempt in 0..3:
+        t0 = wifi_millis()
+        t = ask()
+        if t != u32(0):
+            print("answer after ")
+            print_int(wifi_millis() - t0)
+            println(" ms")
+            break
+        println("no answer, once more")
+    if t != u32(0):
+        print_time(t)
+        println(" UTC")
+        if summer(t):
+            print_time(t + u32(7200))
+            println(" CEST (summer time)")
+        else:
+            print_time(t + u32(3600))
+            println(" CET")
+    wifi_done()
+    println("ntp end")

@@ -9,7 +9,7 @@ Windows und arbeiten mit 32-Bit- und 64-Bit-Intel-Code, mit ARM, mit Xtensa auf 
 kommt **aBelle**, eine kleine Sprache mit der Schreibweise von Python, für Windows und die Boards (ESP32, ESP32-S3,
 ESP32-C3, ESP32-S31, Raspberry Pi Pico und Pico 2), in Asmonite Zeile für Zeile im Quelltext debuggt.
 
-Aktuelle Version: **0.15.0** | Website: [asmonite.com](https://asmonite.com) und
+Aktuelle Version: **0.16.0** | Website: [asmonite.com](https://asmonite.com) und
 [dismonite.com](https://dismonite.com) | Chat: [Discord](https://discord.gg/vVf7yqpyR)
 
 ![Der Editor von Asmonite](assets/editor.png)

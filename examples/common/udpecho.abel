@@ -1,0 +1,79 @@
+# UDP echo: the board connects to the network it keeps (wlan set in the console), gets an address by DHCP and sends
+# every UDP packet that comes to port 7777 back to its sender, as it came; it shows each one (its length, the sender,
+# its first bytes as text). The same source for the ESP32, the ESP32-S3, the ESP32-C3, the ESP32-S31, the Pico W and
+# the Pico 2 W: Asmonite translates it for the board of Project > aBelle for, include "net.abel" takes the small IP
+# stack of aBelle and the WiFi of that board from abelle\lib. Start it with F9, or upload it and type "udpecho" in the
+# console; it runs until Ctrl+C (Stop in the tab Serial of Asmonite).
+#
+# From a PC in the same network (the board shows its address), with Python:
+#   python -c "import socket; s=socket.socket(2,2); s.settimeout(2); s.sendto(b'hello',('192.168.1.20',7777)); print(s.recv(1500))"
+# with the address of the board in place of 192.168.1.20; it prints b'hello'. Or in PowerShell:
+#   $u = New-Object Net.Sockets.UdpClient; $u.Client.ReceiveTimeout = 2000; $u.Connect('192.168.1.20', 7777)
+#   [void]$u.Send([Text.Encoding]::ASCII.GetBytes('hello'), 5); $e = $null; [Text.Encoding]::ASCII.GetString($u.Receive([ref]$e))
+# A guest network mostly keeps its devices from one another: then no packet comes through.
+include "console.abel"
+include "net.abel"
+
+PORT = 7777
+SHOW = 40                           # the bytes of a packet shown as text
+peer: char[4]                       # the sender of the packet
+text: char[44]                      # its first bytes as text
+
+# the packet of n bytes that came (rx + udp_off) back to its sender, and a line about it
+def echo(count, n):
+    copy(peer, rx + udp_from, 4)
+    port = udp_sport
+    k = n
+    if k > SHOW:
+        k = SHOW
+    copy(text, rx + udp_off, k)
+    for i in 0..k:
+        if text[i] < 32 or text[i] > 126:
+            text[i] = '.'
+    text[k] = 0
+    copy(udp_payload(), rx + udp_off, n)
+    r = udp_send(peer, PORT, port, n)
+    print_int(count)
+    print(": ")
+    print_int(n)
+    print(" bytes from ")
+    print_ip(peer)
+    put_char(':')
+    print_int(port)
+    print("  ")
+    print(text)
+    if n > SHOW:
+        print("...")
+    if r != 0:
+        print("  (sending it back: error ")
+        print_int(r)
+        put_char(')')
+    println("")
+
+def main():
+    println("UDP echo")
+    net_init()
+    print("connecting to ")
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
+    if r != 0:
+        print("wifi_connect: error ")
+        print_int(r)
+        print(" (")
+        print(wifi_error_text(r))
+        println(")")
+        return
+    if not dhcp_run():
+        println("dhcp: no answer")
+        return
+    print("listening on ")
+    print_ip(net_ip)
+    put_char(':')
+    print_int(PORT)
+    println(" (Ctrl+C ends it)")
+    count = 0
+    while True:
+        n = net_recv(100)
+        if n > 0 and udp_dport == PORT:
+            count += 1
+            echo(count, n)

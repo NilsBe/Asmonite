@@ -1,0 +1,98 @@
+# The address from the router: the board connects to the network it keeps (wlan set in the console) and asks for an
+# address by DHCP; it shows what the router gave: the address and the mask of the network (and what follows from
+# them: the address of the network, its broadcast address, how many devices fit into it), the router, the DNS server,
+# the DHCP server and how long the address is lent (the lease), and the name the board told the router. The same
+# source for the ESP32, the ESP32-S3, the ESP32-C3, the ESP32-S31, the Pico W and the Pico 2 W: Asmonite translates it
+# for the board of Project > aBelle for, include "net.abel" takes the small IP stack of aBelle and the WiFi of that
+# board from abelle\lib. Start it with F9, or upload it and type "dhcp" in the console.
+#
+# DHCP in four UDP messages (dhcp_run of net.abel), the board from port 68 to the server's port 67, to all
+# (255.255.255.255: it has no address yet): DISCOVER ("who gives me an address?"), the OFFER of the server, REQUEST
+# ("I take this one"), its ACK with the options (1 the mask, 3 the router, 6 the DNS server, 51 the lease, 54 the
+# server). On the ESP32-C3 and the ESP32-S31 the WiFi service of the board does this itself in the background and
+# renews the address; the program only takes it over (there is no lease and no server to show then).
+include "console.abel"
+include "net.abel"
+
+net_addr: char[4]                   # the address of the network (the address AND the mask)
+bcast: char[4]                      # its broadcast address (the address OR NOT the mask)
+
+# the bits set in the mask (24 for 255.255.255.0)
+def prefix_len() i32:
+    n = 0
+    for i in 0..4:
+        for b in 0..8:
+            if (net_mask[i] >> (7 - b)) & 1:
+                n += 1
+    return n
+
+# seconds as "86400 s (24 h 0 min)"
+def print_duration(s):
+    print_int(s)
+    print(" s (")
+    if s >= 86400:
+        print_int(s / 86400)
+        print(" d ")
+    print_int(s / 3600 % 24)
+    print(" h ")
+    print_int(s / 60 % 60)
+    print(" min)")
+
+# a line "label  address"
+def show(label: pchar, ip: pchar):
+    print(label)
+    print_ip(ip)
+    println("")
+
+def main():
+    println("DHCP")
+    net_init()
+    print("connecting to ")
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
+    if r != 0:
+        print("wifi_connect: error ")
+        print_int(r)
+        print(" (")
+        print(wifi_error_text(r))
+        println(")")
+        return
+    t0 = wifi_millis()
+    if not dhcp_run():
+        println("dhcp: no answer")
+        return
+    t = wifi_millis() - t0
+    if wifi_dhcp_by_service():
+        print("the WiFi service of the board has the address (")
+    else:
+        print("DISCOVER, OFFER, REQUEST, ACK (")
+    print_int(t)
+    println(" ms)")
+    show("address:    ", net_ip)
+    print("mask:       ")
+    print_ip(net_mask)
+    print(" (/")
+    p = prefix_len()
+    print_int(p)
+    println(")")
+    for i in 0..4:
+        net_addr[i] = net_ip[i] & net_mask[i]
+        bcast[i] = net_addr[i] | (~net_mask[i] & 0xFF)
+    show("network:    ", net_addr)
+    show("broadcast:  ", bcast)
+    if p >= 8 and p <= 30:
+        print("devices:    up to ")
+        print_int((1 << (32 - p)) - 2)
+        println("")
+    show("router:     ", net_gw)
+    show("dns server: ", net_dns)
+    if not wifi_dhcp_by_service():
+        show("dhcp server:", net_server)
+        print("lease:      ")
+        print_duration(net_lease)
+        println("")
+    print("name:       ")
+    print(net_name)
+    println(" (DHCP option 12; mDNS: name.local)")
+    wifi_done()
+    println("dhcp end")

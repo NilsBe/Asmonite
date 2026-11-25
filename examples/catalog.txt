@@ -102,6 +102,73 @@ example wol
     `pc_mac()` at its top, or `wol 02:00:00:12:34:56`); with the address of the PC after the MAC it then waits until
     the PC answers a ping. The board and the PC have to be in the same network.
 
+example udpecho
+  files: common/udpecho.abel
+  boards: wifi
+  title.de: UDP-Echo
+  title.en: UDP echo
+  de: schickt jedes UDP-Paket an Port 7777 unverändert an den Absender zurück und zeigt es an; vom PC aus mit einer
+    Zeile Python oder PowerShell (oben in der Datei). Board und PC müssen im selben Netz sein.
+  en: sends every UDP packet to port 7777 back to its sender as it came and shows it; from a PC with one line of Python
+    or PowerShell (at the top of the file). The board and the PC have to be in the same network.
+
+example dhcp
+  files: common/dhcp.abel
+  boards: wifi
+  title.de: Die Adresse vom Router (DHCP)
+  title.en: The address from the router (DHCP)
+  de: holt eine Adresse per DHCP und zeigt, was der Router mitgibt: Adresse, Maske, Netz- und Broadcast-Adresse, wie
+    viele Geräte ins Netz passen, Router, DNS- und DHCP-Server, Lease-Zeit und den Namen des Boards.
+  en: gets an address by DHCP and shows what the router gives: the address, the mask, the address of the network and
+    its broadcast address, how many devices fit into it, the router, the DNS and DHCP servers, the lease and the name
+    of the board.
+
+example dns
+  files: common/dns.abel
+  boards: wifi
+  title.de: Namen in Adressen (DNS)
+  title.en: Names into addresses (DNS)
+  de: fragt den DNS-Server des Routers nach den Adressen einiger Namen und zeigt jede mit der Zeit der Antwort, dann
+    noch einmal (aus seinem Cache, schneller); `dns asmonite.com` in der Konsole fragt nur diesen Namen.
+  en: asks the DNS server of the router for the addresses of some names and shows each with the time of its answer,
+    then once more (from its cache, faster); `dns asmonite.com` in the console asks for that name only.
+
+example ntp
+  files: common/ntp.abel
+  boards: wifi
+  title.de: Die Uhrzeit aus dem Netz (NTP)
+  title.en: The time from the internet (NTP)
+  de: fragt den Zeitserver der PTB (oder `ntp pool.ntp.org` einen anderen) und zeigt Datum und Uhrzeit in UTC und in
+    MEZ bzw. MESZ (die Sommerzeit nach der Regel der EU) und wie lange die Antwort brauchte.
+  en: asks the time server of the PTB (or `ntp pool.ntp.org` another one) and shows the date and the time in UTC and in
+    CET or CEST (summer time by the rule of the EU) and how long the answer took.
+
+example webserver
+  files: common/webserver.abel common/index.html
+  boards: wifi
+  title.de: Ein Webserver für die Dateien des Boards
+  title.en: A web server for the files of the board
+  de: liefert die Dateien des Boards an den Browser: `http://<adresse>/` gibt `index.html` (daneben eine kleine zum
+    Hochladen), `/hello.txt` die Datei hello.txt; der Typ kommt aus der Endung (html, txt, css, js, png, jpg ...), ein
+    unbekannter Name gibt 404. Auch unter `http://<name>.local/` (mDNS). Große Dateien kommen langsam (etwa 14 KB/s).
+  en: serves the files of the board to a browser: `http://<address>/` gives `index.html` (next to it a small one to
+    upload), `/hello.txt` the file hello.txt; the type comes from the ending (html, txt, css, js, png, jpg ...), an
+    unknown name gives 404. Also at `http://<name>.local/` (mDNS). Large files come slowly (about 14 KB/s).
+
+example telnetd
+  files: esp32/telnetd.abel esp32s3/telnetd.abel pico/telnetd.abel pico2/telnetd.abel
+  boards: esp32 esp32s3 picow pico2w
+  title.de: Eine kleine Shell über das Netz (telnet)
+  title.en: A small shell over the network (telnet)
+  de: wartet auf Port 23 auf einen Telnet-Client (`telnet esp32.local` oder PuTTY mit Telnet) und hat Befehle für die
+    Dateien (`ls`, `cat`, `hex`, `df`), den Speicher (`mem`), das Netz (`ip`, `ping`, `dns`), die LED (beim S3 die
+    RGB-LED: `led 0 0 32`), `uptime` und `reset`; mit `passwd set` in der Konsole fragt es nach dem Passwort, mit
+    `boot telnetd` startet es nach jedem Reset.
+  en: waits on port 23 for a telnet client (`telnet esp32.local` or PuTTY with Telnet) and has commands for the files
+    (`ls`, `cat`, `hex`, `df`), the memory (`mem`), the network (`ip`, `ping`, `dns`), the LED (the RGB LED of the S3:
+    `led 0 0 32`), `uptime` and `reset`; with `passwd set` in the console it asks for the password, with `boot
+    telnetd` it starts after every reset.
+
 example httpget
   files: common/httpget.abel
   boards: wifi
