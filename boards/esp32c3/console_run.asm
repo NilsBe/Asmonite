@@ -970,6 +970,7 @@ re_after:
     sw   a0, 0(t0)
     sw   a1, 4(t0)
     call key_off
+    call clock_back                     ; below 10 MHz back to 40 MHz (console_clock.asm)
     call flush
     la   t0, prog_code
     lw   t1, 4(t0)

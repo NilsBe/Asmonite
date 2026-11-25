@@ -4,6 +4,10 @@ The ESP32-C3 from Espressif has one RISC-V core (RV32IMC, 160 MHz) and a USB por
 debugger at the same time. Asmonite uses both: it debugs a program in the RAM of the chip and writes it into the
 flash, **with one USB cable, without a debug probe, without OpenOCD and without ESP-IDF**.
 
+> **The examples of this page:** the examples in assembly (`examples/<board>/…`) and some in aBelle that this page names
+> are being gone through again and come into the folder `examples/` one by one; until then they are not in the ZIP and
+> not in the public repository. What is released already is in [examples/README.md](../../examples/README.md).
+
 Tested with the LuatOS ESP32C3-CORE (the simple version with one USB-C port at the chip; 4 MB flash, run in DIO mode;
 LEDs at GPIO 12 and 13) and with a board with two USB-C ports and an RGB LED WS2812 at GPIO 8 (one port goes to the
 chip, the other one to UART0 over a CH340). Other boards whose USB port goes straight to the chip (GPIO 18 and 19) should work the same way;
@@ -129,12 +133,12 @@ program computes, and its own task keeps the connection, answers ARP, ping and m
 the ESP32-S3 DHCP is in the console instead, only because their service has no room for it; there the address is
 renewed only while the console runs.
 
-aBelle: a program with `target "esp32c3"` (`include "inc/console.abel"` of `abelle/examples/esp32c3`: the functions of
+aBelle: a program with `target "esp32c3"` (`include "console.abel"` of `abelle/lib/esp32c3/`: the functions of
 the console) is translated by `abelle_riscv.exe`; F9, F7 and F8 load it over the USB JTAG, the console starts it (the
 stack of the programs, Ctrl+C, `exit`; its output and "Program ended" in the tab Serial) and is at its prompt again
-afterwards, the variables show under the mouse. Compile and Upload puts it onto the board as a file. The network
-programs of `abelle/examples/esp32c3` (`ping`, `dns`, `ntp`, `arpscan`, `httpget`, `dhcp`) use `inc/net.abel` and
-`inc/tcp.abel` as on the ESP32; the address comes from the WiFi service.
+afterwards, the variables show under the mouse. Compile and Upload puts it onto the board as a file. The examples in
+`examples/common/` run here too; those with WiFi (`scan`, `arpscan`, `ping`, `wol`, `httpget` ...) use `net.abel` and
+`tcp.abel` as on the ESP32, the address comes from the WiFi service. `httpsget` is still too large for the C3.
 
 F9 still runs an assembler program over the USB JTAG as above: a program in the RAM stops the console until the next reset; a
 program for the flash (`.target esp32c3 flash`) takes its place (Prepare Board puts it back; the files stay).

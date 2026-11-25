@@ -6,6 +6,11 @@ Reset 8 MHz), 20 KB RAM und 64 oder 128 KB Flash. Asmonite assembliert seinen Co
 Debug-Probe: Breakpoints, Schritte, Pause, die Register, der Speicher. Was das Programm über USART1 sendet, erscheint
 im Reiter Serial, über dieselbe Probe.
 
+> **Die Beispiele dieser Seite:** Die Beispiele in Assembler (`examples/<board>/…`) und einige in aBelle, die diese
+> Seite nennt, werden gerade noch einmal durchgesehen und kommen nach und nach in den Ordner `examples/`; bis dahin
+> fehlen sie in der ZIP-Datei und im öffentlichen Repository. Was schon freigegeben ist, steht in
+> [examples/README.de.md](../../examples/README.de.md).
+
 Getestet mit einer Blue Pill mit einem originalen STM32F103C8 (Geräte-ID 0x410, 128 KB Flash) und der Raspberry Pi
 Debug Probe.
 

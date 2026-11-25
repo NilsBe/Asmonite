@@ -1,0 +1,257 @@
+# ChaCha20, Poly1305 and the AEAD ChaCha20-Poly1305 (RFC 8439) in aBelle, for every board and for Windows: include
+# "chacha20.abel". The cipher of TLS_CHACHA20_POLY1305_SHA256 of TLS 1.3 (stage S2 of the roadmap httpsget).
+#
+#   chacha20_block(key, counter, nonce, out)      the 64 bytes of key stream of the block counter (key 32 bytes,
+#                                                  nonce 12 bytes, counter a u32)
+#   chacha20_xor(key, counter, nonce, data, n)     the n bytes at data XOR the key stream from block counter on (to
+#                                                  encrypt and to decrypt: the same)
+#   poly1305(key, data, n, tag)                    the 16 bytes of the code of data with the one-time key (32 bytes)
+#   poly1305_start(key), poly1305_add(data, n), poly1305_end(tag)     the same in steps
+#   aead_seal(key, nonce, aad, an, data, n, tag)   data encrypted in place, the tag (16 bytes) over aad and data
+#   aead_open(key, nonce, aad, an, data, n, tag)   the tag checked: 1 and data decrypted in place, or 0 (data left)
+#
+# ChaCha20: 16 words (4 constants, the key, the counter, the nonce) mixed by 20 rounds of additions, XORs and
+# rotations, then added to themselves. Poly1305: the message in blocks of 16 bytes and a 1 above them, each added to
+# h, h times r, all modulo p = 2^130 - 5; at the end h + s. aBelle has no 64-bit product: the numbers are 10 limbs of
+# 13 bits (130 bits), a product of two limbs has at most 30 bits, and the sum of ten of them is split into its lower
+# 13 bits and the rest right away (lo, hi), so nothing overflows 32 bits. A limb above limb 9 has the weight 2^130,
+# which is 5 modulo p: it comes back to limb 0 times 5.
+#
+# The names of this file begin with chacha_, poly_ and aead_ (the local ones with ch_, po_ and ae_): in aBelle a local
+# name may not be the name of a global one of the program.
+
+chacha_s: u32[16]                   # the 16 words of the block
+chacha_x: u32[16]                   # the same while the rounds mix them
+chacha_ks: char[64]                 # a block of key stream
+poly_r: u32[10]                     # r (clamped) in limbs of 13 bits
+poly_r5: u32[10]                    # 5 * r: the limbs that wrap around
+poly_h: u32[10]                     # the sum h
+poly_t: u32[10]                     # the product while it is made
+poly_m: u32[10]                     # a block in limbs
+poly_s: char[16]                    # s, added at the end
+poly_buf: char[20]                  # the block being filled (16 bytes, the 1 above, zeros for the reading)
+poly_fill: i32 = 0
+aead_zeros: char[16]
+aead_lengths: char[16]
+aead_tag: char[16]
+
+# ---------- ChaCha20 ----------
+
+# 4 bytes at p as a word, little-endian
+def chacha_get32(ch_p: pchar) u32:
+    return u32(ch_p[0]) | (u32(ch_p[1]) << 8) | (u32(ch_p[2]) << 16) | (u32(ch_p[3]) << 24)
+
+# the quarter round on the words a, b, c, d of chacha_x: a += b, d ^= a, d <<<= 16; c += d, b ^= c, b <<<= 12;
+# a += b, d ^= a, d <<<= 8; c += d, b ^= c, b <<<= 7
+def chacha_quarter(ch_a, ch_b, ch_c, ch_d):
+    chacha_x[ch_a] += chacha_x[ch_b]
+    ch_v = chacha_x[ch_d] ^ chacha_x[ch_a]
+    chacha_x[ch_d] = (ch_v << 16) | (ch_v >> 16)
+    chacha_x[ch_c] += chacha_x[ch_d]
+    ch_v = chacha_x[ch_b] ^ chacha_x[ch_c]
+    chacha_x[ch_b] = (ch_v << 12) | (ch_v >> 20)
+    chacha_x[ch_a] += chacha_x[ch_b]
+    ch_v = chacha_x[ch_d] ^ chacha_x[ch_a]
+    chacha_x[ch_d] = (ch_v << 8) | (ch_v >> 24)
+    chacha_x[ch_c] += chacha_x[ch_d]
+    ch_v = chacha_x[ch_b] ^ chacha_x[ch_c]
+    chacha_x[ch_b] = (ch_v << 7) | (ch_v >> 25)
+
+def chacha20_block(ch_key: pchar, ch_counter: u32, ch_nonce: pchar, ch_out: pchar):
+    # "expand 32-byte k"
+    chacha_s[0] = 0x61707865
+    chacha_s[1] = 0x3320646E
+    chacha_s[2] = 0x79622D32
+    chacha_s[3] = 0x6B206574
+    for ch_i in 0..8:
+        chacha_s[4 + ch_i] = chacha_get32(ch_key + 4 * ch_i)
+    chacha_s[12] = ch_counter
+    for ch_i in 0..3:
+        chacha_s[13 + ch_i] = chacha_get32(ch_nonce + 4 * ch_i)
+    for ch_i in 0..16:
+        chacha_x[ch_i] = chacha_s[ch_i]
+    # 10 double rounds: the columns, then the diagonals
+    for ch_i in 0..10:
+        chacha_quarter(0, 4, 8, 12)
+        chacha_quarter(1, 5, 9, 13)
+        chacha_quarter(2, 6, 10, 14)
+        chacha_quarter(3, 7, 11, 15)
+        chacha_quarter(0, 5, 10, 15)
+        chacha_quarter(1, 6, 11, 12)
+        chacha_quarter(2, 7, 8, 13)
+        chacha_quarter(3, 4, 9, 14)
+    for ch_i in 0..16:
+        ch_v = chacha_x[ch_i] + chacha_s[ch_i]
+        ch_out[4 * ch_i] = i32(ch_v) & 0xFF
+        ch_out[4 * ch_i + 1] = i32(ch_v >> 8) & 0xFF
+        ch_out[4 * ch_i + 2] = i32(ch_v >> 16) & 0xFF
+        ch_out[4 * ch_i + 3] = i32(ch_v >> 24)
+
+def chacha20_xor(ch_key: pchar, ch_counter: u32, ch_nonce: pchar, ch_data: pchar, ch_n):
+    ch_done = 0
+    while ch_done < ch_n:
+        chacha20_block(ch_key, ch_counter, ch_nonce, chacha_ks)
+        ch_k = ch_n - ch_done
+        if ch_k > 64:
+            ch_k = 64
+        for ch_i in 0..ch_k:
+            ch_data[ch_done + ch_i] = ch_data[ch_done + ch_i] ^ chacha_ks[ch_i]
+        ch_done += ch_k
+        ch_counter += 1
+
+# ---------- Poly1305 ----------
+
+# the 130 bits of the 17 bytes at p (little-endian; 3 more bytes for the reading) into the limbs poly_m
+def poly_split(po_p: pchar):
+    for po_i in 0..10:
+        po_bit = 13 * po_i
+        po_q = po_p + (po_bit >> 3)
+        po_v = u32(po_q[0]) | (u32(po_q[1]) << 8) | (u32(po_q[2]) << 16)
+        poly_m[po_i] = (po_v >> (po_bit & 7)) & 0x1FFF
+
+# the carries of h up the limbs, the one above limb 9 times 5 into limb 0, and on once more to limb 1
+def poly_carry():
+    for po_i in 0..9:
+        poly_h[po_i + 1] += poly_h[po_i] >> 13
+        poly_h[po_i] &= 0x1FFF
+    poly_h[0] += (poly_h[9] >> 13) * 5
+    poly_h[9] &= 0x1FFF
+    poly_h[1] += poly_h[0] >> 13
+    poly_h[0] &= 0x1FFF
+
+# h = (h + the block of the 17 bytes at p) * r modulo p
+def poly_block(po_p: pchar):
+    poly_split(po_p)
+    for po_i in 0..10:
+        poly_h[po_i] += poly_m[po_i]
+    po_carry: u32 = 0
+    for po_i in 0..10:
+        # limb i of the product: h[j] * r[i - j], and h[j] * 5 * r[i + 10 - j] for the ones that wrap around
+        po_lo = po_carry
+        po_hi: u32 = 0
+        for po_j in 0..10:
+            if po_j <= po_i:
+                po_x = poly_h[po_j] * poly_r[po_i - po_j]
+            else:
+                po_x = poly_h[po_j] * poly_r5[po_i + 10 - po_j]
+            po_lo += po_x & 0x1FFF
+            po_hi += po_x >> 13
+        poly_t[po_i] = po_lo & 0x1FFF
+        po_carry = (po_lo >> 13) + po_hi
+    for po_i in 0..10:
+        poly_h[po_i] = poly_t[po_i]
+    poly_h[0] += po_carry * 5
+    poly_carry()
+
+def poly1305_start(po_key: pchar):
+    # r: the first 16 bytes, clamped (the top 4 bits of bytes 3, 7, 11, 15 and the low 2 bits of 4, 8, 12 cleared)
+    for po_i in 0..16:
+        poly_buf[po_i] = po_key[po_i]
+    for po_i in 16..20:
+        poly_buf[po_i] = 0
+    poly_buf[3] &= 15
+    poly_buf[7] &= 15
+    poly_buf[11] &= 15
+    poly_buf[15] &= 15
+    poly_buf[4] &= 252
+    poly_buf[8] &= 252
+    poly_buf[12] &= 252
+    poly_split(poly_buf)
+    for po_i in 0..10:
+        poly_r[po_i] = poly_m[po_i]
+        poly_r5[po_i] = poly_m[po_i] * 5
+        poly_h[po_i] = 0
+    for po_i in 0..16:
+        poly_s[po_i] = po_key[16 + po_i]
+    poly_fill = 0
+
+def poly1305_add(po_data: pchar, po_n):
+    for po_i in 0..po_n:
+        poly_buf[poly_fill] = po_data[po_i]
+        poly_fill += 1
+        if poly_fill == 16:
+            # a whole block: the 1 above its 128 bits
+            poly_buf[16] = 1
+            poly_block(poly_buf)
+            poly_fill = 0
+
+def poly1305_end(po_tag: pchar):
+    # the last block, shorter: its bytes, then the 1, then zeros
+    if poly_fill > 0:
+        poly_buf[poly_fill] = 1
+        for po_i in poly_fill + 1..20:
+            poly_buf[po_i] = 0
+        poly_block(poly_buf)
+    # each limb down to 13 bits (poly_carry may leave limb 1 a little above)
+    po_more = True
+    while po_more:
+        poly_carry()
+        po_more = False
+        for po_i in 0..10:
+            if poly_h[po_i] > 0x1FFF:
+                po_more = True
+    # h is below 2^130 now, below 2 p: h - p (= h + 5 - 2^130) when that is not negative
+    for po_i in 0..10:
+        poly_t[po_i] = poly_h[po_i]
+    poly_t[0] += 5
+    for po_i in 0..9:
+        poly_t[po_i + 1] += poly_t[po_i] >> 13
+        poly_t[po_i] &= 0x1FFF
+    if poly_t[9] >> 13 != 0:
+        poly_t[9] &= 0x1FFF
+        for po_i in 0..10:
+            poly_h[po_i] = poly_t[po_i]
+    # the lower 128 bits of h as 16 bytes, little-endian, + s (modulo 2^128)
+    po_acc: u32 = 0
+    po_bits = 0
+    po_k = 0
+    po_carry = 0
+    for po_i in 0..10:
+        po_acc |= poly_h[po_i] << po_bits
+        po_bits += 13
+        while po_bits >= 8 and po_k < 16:
+            po_v = (i32(po_acc) & 0xFF) + poly_s[po_k] + po_carry
+            po_tag[po_k] = po_v & 0xFF
+            po_carry = po_v >> 8
+            po_k += 1
+            po_acc = po_acc >> 8
+            po_bits -= 8
+
+def poly1305(po_key: pchar, po_data: pchar, po_n, po_tag: pchar):
+    poly1305_start(po_key)
+    poly1305_add(po_data, po_n)
+    poly1305_end(po_tag)
+
+# ---------- AEAD ----------
+
+# the tag of RFC 8439 2.8: the one-time key is the first 32 bytes of block 0; Poly1305 over aad, zeros up to 16, the
+# cipher text, zeros up to 16, the two lengths (8 bytes each, little-endian)
+def aead_mac(ae_key: pchar, ae_nonce: pchar, ae_aad: pchar, ae_an, ae_data: pchar, ae_n, ae_tag: pchar):
+    chacha20_block(ae_key, 0, ae_nonce, chacha_ks)
+    poly1305_start(chacha_ks)
+    poly1305_add(ae_aad, ae_an)
+    poly1305_add(aead_zeros, (16 - ae_an % 16) % 16)
+    poly1305_add(ae_data, ae_n)
+    poly1305_add(aead_zeros, (16 - ae_n % 16) % 16)
+    for ae_i in 0..16:
+        aead_lengths[ae_i] = 0
+    for ae_i in 0..4:
+        aead_lengths[ae_i] = (ae_an >> (8 * ae_i)) & 0xFF
+        aead_lengths[8 + ae_i] = (ae_n >> (8 * ae_i)) & 0xFF
+    poly1305_add(aead_lengths, 16)
+    poly1305_end(ae_tag)
+
+def aead_seal(ae_key: pchar, ae_nonce: pchar, ae_aad: pchar, ae_an, ae_data: pchar, ae_n, ae_tag: pchar):
+    chacha20_xor(ae_key, 1, ae_nonce, ae_data, ae_n)
+    aead_mac(ae_key, ae_nonce, ae_aad, ae_an, ae_data, ae_n, ae_tag)
+
+def aead_open(ae_key: pchar, ae_nonce: pchar, ae_aad: pchar, ae_an, ae_data: pchar, ae_n, ae_tag: pchar) i32:
+    aead_mac(ae_key, ae_nonce, ae_aad, ae_an, ae_data, ae_n, aead_tag)
+    # all 16 bytes compared (not stopping at the first difference)
+    ae_diff = 0
+    for ae_i in 0..16:
+        ae_diff |= aead_tag[ae_i] ^ ae_tag[ae_i]
+    if ae_diff != 0:
+        return False
+    chacha20_xor(ae_key, 1, ae_nonce, ae_data, ae_n)
+    return True

@@ -1,0 +1,48 @@
+# Clockspeed: the same work at each clock of the core, and the time it takes. cpu_clock (include "cpuclock.abel")
+# sets the clock: 80, 160 or 240 MHz from the PLL, 40, 20, 10, 8, 5, 4, 2 or 1 MHz from the crystal (less current; not
+# while the WiFi runs: then cpu_clock gives -1, and "wlan off" in the console switches it off); 0 only asks. millis()
+# and the terminal go on right at each clock. At the end the program sets the clock it found again (the console keeps
+# the clock a program leaves). Start it with F9, or upload it and type "clockspeed" in the console.
+
+target "esp32"
+
+include "console.abel"
+include "cpuclock.abel"
+
+# the same work at each clock: a loop of shifts and xor
+def work() i32:
+    s = 0
+    for i in 0..100000:
+        s += i ^ (s >> 3)
+    return s
+
+# the core at mhz, then the work and its time
+def run_at(mhz):
+    got = cpu_clock(mhz)
+    print("  ")
+    print_int(mhz)
+    print(" MHz: ")
+    if got < 0:
+        println("not possible now")
+        return
+    start = millis()
+    work()
+    print_int(millis() - start)
+    println(" ms")
+
+def main():
+    start = cpu_clock(0)
+    print("clockspeed: the console runs the core at ")
+    print_int(start)
+    println(" MHz")
+    run_at(240)
+    run_at(160)
+    run_at(80)
+    run_at(40)
+    run_at(20)
+    run_at(10)
+    run_at(2)
+    run_at(1)
+    run_at(13)
+    println("(13 MHz is no whole part of 40 MHz; the crystal clocks need the WiFi off)")
+    cpu_clock(start)

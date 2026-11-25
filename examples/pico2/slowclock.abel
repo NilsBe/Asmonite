@@ -1,0 +1,77 @@
+# Slowclock: the LED blinks at a clock of 1 kHz, as evenly as at 48 MHz. cpu_clock_khz (include "cpuclock.abel") takes
+# the core of the Pico 2 down to 1 kHz (12 MHz from the crystal divided by a whole number). Below about 1 MHz millis()
+# no longer counts, so the program counts cycles: at the start it measures how many cycles a round of count() takes (at
+# 48 MHz, by millis()), then half a second at any clock is as many rounds as the clock has cycles in it. At each clock
+# the LED blinks four times, once a second. On a Pico 2 W the LED hangs at the WiFi chip: each switch of it is a talk
+# with the chip of some 75000 cycles, at 100 kHz most of a second, at 1 kHz more than a minute; there an LED at a pin
+# of the Pico 2 (with a resistor of about 330 ohms to GND) blinks evenly down to 1 kHz.
+# At the end the program sets the clock it found again (the console keeps the clock a program leaves; below 1 MHz it
+# takes 48 MHz). Start it with F9, or upload it and type "slowclock" in the console.
+
+target "pico2"
+
+include "console.abel"
+include "cpuclock.abel"
+
+LED_PIN = 25                    # the LED of the Pico 2 (a Pico 2 W: WL_GPIO0; see examples/common/blink.abel)
+LED_LOW = 0                     # 1: the LED lights when its pin is low
+BLINKS = 4
+
+cyc100: i32[1]                  # the cycles of a round of count() * 100
+
+# n rounds of a loop
+def count(n):
+    i = 0
+    while i < n:
+        i += 1
+
+# the LED on (1) or off (0)
+def set_led(on):
+    if LED_LOW:
+        gpio_write(LED_PIN, 1 - on)
+    else:
+        gpio_write(LED_PIN, on)
+
+# half a second at a clock of khz: khz * 500 cycles (khz * 50000 would not fit into 32 bits above 42949 kHz)
+def half_second(khz):
+    if khz > 20000:
+        count(khz / cyc100[0] * 50000)
+    else:
+        count(khz * 50000 / cyc100[0])
+
+# the core at khz, BLINKS blinks, back at 48 MHz
+def blink_at(khz):
+    print("  ")
+    print_int(khz)
+    print(" kHz: ")
+    got = cpu_clock_khz(khz)
+    if got > 0:
+        for b in 0..BLINKS:
+            set_led(1)
+            half_second(got)
+            set_led(0)
+            half_second(got)
+    cpu_clock_khz(48000)
+    if got > 0:
+        print("blinked at ")
+        print_int(got)
+        println(" kHz")
+    else:
+        println("not possible")
+
+def main():
+    println("slowclock: the LED blinks once a second at each clock")
+    start = cpu_clock_khz(0)
+    cpu_clock_khz(48000)
+    gpio_output(LED_PIN)
+    t = millis()
+    count(200000)
+    cyc100[0] = (millis() - t) * 48000 / 2000          # ms * kHz = cycles; / 200000 rounds * 100
+    blink_at(48000)
+    blink_at(12000)
+    blink_at(1000)
+    blink_at(100)
+    blink_at(10)
+    blink_at(1)
+    cpu_clock_khz(start)
+    println("end")

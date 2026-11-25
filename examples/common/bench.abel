@@ -1,0 +1,105 @@
+# Bench: how fast is the board? Four small tasks, each of them the same work on every board, and the time each one
+# took (millis() of the console); at the end the sum. Each task shows its result too, the same on every board: so
+# one sees that they all did the same work.
+#   sieve    the primes below 10000 (the sieve of Eratosthenes), 50 times: bytes in the memory, loops
+#   crc32    the CRC-32 of 1 KB, bit by bit, 100 times: shifts, xor, branches
+#   divide   divisions and remainders, 100000 of each: the Cortex-M0+ of the Pico has no division instruction, so
+#            aBelle calls a function for it (on the Pico 2 too: aBelle makes the same Thumb-1 code for both, though
+#            its Cortex-M33 could divide); the ESP32 boards divide in one instruction
+#   calls    fib(27) the slow way, 635621 calls of a function: calls, returns, the stack
+# What is measured is the board and the code aBelle makes for it together: a C compiler would be faster everywhere.
+# On the PC (Windows) the tasks take less than the 16 ms steps of its millis(): the times there say little.
+# The same source for every board (no line target "..."), and for Windows too: the PC as a yardstick. A smaller time
+# is faster. Start it with F9, or upload it and type "bench" in the console.
+
+include "console.abel"
+
+SIEVE_LIMIT = 10000
+SIEVE_RUNS = 50
+CRC_BYTES = 1024
+CRC_RUNS = 100
+DIVIDE_COUNT = 100000
+FIB_N = 27
+
+composite: char[10000]              # the sieve: 1 not a prime
+block: char[1024]                   # the bytes of the CRC-32
+total_ms: i32[1]                    # the sum of the times
+
+# the primes below SIEVE_LIMIT
+def sieve() i32:
+    for i in 0..SIEVE_LIMIT:
+        composite[i] = 0
+    count = 0
+    for i in 2..SIEVE_LIMIT:
+        if composite[i] == 0:
+            count += 1
+            j = i * i
+            while j < SIEVE_LIMIT:
+                composite[j] = 1
+                j += i
+    return count
+
+# the CRC-32 of block (the one of zip and Ethernet), one bit after the other
+def crc32() u32:
+    crc = u32(0xFFFFFFFF)
+    for i in 0..CRC_BYTES:
+        crc = crc ^ u32(block[i])
+        for k in 0..8:
+            if (crc & 1) != 0:
+                crc = (crc >> 1) ^ u32(0xEDB88320)
+            else:
+                crc = crc >> 1
+    return ~crc
+
+# DIVIDE_COUNT divisions and as many remainders: their sum
+def divide() i32:
+    sum = 0
+    for i in 1..DIVIDE_COUNT + 1:
+        sum += 1000000 / i + i % 7
+    return sum
+
+# the Fibonacci number n, with two calls for each one above 1
+def fib(n) i32:
+    if n < 2:
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+# the line of a task: its name, its result, its time; the time into total_ms
+def report(name: pchar, result, start):
+    ms = millis() - start
+    total_ms[0] += ms
+    print(name)
+    print_int(result)
+    print(", ")
+    print_int(ms)
+    println(" ms")
+
+def main():
+    println("bench: four tasks, the same work on every board (a smaller time is faster)")
+    total_ms[0] = 0
+    for i in 0..CRC_BYTES:
+        block[i] = i * 7 + 3
+    start = millis()
+    primes = 0
+    for r in 0..SIEVE_RUNS:
+        primes = sieve()
+    report("  sieve   primes below 10000, 50 times: ", primes, start)
+    start = millis()
+    crc = u32(0)
+    for r in 0..CRC_RUNS:
+        crc = crc32()
+    ms = millis() - start
+    total_ms[0] += ms
+    print("  crc32   1 KB bit by bit, 100 times:    0x")
+    for k in 0..8:
+        put_hex(i32((crc >> (28 - 4 * k)) & 15))
+    print(", ")
+    print_int(ms)
+    println(" ms")
+    start = millis()
+    report("  divide  100000 / and %:               ", divide(), start)
+    start = millis()
+    report("  calls   fib(27), 635621 calls:         ", fib(FIB_N), start)
+    print("  total                                  ")
+    print_int(total_ms[0])
+    println(" ms")

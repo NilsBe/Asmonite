@@ -1,0 +1,318 @@
+# T-Display: the colour display of the LilyGO TTGO T-Display (an ESP32 with a 1.14" IPS display of 135 x 240
+# pixels, controller ST7789V, and two buttons). The program switches the display on, fills it with colours, writes
+# "Hello, world!" and shows the two buttons: pressed or not, and how often. Ctrl+C in the console (or Stop in
+# Asmonite) ends it; the display keeps the last picture.
+#
+# The wiring on the board (LilyGO wiki): the display at SPI, MOSI GPIO 19, SCLK GPIO 18, CS GPIO 5, DC GPIO 16
+# (low: a command, high: its data), RST GPIO 23, the backlight GPIO 4 (high: on); the buttons at GPIO 0 and GPIO 35
+# (low while pressed; GPIO 35 has a pull-up on the board, the ESP32 has none there).
+#
+# SPI is done by hand here, as I2C in bme280.abel: for each bit the data line, then the clock high and low again
+# (mode 0: the display takes the bit at the rising edge). That is slow for a display (the whole screen, 64800 bytes,
+# takes a while; the program says how long: 350 ms), but needs no more than the GPIO registers. CS goes high and low
+# again before each command: the ST7789 counts the bits of a byte from a falling edge of CS (with CS low all the time
+# it took no command after the reset).
+#
+# The display (ST7789V datasheet): after a reset SWRESET (0x01), SLPOUT (0x11: out of sleep), COLMOD (0x3A, 0x55:
+# 16 bits per pixel, RGB565), MADCTL (0x36: how the memory is turned; 0x60 here: landscape, 240 x 135), INVON (0x21:
+# this panel needs its colours inverted), DISPON (0x29). Then CASET (0x2A) and RASET (0x2B) set a window, RAMWR (0x2C)
+# fills it pixel by pixel, two bytes each. The panel of 135 x 240 sits in the middle of the memory of the ST7789
+# (240 x 320): in landscape its first column is column 40 of the memory, its first row row 53.
+#
+# The font: 5 x 7 pixels in a cell of 6 x 8, ASCII 32 .. 126 (and 127: the degree sign), drawn 1, 2 or 3 times
+# bigger. aBelle has no arrays with a start value, so the font is text: 5 bytes per character, one per column, bit 0
+# the top row ("\x3E\x51\x49\x45\x3E" is the 0).
+
+target "esp32"
+include "console.abel"
+
+MOSI = 19                       # the pins of the display
+SCLK = 18
+CS = 5
+DC = 16
+RST = 23
+BACKLIGHT = 4
+BUTTON1 = 0                     # the buttons
+BUTTON2 = 35
+
+WIDTH = 240                     # the display in landscape
+HEIGHT = 135
+COL_START = 40                  # where the panel starts in the memory of the ST7789
+ROW_START = 53
+
+GPIO_OUT_W1TS = 0x08 / 4        # registers of the GPIO (con_gpio of console.abel counts in words)
+GPIO_OUT_W1TC = 0x0C / 4
+GPIO_IN = 0x3C / 4
+GPIO_IN1 = 0x40 / 4             # GPIO 32 .. 39
+
+BLACK = 0x0000                  # colours in RGB565: 5 bits red, 6 green, 5 blue
+WHITE = 0xFFFF
+RED = 0xF800
+GREEN = 0x07E0
+BLUE = 0x001F
+YELLOW = 0xFFE0
+CYAN = 0x07FF
+MAGENTA = 0xF81F
+GREY = 0x8410
+
+digits: char[12]
+
+# n milliseconds
+def wait_ms(n):
+    t = millis()
+    while millis() - t < n:
+        pass
+
+# ---------- SPI by hand ----------
+
+# a byte to the display, the highest bit first
+def spi_byte(b):
+    for i in 0..8:
+        if b & 0x80:
+            con_gpio[GPIO_OUT_W1TS] = u32(1 << MOSI)
+        else:
+            con_gpio[GPIO_OUT_W1TC] = u32(1 << MOSI)
+        con_gpio[GPIO_OUT_W1TS] = u32(1 << SCLK)
+        con_gpio[GPIO_OUT_W1TC] = u32(1 << SCLK)
+        b = b << 1
+
+# a command (DC low); CS high and low again first: the ST7789 counts the bits of a byte from a falling edge of CS,
+# without it after the reset it took no command (the display stayed dark)
+def command(c):
+    con_gpio[GPIO_OUT_W1TS] = u32(1 << CS)
+    con_gpio[GPIO_OUT_W1TC] = u32(1 << CS)
+    con_gpio[GPIO_OUT_W1TC] = u32(1 << DC)
+    spi_byte(c)
+    con_gpio[GPIO_OUT_W1TS] = u32(1 << DC)
+
+# a byte of data (DC high: command leaves it so)
+def data(d):
+    spi_byte(d)
+
+# two bytes of data, the high one first
+def data16(v):
+    spi_byte(v >> 8)
+    spi_byte(v & 0xFF)
+
+# ---------- the display ----------
+
+# the pins as outputs, the reset, the commands that switch it on
+def display_init():
+    gpio_output(MOSI)
+    gpio_output(SCLK)
+    gpio_output(CS)
+    gpio_output(DC)
+    gpio_output(RST)
+    gpio_output(BACKLIGHT)
+    gpio_write(CS, 1)                               # not selected until the first command
+    gpio_write(DC, 1)
+    gpio_write(RST, 1)
+    wait_ms(5)
+    gpio_write(RST, 0)                              # a reset by its pin
+    wait_ms(20)
+    gpio_write(RST, 1)
+    wait_ms(150)
+    command(0x01)                                   # SWRESET
+    wait_ms(150)
+    command(0x11)                                   # SLPOUT: out of sleep
+    wait_ms(120)
+    command(0x3A)                                   # COLMOD: 16 bits per pixel
+    data(0x55)
+    command(0x36)                                   # MADCTL: landscape (MX, MV)
+    data(0x60)
+    command(0x21)                                   # INVON
+    command(0x13)                                   # NORON: the normal mode
+    command(0x29)                                   # DISPON
+    wait_ms(20)
+    gpio_write(BACKLIGHT, 1)
+
+# the window from x0, y0 to x1, y1 (both included); the pixels for it follow
+def window(x0, y0, x1, y1):
+    command(0x2A)                                   # CASET: the columns
+    data16(x0 + COL_START)
+    data16(x1 + COL_START)
+    command(0x2B)                                   # RASET: the rows
+    data16(y0 + ROW_START)
+    data16(y1 + ROW_START)
+    command(0x2C)                                   # RAMWR: the pixels from here on
+
+# a rectangle in one colour
+def fill_rect(x, y, w, h, colour):
+    window(x, y, x + w - 1, y + h - 1)
+    hi = colour >> 8
+    lo = colour & 0xFF
+    for i in 0..w * h:
+        spi_byte(hi)
+        spi_byte(lo)
+
+# a colour from red, green and blue (0 .. 255 each)
+def rgb(r, g, b) i32:
+    return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+
+# ---------- text ----------
+
+# the 5 columns of the characters 4 g .. 4 g + 3 (from 32 on): see the head of the file
+def glyphs(g) pchar:
+    if g == 0:
+        return "\x00\x00\x00\x00\x00\x00\x00\x5F\x00\x00\x00\x07\x00\x07\x00\x14\x7F\x14\x7F\x14"
+    if g == 1:
+        return "\x24\x2A\x7F\x2A\x12\x23\x13\x08\x64\x62\x36\x49\x55\x22\x50\x00\x05\x03\x00\x00"
+    if g == 2:
+        return "\x00\x1C\x22\x41\x00\x00\x41\x22\x1C\x00\x08\x2A\x1C\x2A\x08\x08\x08\x3E\x08\x08"
+    if g == 3:
+        return "\x00\x50\x30\x00\x00\x08\x08\x08\x08\x08\x00\x60\x60\x00\x00\x20\x10\x08\x04\x02"
+    if g == 4:
+        return "\x3E\x51\x49\x45\x3E\x00\x42\x7F\x40\x00\x42\x61\x51\x49\x46\x21\x41\x45\x4B\x31"
+    if g == 5:
+        return "\x18\x14\x12\x7F\x10\x27\x45\x45\x45\x39\x3C\x4A\x49\x49\x30\x01\x71\x09\x05\x03"
+    if g == 6:
+        return "\x36\x49\x49\x49\x36\x06\x49\x49\x29\x1E\x00\x36\x36\x00\x00\x00\x56\x36\x00\x00"
+    if g == 7:
+        return "\x08\x14\x22\x41\x00\x14\x14\x14\x14\x14\x00\x41\x22\x14\x08\x02\x01\x51\x09\x06"
+    if g == 8:
+        return "\x32\x49\x79\x41\x3E\x7E\x11\x11\x11\x7E\x7F\x49\x49\x49\x36\x3E\x41\x41\x41\x22"
+    if g == 9:
+        return "\x7F\x41\x41\x22\x1C\x7F\x49\x49\x49\x41\x7F\x09\x09\x01\x01\x3E\x41\x41\x51\x32"
+    if g == 10:
+        return "\x7F\x08\x08\x08\x7F\x00\x41\x7F\x41\x00\x20\x40\x41\x3F\x01\x7F\x08\x14\x22\x41"
+    if g == 11:
+        return "\x7F\x40\x40\x40\x40\x7F\x02\x04\x02\x7F\x7F\x04\x08\x10\x7F\x3E\x41\x41\x41\x3E"
+    if g == 12:
+        return "\x7F\x09\x09\x09\x06\x3E\x41\x51\x21\x5E\x7F\x09\x19\x29\x46\x46\x49\x49\x49\x31"
+    if g == 13:
+        return "\x01\x01\x7F\x01\x01\x3F\x40\x40\x40\x3F\x1F\x20\x40\x20\x1F\x7F\x20\x18\x20\x7F"
+    if g == 14:
+        return "\x63\x14\x08\x14\x63\x03\x04\x78\x04\x03\x61\x51\x49\x45\x43\x00\x7F\x41\x41\x00"
+    if g == 15:
+        return "\x02\x04\x08\x10\x20\x00\x41\x41\x7F\x00\x04\x02\x01\x02\x04\x40\x40\x40\x40\x40"
+    if g == 16:
+        return "\x00\x01\x02\x04\x00\x20\x54\x54\x54\x78\x7F\x48\x44\x44\x38\x38\x44\x44\x44\x20"
+    if g == 17:
+        return "\x38\x44\x44\x48\x7F\x38\x54\x54\x54\x18\x08\x7E\x09\x01\x02\x08\x54\x54\x54\x3C"
+    if g == 18:
+        return "\x7F\x08\x04\x04\x78\x00\x44\x7D\x40\x00\x20\x40\x44\x3D\x00\x7F\x10\x28\x44\x00"
+    if g == 19:
+        return "\x00\x41\x7F\x40\x00\x7C\x04\x18\x04\x78\x7C\x08\x04\x04\x78\x38\x44\x44\x44\x38"
+    if g == 20:
+        return "\x7C\x14\x14\x14\x08\x08\x14\x14\x18\x7C\x7C\x08\x04\x04\x08\x48\x54\x54\x54\x20"
+    if g == 21:
+        return "\x04\x3F\x44\x40\x20\x3C\x40\x40\x20\x7C\x1C\x20\x40\x20\x1C\x3C\x40\x30\x40\x3C"
+    if g == 22:
+        return "\x44\x28\x10\x28\x44\x0C\x50\x50\x50\x3C\x44\x64\x54\x4C\x44\x00\x08\x36\x41\x00"
+    if g == 23:
+        return "\x00\x00\x7F\x00\x00\x00\x41\x36\x08\x00\x08\x04\x08\x10\x08\x00\x06\x09\x09\x06"
+    return "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+
+# the character c at x, y, size times bigger (its cell: 6 x 8 pixels times size), in the colour fg on bg
+def draw_char(x, y, c, size, fg, bg):
+    if c < 32 or c > 127:
+        c = '?'
+    g = glyphs((c - 32) / 4)
+    first = ((c - 32) % 4) * 5
+    window(x, y, x + 6 * size - 1, y + 8 * size - 1)
+    for row in 0..8 * size:
+        r = row / size
+        for col in 0..6 * size:
+            k = col / size
+            on = 0
+            if k < 5 and r < 7:
+                on = (g[first + k] >> r) & 1
+            if on:
+                data16(fg)
+            else:
+                data16(bg)
+
+# a text at x, y; the x behind it
+def draw_text(x, y, s: pchar, size, fg, bg) i32:
+    i = 0
+    while s[i] != 0:
+        draw_char(x, y, s[i], size, fg, bg)
+        x += 6 * size
+        i += 1
+    return x
+
+# a number at x, y; the x behind it
+def draw_int(x, y, v, size, fg, bg) i32:
+    p = digits + 11
+    p[0] = 0
+    if v < 0:
+        x = draw_text(x, y, "-", size, fg, bg)
+        v = 0 - v
+    while True:
+        p -= 1
+        p[0] = '0' + v % 10
+        v = v / 10
+        if v == 0:
+            break
+    return draw_text(x, y, p, size, fg, bg)
+
+# ---------- the buttons ----------
+
+# the buttons as inputs: GPIO 0 with its pull-up, GPIO 35 (input only, no pull-up in the chip)
+def buttons_init():
+    con_iomux[0x44 / 4] = 0x2B00                    # GPIO 0: GPIO, input, pull-up
+    con_iomux[0x18 / 4] = 0x2200                    # GPIO 35: GPIO, input
+
+# 1 while the button at pin is pressed (low)
+def pressed(pin) i32:
+    if pin < 32:
+        return (i32(con_gpio[GPIO_IN] >> u32(pin)) & 1) == 0
+    return (i32(con_gpio[GPIO_IN1] >> u32(pin - 32)) & 1) == 0
+
+# the line of a button: its name, pressed or not, how often
+def show_button(y, name: pchar, down, count):
+    x = draw_text(4, y, name, 2, WHITE, BLACK)
+    if down:
+        x = draw_text(x, y, "down", 2, BLACK, YELLOW)
+    else:
+        x = draw_text(x, y, "    ", 2, WHITE, BLACK)
+    x = draw_int(x + 6, y, count, 2, CYAN, BLACK)
+    draw_text(x, y, "x ", 2, CYAN, BLACK)
+
+def main():
+    println("tdisplay: the display of the T-Display, the buttons at GPIO 0 and 35 (Ctrl+C ends it)")
+    display_init()
+    buttons_init()
+    t = millis()
+    fill_rect(0, 0, WIDTH, HEIGHT, BLACK)
+    print("The whole screen in ")
+    print_int(millis() - t)
+    println(" ms (SPI by hand).")
+    # the colours: a bar each, with its name, so that wrong colours show at once
+    w = WIDTH / 6
+    fill_rect(0, 0, w, 24, RED)
+    fill_rect(w, 0, w, 24, GREEN)
+    fill_rect(2 * w, 0, w, 24, BLUE)
+    fill_rect(3 * w, 0, w, 24, YELLOW)
+    fill_rect(4 * w, 0, w, 24, CYAN)
+    fill_rect(5 * w, 0, w, 24, MAGENTA)
+    draw_text(4, 8, "red", 1, WHITE, RED)
+    draw_text(w + 4, 8, "green", 1, BLACK, GREEN)
+    draw_text(2 * w + 4, 8, "blue", 1, WHITE, BLUE)
+    draw_text(3 * w + 4, 8, "yellow", 1, BLACK, YELLOW)
+    draw_text(4 * w + 4, 8, "cyan", 1, BLACK, CYAN)
+    draw_text(5 * w + 4, 8, "magenta", 1, WHITE, MAGENTA)
+    draw_text(4, 32, "Hello, world!", 3, WHITE, BLACK)
+    draw_text(4, 62, "aBelle, the font: 0123456789 +-.:%\x7F", 1, GREY, BLACK)
+    count1 = 0
+    count2 = 0
+    down1 = 0
+    down2 = 0
+    show_button(80, "GPIO 0  ", 0, 0)
+    show_button(106, "GPIO 35 ", 0, 0)
+    while True:
+        d1 = pressed(BUTTON1)
+        d2 = pressed(BUTTON2)
+        if d1 != down1:
+            if d1:
+                count1 += 1
+                println("GPIO 0 pressed")
+            show_button(80, "GPIO 0  ", d1, count1)
+            down1 = d1
+        if d2 != down2:
+            if d2:
+                count2 += 1
+                println("GPIO 35 pressed")
+            show_button(106, "GPIO 35 ", d2, count2)
+            down2 = d2
+        wait_ms(20)

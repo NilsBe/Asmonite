@@ -10,7 +10,7 @@ kommt **aBelle**, eine kleine Sprache mit der Schreibweise von Python, für Wind
 ESP32-C3, ESP32-S31, Raspberry Pi Pico und Pico 2), in Asmonite Zeile für Zeile im Quelltext debuggt.
 
 Aktuelle Version: **0.15.0** | Website: [asmonite.com](https://asmonite.com) und
-[dismonite.com](https://dismonite.com) | Chat: [Discord](https://discord.gg/Sj8kvqEkc)
+[dismonite.com](https://dismonite.com) | Chat: [Discord](https://discord.gg/vVf7yqpyR)
 
 ![Der Editor von Asmonite](assets/editor.png)
 

@@ -5,6 +5,10 @@ Cortex-M0+), which drives the display (1.14 inch, ST7789, 135 x 240 pixels), and
 Both hang on the same USB-C port: **the way the plug is turned picks the chip**. The LED next to the port says which
 one answers: blue for the RP2040, green for the ESP32-C3.
 
+> **The examples of this page:** the examples in assembly (`examples/<board>/…`) and some in aBelle that this page names
+> are being gone through again and come into the folder `examples/` one by one; until then they are not in the ZIP and
+> not in the public repository. What is released already is in [examples/README.md](../../examples/README.md).
+
 Asmonite debugs both, each with the one USB cable, without a debug probe. This page says what works on which side;
 the details are in the guides of the two chips: [picoboot.md](picoboot.md) for the RP2040 over its USB boot,
 [esp32c3.md](esp32c3.md) for the ESP32-C3.

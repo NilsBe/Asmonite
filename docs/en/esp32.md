@@ -8,6 +8,10 @@ and speaks with Asmonite over the serial port. On top come a console with files 
 aBelle program connects to a network, gets an address by DHCP and speaks UDP and TCP, also while the debugger holds it
 at a breakpoint.
 
+> **The examples of this page:** the examples in assembly (`examples/<board>/…`) and some in aBelle that this page names
+> are being gone through again and come into the folder `examples/` one by one; until then they are not in the ZIP and
+> not in the public repository. What is released already is in [examples/README.md](../../examples/README.md).
+
 Tested with an ESP32 DevKit V1 (ESP32-D0WD, a CP2102 as USB serial chip, 4 MB of flash, the blue LED at GPIO 2) and
 a board with an ESP32-WROVER (CH9102, 8 MB of flash).
 
@@ -221,7 +225,8 @@ of three ways:
 - by an exception or a `break`: `Program stopped: exception c at pc p, address v` (c is `EXCCAUSE`; `0x106` a
   `break`).
 - with **Ctrl+C** from the terminal: `Program stopped (Ctrl+C).` In the tab Serial of Asmonite the button **Stop**
-  sends it (or Ctrl+C in the tab when nothing is selected there; with a selection it copies), without a debug session
+  sends it (or Ctrl+C in the tab, as in a terminal; copying there: Ctrl+Shift+C, Ctrl+Insert or the context menu
+  of the right mouse button), without a debug session
   **Debug > Stop** (Ctrl+F2) too. This works in an endless loop with the
   interrupts off too: while a program runs, each byte on UART0 raises the NMI. The console puts the bytes into its
   buffer for `get_char`; Ctrl+C it does not pass on. While the ROM writes the flash, the program stops after that
@@ -263,11 +268,11 @@ A program writes into the flash only through files, so it cannot damage the cons
 `file_write` puts the new content into a free place first and only then into the directory, as an upload does.
 `millis()` counts the cycles of the core: a program has to call it at least every 100 seconds (at 40 MHz).
 
-In aBelle, `include "inc/console.abel"` brings these functions, with `println`, `print_int` and the other output
-functions of `inc/uart.abel`. The example `runs.abel` counts in the file `runs.txt` how often it ran and shows the keys
-from the terminal. The functions exist when the console starts the program: F9 without a breakpoint, `run` or a
-command. With a breakpoint it runs under the debugger; only `exit` is tried there so far. A program that starts from
-the flash by itself has no console; there `inc/uart.abel` stays.
+In aBelle, `include "console.abel"` (`abelle/lib/esp32/`) brings these functions, with `println`, `print_int` and
+the other output functions of `console_text.abel` (`abelle/lib/common/`). The example `examples/common/runs.abel`
+counts in the file `runs.txt` how often it ran. The functions exist when the console starts the program: F9 without a
+breakpoint, `run` or a command. With a breakpoint it runs under the debugger; only `exit` is tried there so far. A
+program that starts from the flash by itself has no console; it has to write its text over UART0 itself.
 
 The window has the serial port while it is open (the tab Serial lets it go). The console does not run under the
 debugger: the debug monitor takes every byte on UART0 as its pause. A board formatted before 0.12.0 keeps its file
@@ -298,9 +303,12 @@ def main():
         ets_delay_us(500000)
 ```
 
-The examples are in `examples/abelle/esp32/` (in the sources `abelle/examples/esp32/`); `inc/` has the parts they
-include: `uart.abel` (text and numbers over UART0), `wifi.abel`, `net.abel`, `tcp.abel` (the WiFi) and `network.abel`
-(for a program that names its network itself; the examples take the network of the board, `wlan set`).
+What a program includes is the library of aBelle in `abelle/lib`: `lib/esp32/` has `console.abel` (the functions of
+the console) and `wifi.abel` (the WiFi), `lib/common/` the parts for every board, `net.abel` and `tcp.abel` (the
+network) and `tls.abel` (TLS 1.3). A program without a line `target` is translated for the board of **Project >
+aBelle for**: so the examples in `examples/common/` run on the ESP32 as on the other boards, those in
+`examples/esp32/` (the sensor BME280, the display of the T-Display) on the ESP32 only. The programs take the network
+of the board (`wlan set`).
 
 ## The WiFi
 
@@ -311,7 +319,7 @@ programs. **No ESP-IDF is needed for it.**
 **The WiFi package:** the library, the parts of `wlan.rom` for the RAM and `wlansvc` lie together in a fixed room of
 the flash, `0x100000` to `0x1FFFFF`, below the file system. At `0x1F0000` there is a head with a mark and, for each
 part, its place, length and CRC-32. **You do not have to do anything for it:** when you start a program that uses
-`inc/wifi.abel` with F9, Asmonite checks the head on the board and writes the package over the console when it is
+`wifi.abel` with F9, Asmonite checks the head on the board and writes the package over the console when it is
 missing or another one than the one of this version of Asmonite (about 370 KB, about 13 seconds); F9 replaces another
 package also for programs without the WiFi. Prepare Board puts it there as well, **Install WiFi** in the Board
 Manager does the same by hand. When the WiFi runs on the second core,
@@ -348,7 +356,7 @@ its address to the service the same way. In the large window the WiFi is off, th
 (mDNS): `ping esp32-789a.local`, `telnet esp32-789a.local`. `name` in the console shows it, `name set keller` gives the
 board one of its own (letters, digits and `-`, up to 31 characters), `name clear` takes the one of the MAC again. The
 console keeps it with the WiFi network; `wlan set` and `wlan clear` leave it, Erase Flash removes it. Network programs
-such as telnetd and webserver take the same name (`inc/net.abel` reads it itself) unless they call `net_set_name`. While
+such as telnetd and webserver take the same name (`net.abel` reads it itself) unless they call `net_set_name`. While
 a program without the network runs nobody answers to the name; ping to the address works all the same.
 
 **The password for telnet:** `passwd set` in the console asks for a password (8 to 63 characters, without echo),
@@ -356,7 +364,7 @@ a program without the network runs nobody answers to the name; ping to the addre
 12 bytes of a key made of it (PBKDF2-SHA1 with the MAC of the board as its salt), with the network and the name. When
 one is set, `telnetd` asks for it after the connection; checking it takes about two seconds, and after the third wrong
 password telnetd ends the connection. Without one telnetd lets everyone in and says so in its welcome. In programs of
-your own: `wifi_login_set()` and `wifi_login_check(password)` of `inc/wifi.abel`. telnet sends everything in clear
+your own: `wifi_login_set()` and `wifi_login_check(password)` of `wifi.abel`. telnet sends everything in clear
 text, the password too: it keeps the curious out of your own network, it is not for access from the internet.
 
 **telnetd as autostart:** when telnetd does not find its network or gets no address, it says so and tries again every
@@ -380,8 +388,8 @@ version only reads; uploading and editing come later.
 with `wifi_connect_saved()`, end with `wifi_done()` and return to the console: the connection of the console stays,
 the next example is in the network at once. The servers (`udpecho`, `webserver`, `telnetd`, `fm`) run until you press Stop
 in the tab Serial (Ctrl+C). The program loads the service from the WiFi package itself at its first WiFi call
-(`inc/wifi.abel`), with F9 as with `run ntp` in the console or as the autostart. A program that wants to name its
-network itself calls `wifi_connect(name, password)` (`inc/network.abel`).
+(`wifi.abel`), with F9 as with `run ntp` in the console or as the autostart. A program that wants to name its
+network itself calls `wifi_connect(name, password)`.
 
 **Writing files while the WiFi runs:** the code of the library and its interrupts run on the second core from the
 flash, through the cache. While the console erases, writes or reads the flash, the cache must not fetch from it. So
@@ -394,14 +402,14 @@ and for `file_write` of a program; a connection stays up. If the second core doe
 `abelle_esp32` takes the **large window** up to `0x4009BFFF` (112 KB) and says so when it translates ("Note: … it runs
 without the WiFi"). The console sees from the addresses of the program that it reaches into the room of the WiFi,
 stops the WiFi first and starts it again in the background when the program has ended. This holds for F9, `run` and
-the debugger. A program that includes `inc/wifi.abel` is refused in the large window, as it would need the very room
+the debugger. A program that includes `wifi.abel` is refused in the large window, as it would need the very room
 it takes.
 
 **Debugging while the WiFi runs:** the service and the WiFi run on the **second core** of the ESP32, the program on the
 first. The debugger stops the first one only: while the program stands at a breakpoint, the station stays connected,
 and what comes in waits in a buffer of the service (6 frames).
 
-**What a program can do with it** (`inc/wifi.abel`, `inc/net.abel`, `inc/tcp.abel`):
+**What a program can do with it** (`wifi.abel`, `net.abel`, `tcp.abel`):
 
 | Function | What it does |
 |---|---|
@@ -430,11 +438,12 @@ and what comes in waits in a buffer of the service (6 frames).
 | `examples/esp32/hello_uart_flash.asm` | The same in the flash, at every start of the board (the tab Serial shows it) |
 | `examples/esp32/clock_ram.asm` | The core from the crystal and from the PLL at 80, 160 and 240 MHz, and how fast a loop goes at each clock |
 | `boards/esp32/console.asm` | The console with the file system in the flash (see above) |
-| `examples/abelle/esp32/` | aBelle: blink, hello_uart, chipinfo (MAC, chip, flash), clock, timer, dice, reaction, sieve, temperature, pins (which GPIO is the LED on?) |
-| `examples/abelle/esp32/` (WiFi) | scan, dhcp, dns, ping, wol (Wake on LAN), arpscan, ntp, udpecho (with `udpecho.py` on the PC), httpget, webserver (`http://name.local/`), telnetd (`telnet name.local`: files, memory, ping, the LED), fm (`http://name.local/fm`: the files in the browser) |
+| `examples/common/` | aBelle, for every board: hello, blink, runs; with WiFi scan, arpscan, ping, pingled, wol, httpget, httpsget ([examples/README.md](../../examples/README.md)) |
+| `examples/esp32/` | aBelle, for the ESP32 only: bme280 (also with light and deep sleep), tdisplay, tdisplay_spi |
+| to follow | aBelle: chipinfo, clock, timer, dice, reaction, sieve, temperature, pins; with WiFi dhcp, dns, ntp, udpecho, webserver (`http://name.local/`), telnetd (`telnet name.local`), fm (`http://name.local/fm`: the files in the browser) |
 
 The registers they use are in their comments, with the source: the headers of ESP-IDF and the ESP32 Technical
-Reference Manual. A page with all examples: asmonite.com/en/esp32-examples.html.
+Reference Manual. A page with all examples: asmonite.com/en/examples.html.
 
 ## The memories of the ESP32
 

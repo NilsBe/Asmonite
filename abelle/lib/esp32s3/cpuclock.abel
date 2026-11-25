@@ -1,0 +1,132 @@
+# The clock of the core of the ESP32-S3 for aBelle programs, for include "cpuclock.abel" (after include "console.abel":
+# millis() of the console counts on right). The same names as on the other boards: cpu_clock, cpu_clock_khz.
+# The names of the parameters and local variables here begin with c_, the globals with con_ (as in console.abel).
+#
+# cpu_clock(mhz): the core at 80, 160 or 240 MHz from the PLL, or at 40, 20 or 10 MHz from the crystal (less current,
+# but not while the WiFi runs: it needs the PLL); 0: only ask. The clock after it, -1 for another value (nothing
+# changes). millis() counts on right, and so does the terminal. The clock stays after the program (the console keeps
+# it, info and the Board Manager show it) until another program changes it or a reset (then 40 MHz, or 160 MHz with the
+# WiFi); a program that only wants it for a while sets the one it found (cpu_clock(0) at its start) again before it
+# ends.
+#
+# Not below 10 MHz: from the crystal the bus of the peripherals (the APB) runs at the clock of the core, and the USB
+# port of the chip (the console) needs it (seen 2026-11-25 on an ESP32-S3: at 8, 5 and 4 MHz bytes to the PC came
+# twice, at 2 and 1 MHz the port stopped altogether, even when the program sent nothing there, until a reset). So no
+# clocks of a few kHz as on the ESP32 and the Picos; neither the RC_FAST oscillator (ESP-IDF does not run the core from
+# it on the S3: "LDO dbias need to be modified").
+#
+# As ESP-IDF (components/esp_hw_support/port/esp32s3/rtc_clk.c, clk_tree_ll.h; a crystal of 40 MHz): the PLL runs at
+# 480 MHz and gives 80, 160 and 240 MHz (CPUPERIOD_SEL 0, 1, 2), the APB gets 80 MHz at each. The PLL stays on at every
+# clock: the USB port takes its 48 MHz from it, and the boot ROM leaves it on at 480 MHz (the console runs at 40 MHz from
+# the crystal with it). So a change is only: the LDO slaves for the new clock (RTC_CNTL_DATE SLAVE_PD: 7 >> (MHz / 80),
+# 7 at the crystal), at 240 MHz the voltage of the core a step higher (the analog register I2C_DIG_REG over the I2C bus
+# inside the chip: EXT_RTC_DREG and EXT_DIG_DREG; ESP-IDF: dbias + 3 instead of + 2; seen 24 -> 25), CPUPERIOD_SEL,
+# the divider PRE_DIV_CNT and SOC_CLK_SEL; up: the voltage first, down: after it. Timer 0 of the WiFi service counts the
+# crystal and does not notice; the ROM has one word for the cycles in a microsecond for both cores
+# (ets_update_cpu_frequency: ets_delay_us, millis of the console, the WiFi service).
+#
+# cpu_clock_khz(khz): the same in kHz, for programs that run on every board: 10000 kHz and more in whole MHz as
+# cpu_clock, else -1. 0 only asks.
+
+con_sys: u32[32] at 0x600C0000          # SYSTEM: [0] CORE_1_CONTROL_0 (bit 1 the clock of core 1), [0x10 / 4]
+                                        # CPU_PER_CONF (CPUPERIOD_SEL bits 1 .. 0), [0x60 / 4] SYSCLK_CONF (PRE_DIV_CNT
+                                        # bits 9 .. 0, SOC_CLK_SEL bits 11 .. 10: 0 the crystal, 1 the PLL)
+con_rtc: u32[128] at 0x60008000         # RTC_CNTL: [0x1FC / 4] DATE (SLAVE_PD bits 18 .. 13)
+def con_set_ticks(c_mhz) at 0x40001A4C                          # ets_update_cpu_frequency
+def con_delay_us(c_us) at 0x40000600                            # ets_delay_us
+con_i2c: u32[19] at 0x6000E000         # the analog I2C master: [0] the command of host 0, [0x44 / 4] ANA_CONFIG
+                                        # (a 0 opens a block), [0x48 / 4] ANA_CONFIG2
+con_svc_mark: u32[2] at 0x3FCB001C      # "WSVC" when the WiFi service is there, then its version
+def con_svc_dbias(c_step) i32 at 0x403A006C                     # wifi_dbias of the service (version 13)
+
+def cpu_clock(c_mhz) i32:
+    c_now = con_clock_now()
+    if c_mhz == 0 or c_mhz == c_now: return c_now
+    if c_mhz <= 40:
+        if c_mhz != 10 and c_mhz != 20 and c_mhz != 40: return -1
+        if con_wifi_runs(): return -1           # the WiFi needs the PLL
+    else:
+        if c_mhz != 80 and c_mhz != 160 and c_mhz != 240: return -1
+    millis()                                    # the cycles so far, at the clock they ran at
+    if c_now == 240: c_old = 3                  # the LDO slaves now (MHz / 80; 0 at the crystal)
+    elif c_now >= 80: c_old = c_now / 80
+    else: c_old = 0
+    c_new = c_mhz / 80
+    if c_new > c_old: con_ldo(c_old, c_new)     # up: the voltage first
+    if c_mhz <= 40:
+        c_conf = (con_sys[0x60 / 4] & ~u32(0xFFF)) | u32(40 / c_mhz - 1)                # the crystal / n
+    else:
+        con_sys[0x10 / 4] = (con_sys[0x10 / 4] & ~u32(3)) | u32(c_new - 1)              # CPUPERIOD_SEL
+        c_conf = (con_sys[0x60 / 4] & ~u32(0xFFF)) | u32(0x400)                         # the PLL, PRE_DIV_CNT 0
+    con_sys[0x60 / 4] = c_conf
+    con_set_ticks(c_mhz)
+    if c_new < c_old: con_ldo(c_old, c_new)     # down: the voltage after it
+    return con_clock_now()
+
+def cpu_clock_khz(c_khz) i32:
+    if c_khz == 0: return con_clock_now() * 1000
+    if c_khz < 10000 or c_khz % 1000 != 0: return -1
+    c_r = cpu_clock(c_khz / 1000)
+    if c_r < 0: return -1
+    return c_r * 1000
+
+# the clock now in MHz: the crystal / (PRE_DIV_CNT + 1), or the PLL (80, 160, 240 MHz)
+def con_clock_now() i32:
+    c_conf = con_sys[0x60 / 4]
+    if ((c_conf >> 10) & 3) == 0: return 40 / i32((c_conf & 0x3FF) + 1)
+    c_sel = i32(con_sys[0x10 / 4] & 3)
+    if c_sel > 2: c_sel = 2
+    return 80 * (c_sel + 1)
+
+# 1 when the WiFi service runs on core 1 (its clock on and its mark there), else 0
+def con_wifi_runs() i32:
+    if ((con_sys[0] >> 1) & 1) == 0: return 0
+    if con_svc_mark[0] == u32(0x43565357): return 1
+    return 0
+
+# the LDO slaves and the voltage of the core from c_old to c_new (MHz / 80: 0 the crystal, 1, 2, 3 = 240 MHz): to
+# 240 MHz both voltages a step up (ESP-IDF: dbias + 3 instead of + 2), from it a step down again; then SLAVE_PD
+def con_ldo(c_old, c_new):
+    if c_new == 3: con_dbias_step(1)
+    if c_old == 3: con_dbias_step(-1)
+    c_pd = 7
+    if c_new > 0: c_pd = 7 >> c_new
+    con_rtc[0x1FC / 4] = (con_rtc[0x1FC / 4] & ~u32(0x7E000)) | u32(c_pd << 13)
+
+# EXT_RTC_DREG (register 4) and EXT_DIG_DREG (register 6) of I2C_DIG_REG (block 0x6D, host 0; bits 4 .. 0) one step
+# up (c_step 1) or down (-1); the core gets 40 us for the new voltage (as ESP-IDF). While the WiFi runs the service
+# does it on core 1 (wifi_dbias): the PHY of the WiFi uses the same bus there. Else here, on the registers of the I2C
+# master, as the functions of the ROM do it (rom_i2c_readReg would go through the PHY table of the ROM, which the WiFi
+# library bends to its own functions; they need the library set up: a crash right after wlan on, seen 2026-11-25)
+def con_dbias_step(c_step):
+    if con_wifi_runs() and con_svc_mark[1] >= u32(13):
+        con_svc_dbias(c_step)
+        return
+    c_reg = 4
+    while c_reg <= 6:
+        c_v = con_i2c_read(c_reg)
+        c_d = (c_v & 31) + c_step
+        if c_d >= 0 and c_d <= 31: con_i2c_write(c_reg, (c_v & ~31) | c_d)
+        c_reg += 2
+    con_delay_us(40)
+
+# a register of block 0x6D: as the ROM (0x400354BC: ANA_CONFIG2 for host 0; 0x400354FC: the block open in ANA_CONFIG,
+# its mask 0x4000 from the table at 0x3FF193DC; the command: the block, the register, bit 26 read; bit 25 busy)
+def con_i2c_read(c_reg) i32:
+    con_i2c[0x48 / 4] = (con_i2c[0x48 / 4] & u32(0xFFFE000F)) | u32(0x1FF40)
+    con_i2c[0x44 / 4] = ~u32(0x4000)
+    con_i2c[0] = u32(0x6D) | u32(c_reg << 8) | u32(0x04000000)
+    con_i2c_wait()
+    return i32((con_i2c[0] >> 16) & u32(0xFF))
+
+# the same for a write (as rom_i2c_writeReg: bits 24 and 26, the byte in bits 23 .. 16)
+def con_i2c_write(c_reg, c_data):
+    con_i2c_wait()
+    con_i2c[0] = u32(0x6D) | u32(c_reg << 8) | u32(c_data << 16) | u32(0x05000000)
+    con_i2c_wait()
+
+# until the I2C master is done (bit 25 busy)
+def con_i2c_wait():
+    c_v = con_i2c[0]
+    while (c_v & u32(0x02000000)) != u32(0):
+        c_v = con_i2c[0]

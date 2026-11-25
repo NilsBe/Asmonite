@@ -1,0 +1,229 @@
+# The clock of the core of the ESP32 for aBelle programs, for include "cpuclock.abel" (after include "console.abel":
+# millis() of the console counts on right). The same name on every board: cpu_clock.
+# The names of the parameters and local variables here begin with c_, the globals with con_ (as in console.abel).
+#
+# cpu_clock(mhz): the core at 80, 160 or 240 MHz from the PLL, or at 40, 20, 10, 8, 5, 4, 2 or 1 MHz from the crystal
+# (40 MHz divided by a whole number; less current, but not while the WiFi runs: it needs 80 MHz at least); 0: only ask.
+# The clock after it, -1 for another value (nothing changes). millis() counts on right, and so does the terminal. The
+# clock stays after the program (the console keeps it, info and the Board Manager show it) until another program
+# changes it or a reset (then 40 MHz, or 160 MHz with the WiFi); a program that only wants it for a while sets the one
+# it found (cpu_clock(0) at its start) again before it ends.
+# The WiFi runs at each of the three of the PLL (its service from version 12 keeps the clock it finds).
+# As ESP-IDF (components/esp_hw_support/port/esp32/rtc_clk.c, a crystal of 40 MHz) and
+# examples_internal/esp32/clock_ram.asm: the PLL at 320 MHz gives 80 and 160 MHz (CPUPERIOD_SEL 0, 1), at 480 MHz 240
+# (CPUPERIOD_SEL 2; there 0 and 1 give 240 MHz too, seen 2026-11-24); the peripherals (the APB) get 80 MHz from either.
+# Between 80 and 160 MHz only CPUPERIOD_SEL changes; to 240 MHz and back the core goes over the crystal (40 MHz, the APB
+# too): the PLL off, on again, its registers over the I2C bus inside the chip, at 480 MHz the core at 1.25 V first. At
+# each change of the APB the divider of UART0 (its baud rate stays) and the one of timer 0 (the microseconds of the WiFi
+# service) follow. The WiFi may lose its network then (the console connects it again in the background).
+# From the crystal the core and the APB run at 40 MHz / (PRE_DIV_CNT + 1): UART0 and timer 0 follow the APB again.
+#
+# cpu_clock_khz(khz): the clock in kHz, also below 1 MHz (not while the WiFi runs): 1000 kHz and more as cpu_clock in
+# whole MHz; below it 40 MHz / 41 .. 1024 from the crystal (975 kHz down to 39 kHz; another value gets the nearest), and
+# below 39 kHz the RC_FAST oscillator of the chip (about 5 to 8 MHz, measured against the crystal by the calibration of
+# timer group 0) / up to 1024: down to about 5 kHz. 0 only asks. The clock after it in kHz, -1 for a value that cannot
+# be made. Back with cpu_clock(mhz); a program that ends below 1 MHz (also Ctrl+C, when it comes through) leaves the
+# console at 40 MHz (boards/esp32/console_clock.asm). Below 1 MHz the terminal is silent (115200 baud cannot be made
+# from the APB, which runs at the clock of the core: its divider stays the one of 40 MHz, and back at 40 MHz it is right
+# again) and millis() counts wrong (the cycles taken as microseconds). RC_FAST needs DIG_CLK8M_EN (bit 10 of
+# RTC_CNTL_CLK_CONF): without it the core gets no clock and stops (seen 2026-11-24).
+
+con_rtc: u32[32] at 0x3FF48000          # RTC_CNTL: [0] OPTIONS0, [0x70 / 4] CLK_CONF, [0x7C / 4] the voltage
+con_cpu_per: u32[1] at 0x3FF0003C       # DPORT_CPU_PER_CONF: CPUPERIOD_SEL (bits 1 .. 0)
+con_sysclk: u32[1] at 0x3FF66000        # APB_CTRL_SYSCLK_CONF: PRE_DIV_CNT (bits 9 .. 0), the divider of the crystal
+con_efuse5: u32[1] at 0x3FF5A014        # eFuse block 0, word 5: VOL_LEVEL_HP_INV (bits 23 .. 22)
+con_uart0: u32[8] at 0x3FF40000         # UART0: [5] CLKDIV (whole part bits 19 .. 0, sixteenths 23 .. 20), [7] STATUS
+con_t0conf: u32[1] at 0x3FF5F000        # timer group 0: T0CONFIG (bit 31 on, the divider bits 28 .. 13)
+con_ticks_pro: u32[1] at 0x3FFE01E0     # the cycles of core 0 in a microsecond (the ROM's: ets_delay_us, millis)
+con_ticks_app: u32[1] at 0x3FFE40F0     # ... of core 1 (the WiFi service)
+def con_i2c_write(c_block, c_host, c_reg, c_data) at 0x400041A4      # rom_i2c_writeReg
+def con_delay_us(c_us) at 0x40008534                                 # ets_delay_us
+con_appcpu_b: u32[1] at 0x3FF00030      # DPORT_APPCPU_CTRL_B: bit 0 the clock of core 1
+con_cal: u32[2] at 0x3FF5F068           # timer group 0: RTCCALICFG (bit 31 start, 30 .. 16 the cycles, 15 ready, 14 .. 13
+                                        # the clock), RTCCALICFG1 (bits 31 .. 7: the cycles of the crystal meanwhile)
+con_rc: i32[1]                          # RC_FAST in kHz (0: not measured yet)
+con_svc_mark: u32[1] at 0x4009401C      # "WSVC" when the WiFi service is there
+
+def cpu_clock(c_mhz) i32:
+    c_now = con_clock_now()
+    if c_mhz == 0 or c_mhz == c_now: return c_now
+    if c_mhz < 1: return -1
+    if c_mhz <= 40:
+        if 40 % c_mhz != 0: return -1
+        if con_wifi_runs(): return -1           # the WiFi needs the PLL
+    else:
+        if c_mhz != 80 and c_mhz != 160 and c_mhz != 240: return -1
+    millis()                                    # the cycles so far, at the clock they ran at
+    if con_leave_low(): c_now = 40              # from below 1 MHz (cpu_clock_khz): at 40 MHz now
+    if c_mhz <= 40:
+        if c_now >= 80: con_to_xtal()
+        con_xtal_div(c_mhz)
+    else:
+        if (c_now == 80 or c_now == 160) and c_mhz != 240:
+            con_cpu_per[0] = u32(c_mhz / 80 - 1)    # the PLL stays at 320 MHz
+        else:
+            if c_now >= 80:
+                con_to_xtal()
+                con_delay_us(1000)              # the PLL a while off
+            else: con_xtal_div(40)
+            con_to_pll(c_mhz)
+    con_ticks_pro[0] = u32(c_mhz)
+    con_ticks_app[0] = u32(c_mhz)
+    return con_clock_now()
+
+def cpu_clock_khz(c_khz) i32:
+    c_now = con_khz_now()
+    if c_khz == 0 or c_khz == c_now: return c_now
+    if c_khz >= 1000:
+        if c_khz % 1000 != 0: return -1
+        c_r = cpu_clock(c_khz / 1000)
+        if c_r < 0: return -1
+        return c_r * 1000
+    if c_khz < 1: return -1
+    if con_wifi_runs(): return -1               # the WiFi needs the PLL
+    c_rc = 0
+    c_div = (40000 + c_khz / 2) / c_khz         # the nearest divider of the crystal
+    if c_div < 41: c_div = 41                   # (below 1 MHz)
+    if c_div > 1024:
+        c_rc = con_rc_khz()
+        if c_rc <= 0: return -1
+        c_div = (c_rc + c_khz / 2) / c_khz
+        if c_div > 1024 and c_khz == c_rc / 1024: c_div = 1024     # the lowest clock itself
+        if c_div < 1 or c_div > 1024: return -1
+    cpu_clock(40)                               # from any clock to the crystal at 40 MHz
+    con_uart_drain()
+    con_sysclk[0] = u32(c_div - 1)              # (UART0 keeps the divider of 40 MHz)
+    if c_rc > 0:
+        con_rtc[0x70 / 4] = (con_rtc[0x70 / 4] & ~u32(0x18000000)) | u32(0x10000000)   # SOC_CLK_SEL 2: RC_FAST
+    con_ticks_pro[0] = 1
+    con_ticks_app[0] = 1
+    return con_khz_now()
+
+# from below 1 MHz (cpu_clock_khz) to the crystal at 40 MHz: 1, else nothing changes and 0
+def con_leave_low() i32:
+    c_sel = i32((con_rtc[0x70 / 4] >> 27) & 3)
+    if c_sel == 1 or (c_sel == 0 and (con_sysclk[0] & 0x3FF) < 40): return 0
+    con_sysclk[0] = 0
+    con_rtc[0x70 / 4] = con_rtc[0x70 / 4] & ~u32(0x18000000)    # SOC_CLK_SEL 0: the crystal
+    con_settle()
+    con_ticks_pro[0] = 40
+    con_ticks_app[0] = 40
+    return 1
+
+# RC_FAST in kHz: on (ENB_CK8M 0), its / 256 on (ENB_CK8M_DIV 0), both to the digital part (DIG_CLK8M_EN,
+# DIG_CLK8M_D256_EN); 100 cycles of RC_FAST / 256 counted in cycles of the crystal (as rtc_clk_cal of ESP-IDF); -1 when
+# the calibration does not end
+def con_rc_khz() i32:
+    if con_rc[0] > 0: return con_rc[0]
+    con_rtc[0x70 / 4] = (con_rtc[0x70 / 4] & ~u32(0xC0)) | u32(0x600)
+    con_delay_us(100)
+    con_cal[0] = u32((100 << 16) | (1 << 13))                   # 100 cycles of 8MD256 (clock 1)
+    con_cal[0] = u32(0x80000000) | u32((100 << 16) | (1 << 13)) # start
+    c_n = 0
+    while (con_cal[0] & u32(1 << 15)) == 0 and c_n < 1000000: c_n += 1
+    if (con_cal[0] & u32(1 << 15)) == 0: return -1
+    c_v = i32(con_cal[1] >> 7)
+    if c_v <= 0: return -1
+    con_rc[0] = 1024000000 / c_v                                # 40000 kHz * 256 * 100 / c_v
+    return con_rc[0]
+
+# the clock now in MHz (0 below 1 MHz)
+def con_clock_now() i32:
+    return con_khz_now() / 1000
+
+# the clock now in kHz: the crystal or RC_FAST / (PRE_DIV_CNT + 1), or the PLL (80, 160, 240 MHz)
+def con_khz_now() i32:
+    c_sel = i32((con_rtc[0x70 / 4] >> 27) & 3)
+    c_div = i32(con_sysclk[0] & 0x3FF) + 1
+    if c_sel == 0: return 40000 / c_div
+    if c_sel == 2: return con_rc[0] / c_div
+    return 80000 * i32((con_cpu_per[0] & 3) + 1)
+
+# 1 when the WiFi service runs on core 1 (its clock on and its mark there), else 0
+def con_wifi_runs() i32:
+    if (con_appcpu_b[0] & 1) == 0: return 0
+    if con_svc_mark[0] == u32(0x43565357): return 1
+    return 0
+
+# the APB now: 80 MHz from the PLL, the clock of the core from the crystal
+def con_apb_now() i32:
+    if ((con_rtc[0x70 / 4] >> 27) & 3) == 0: return 40 / i32((con_sysclk[0] & 0x3FF) + 1)
+    return 80
+
+# on the crystal: the core and the APB at 40 MHz / (PRE_DIV_CNT + 1) = c_mhz
+def con_xtal_div(c_mhz):
+    c_old = con_apb_now()
+    con_uart_drain()
+    con_sysclk[0] = u32(40 / c_mhz - 1)
+    con_apb(c_old, c_mhz)
+    con_ticks_pro[0] = u32(c_mhz)
+    con_ticks_app[0] = u32(c_mhz)
+
+# waits until UART0 has sent its bytes (the last one leaves the shift register: about 90 us)
+def con_uart_drain():
+    c_n = 0
+    while ((con_uart0[7] >> 16) & 0xFF) != 0: c_n += 1
+    con_delay_us(200)
+
+# a switch of SOC_CLK_SEL takes a cycle of the slow clock (about 150 kHz): 4000 turns of a loop, more than enough
+def con_settle():
+    c_n = 0
+    while c_n < 4000: c_n += 1
+
+# the voltage of the core: DIG_DBIAS_WAK (4: 1.10 V, 7: 1.25 V)
+def con_dbias(c_v):
+    con_rtc[0x7C / 4] = (con_rtc[0x7C / 4] & ~u32(0x3800)) | u32(c_v << 11)
+
+# UART0 and timer 0 for an APB of c_mhz after one of c_old MHz: the divider of UART0 scaled (its baud rate stays, also
+# one that the Board Manager set), timer 0 counts microseconds on when it runs
+def con_apb(c_old, c_mhz):
+    c_div = i32(con_uart0[5])
+    c_div = ((c_div & 0xFFFFF) << 4) + ((c_div >> 20) & 15)     # in sixteenths
+    c_div = (c_div * c_mhz + c_old / 2) / c_old
+    con_uart0[5] = u32((c_div >> 4) | ((c_div & 15) << 20))
+    c_t = con_t0conf[0]
+    if (c_t >> 31) != 0:
+        c_t = (c_t & ~u32(0x1FFFE000)) | u32(c_mhz << 13)
+        con_t0conf[0] = c_t & u32(0x7FFFFFFF)                   # off while its divider changes
+        con_t0conf[0] = c_t
+
+# the core and the APB at the crystal (40 MHz), the PLL off, the core at 1.10 V
+def con_to_xtal():
+    con_uart_drain()
+    con_sysclk[0] = 0                                           # the crystal undivided
+    con_rtc[0x70 / 4] = con_rtc[0x70 / 4] & ~u32(0x18000000)    # SOC_CLK_SEL 0: the crystal
+    con_settle()
+    con_apb(80, 40)
+    con_rtc[0] = con_rtc[0] | u32(0x40540)                      # the PLL and its bus powered down
+    con_dbias(4)
+    con_ticks_pro[0] = 40
+    con_ticks_app[0] = 40
+
+# from the crystal: the PLL on (480 MHz for 240, else 320 MHz), the core from it at c_mhz, the APB at 80 MHz
+def con_to_pll(c_mhz):
+    con_rtc[0] = con_rtc[0] & ~u32(0x40540)                     # the PLL and its bus on
+    con_delay_us(1000)
+    con_i2c_write(0x66, 4, 0, 0x18)                             # IR_CAL_DELAY
+    con_i2c_write(0x66, 4, 1, 0x20)                             # IR_CAL_EXT_CAP
+    con_i2c_write(0x66, 4, 4, 0x9A)                             # OC_ENB_FCAL
+    con_i2c_write(0x66, 4, 10, 0)                               # OC_ENB_VCON
+    con_i2c_write(0x66, 4, 12, 0)                               # BBADC_CAL_7_0
+    c_div = 32                                                  # 320 MHz
+    if c_mhz == 240:
+        con_dbias(7 - i32((con_efuse5[0] >> 22) & 3))           # 1.25 V first
+        con_delay_us(10)
+        con_i2c_write(0x66, 4, 11, 0xC3)                        # ENDIV5
+        con_i2c_write(0x66, 4, 9, 0x74)                         # BBADC_DSMP
+        c_div = 28                                              # 480 MHz
+    else:
+        con_i2c_write(0x66, 4, 11, 0x43)
+        con_i2c_write(0x66, 4, 9, 0x84)
+    con_i2c_write(0x66, 4, 2, 0)                                # OC_LREF 0, OC_DIV_10_8 0, OC_REF_DIV 0
+    con_i2c_write(0x66, 4, 3, c_div)                            # OC_DIV_7_0
+    con_i2c_write(0x66, 4, 5, 0xC6)                             # OC_BW 3, OC_DCUR 6
+    con_delay_us(1000)                                          # the PLL settles
+    con_cpu_per[0] = u32(c_mhz / 80 - 1)
+    con_uart_drain()
+    con_rtc[0x70 / 4] = (con_rtc[0x70 / 4] & ~u32(0x18000000)) | u32(0x08000000)    # SOC_CLK_SEL 1: the PLL
+    con_settle()
+    con_apb(40, 80)

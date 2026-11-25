@@ -1,0 +1,175 @@
+# Wake-on-LAN: the board connects to the network it keeps (wlan set in the console), gets an address by DHCP and
+# sends the "magic packet" for a PC to all of the network (a UDP broadcast to port 9), three times. A PC whose network
+# card is set up for it starts from sleep or from off. The same source for the ESP32, the ESP32-S3, the ESP32-C3, the
+# ESP32-S31, the Pico W and the Pico 2 W: Asmonite translates it for the board of Project > aBelle for, include
+# "net.abel" takes the small IP stack of aBelle and the WiFi of that board from abelle\lib. Start it with F9, or upload
+# it and type "wol" in the console (an argument can only be given there).
+#
+# "wol" in the console wakes the PC of pc_mac() below (put the MAC of yours there), "wol 02:00:00:12:34:56" that MAC.
+# With an address after it ("wol 02:00:00:12:34:56 192.168.1.20") the board then pings the PC every two seconds and
+# says when it answers, for two minutes at most.
+#
+# The magic packet: 6 bytes FF, then the MAC of the PC 16 times (102 bytes). The network card looks for this pattern
+# in every frame it gets, whatever the protocol around it: UDP to port 9 ("discard") is only the usual way. The board
+# and the PC have to be in the same network: a broadcast does not go through a router, and a guest network mostly
+# keeps its devices away from the home network.
+#
+# On the PC: in the BIOS / UEFI "Wake on LAN" (or "Power on by PCI-E") on; in Windows in the device manager, the
+# network card, Power Management: "Allow this device to wake the computer" and "Only allow a magic packet", and in
+# Advanced "Wake on Magic Packet". Windows' fast startup ("Turn on fast startup" in the power options) keeps some
+# cards from waking a PC that is off. A PC on WiFi mostly does not wake this way, one on a cable does.
+include "console.abel"
+include "net.abel"
+
+WOL_PORT = 9
+SENDS = 3                           # magic packets, 300 ms apart
+WAIT_SECONDS = 120                  # how long to wait for the PC to answer a ping
+pc: char[8]                         # the MAC of the PC
+pc_ip: char[4]                      # its address, when one was given
+
+# the MAC of the PC to wake: put yours here (Windows: "ipconfig /all", the physical address of the network card)
+def pc_mac() pchar:
+    return "02:00:00:12:34:56"
+
+# a hex digit, -1 if c is none
+def hex_value(c) i32:
+    if c >= '0' and c <= '9':
+        return c - '0'
+    if c >= 'a' and c <= 'f':
+        return c - 'a' + 10
+    if c >= 'A' and c <= 'F':
+        return c - 'A' + 10
+    return -1
+
+# the MAC at the start of s ("02:00:00:12:34:56" or "02-00-00-12-34-56") into pc: the length of it (17), or -1
+def parse_mac(s: pchar) i32:
+    p = 0
+    for i in 0..6:
+        hi = hex_value(s[p])
+        lo = hex_value(s[p + 1])
+        if hi < 0 or lo < 0:
+            return -1
+        pc[i] = hi * 16 + lo
+        p += 2
+        if i < 5:
+            if s[p] != ':' and s[p] != '-':
+                return -1
+            p += 1
+    if s[p] != 0 and s[p] != ' ':
+        return -1
+    return p
+
+# the text s an IPv4 address ("192.168.1.20")? Then it into pc_ip and 1, else 0
+def parse_ip(s: pchar) i32:
+    k = 0
+    for part in 0..4:
+        if s[k] < '0' or s[k] > '9':
+            return False
+        v = 0
+        while s[k] >= '0' and s[k] <= '9':
+            v = v * 10 + s[k] - '0'
+            if v > 255:
+                return False
+            k += 1
+        pc_ip[part] = v
+        if part < 3:
+            if s[k] != '.':
+                return False
+            k += 1
+    return s[k] == 0 or s[k] == ' '
+
+# SENDS magic packets to all of the network
+def send_magic():
+    for attempt in 0..SENDS:
+        # 6 x FF, 16 x the MAC (each time anew: net_recv may have sent something from tx meanwhile)
+        p = udp_payload()
+        for i in 0..6:
+            p[i] = 0xFF
+        for k in 0..16:
+            copy(p + 6 + k * 6, pc, 6)
+        r = udp_send(broadcast, WOL_PORT, WOL_PORT, 102)
+        print("magic packet for ")
+        print_mac(pc)
+        print(" to 255.255.255.255:")
+        print_int(WOL_PORT)
+        if r != 0:
+            print(": error ")
+            print_int(r)
+        println("")
+        # a little time between them; frames that come meanwhile are handled
+        t0 = wifi_millis()
+        while wifi_millis() - t0 < 300:
+            net_recv(10)
+
+# a ping to pc_ip every two seconds until it answers: "192.168.1.20 answers after 14 s", or that it did not
+def wait_for_pc():
+    print("waiting for ")
+    print_ip(pc_ip)
+    println(" to answer a ping")
+    t0 = wifi_millis()
+    seq = 0
+    while wifi_millis() - t0 < WAIT_SECONDS * 1000:
+        seq += 1
+        ping_got = -1
+        t1 = wifi_millis()
+        # no answer to ARP yet is no error here: the PC is still asleep
+        ping_send(pc_ip, seq, 32)
+        while ping_got != seq and wifi_millis() - t1 < 2000:
+            net_recv(10)
+        if ping_got == seq:
+            print_ip(pc_ip)
+            print(" answers after ")
+            print_int((wifi_millis() - t0) / 1000)
+            println(" s")
+            return
+        while wifi_millis() - t1 < 2000:
+            net_recv(10)
+    print_ip(pc_ip)
+    print(" did not answer within ")
+    print_int(WAIT_SECONDS)
+    println(" s")
+
+def main():
+    println("Wake-on-LAN")
+    a = args()
+    if a[0] == 0:
+        a = pc_mac()
+    k = parse_mac(a)
+    if k < 0:
+        print("not a MAC: ")
+        println(a)
+        println("wol end")
+        return
+    has_ip = False
+    if a[k] == ' ':
+        while a[k] == ' ':
+            k += 1
+        if a[k] != 0:
+            if not parse_ip(a + k):
+                print("not an address: ")
+                println(a + k)
+                println("wol end")
+                return
+            has_ip = True
+    net_init()
+    print("connecting to ")
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
+    if r != 0:
+        print("wifi_connect: error ")
+        print_int(r)
+        print(" (")
+        print(wifi_error_text(r))
+        println(")")
+        return
+    if not dhcp_run():
+        println("dhcp: no answer")
+        return
+    print("ip: ")
+    print_ip(net_ip)
+    println("")
+    send_magic()
+    if has_ip:
+        wait_for_pc()
+    wifi_done()
+    println("wol end")

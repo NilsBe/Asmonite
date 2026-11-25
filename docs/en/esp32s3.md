@@ -4,6 +4,10 @@ The ESP32-S3 from Espressif has two Xtensa LX7 cores (240 MHz) and a USB port th
 at the same time, as the ESP32-C3. Asmonite assembles Xtensa code (`.arch xtensa`), debugs a program in the RAM of
 core 0 and writes it into the flash, **with one USB cable, without a debug probe, without OpenOCD and without ESP-IDF**.
 
+> **The examples of this page:** the examples in assembly (`examples/<board>/…`) and some in aBelle that this page names
+> are being gone through again and come into the folder `examples/` one by one; until then they are not in the ZIP and
+> not in the public repository. What is released already is in [examples/README.md](../../examples/README.md).
+
 Tested with a board with two USB-C ports and an RGB LED WS2812 at GPIO 48 (one port goes to the chip, the other one to
 UART0 over a CH343). Other boards whose USB port goes straight to the chip (GPIO 19 and 20) should work the same way;
 the port of a USB-serial chip (CP2102, CH340, CH343) gives no USB JTAG.
@@ -122,10 +126,9 @@ code for the RAM from `0x40378000` on (up to 96 KB) and the data from `0x3FCA000
 the data bus, behind the code; bytes work there; above it the stack and the WiFi). F9 loads it over the USB JTAG and debugs it **in its source**: breakpoints, F7/F8 line by
 line, variables under the mouse and in the window Watch. Functions of the boot ROM are made known with `at` and their
 address as on the ESP32; on the S3 they are elsewhere (`ets_delay_us` at `0x40000600`, on the ESP32 at
-`0x40008534`; `esp32s3.rom.ld` of ESP-IDF). Example: `examples/abelle/esp32s3/hello_usb.abel` writes "Hello, world!"
-and a counter over the USB port of the chip; `examples/abelle/esp32s3/rgb.abel` lights the RGB LED of the board
-(GPIO 48) red, green, blue and around the colour wheel, the RMT makes the pulses of the WS2812;
-`examples/abelle/esp32s3/scan.abel` shows the WiFi networks nearby (see [The WiFi](#the-wifi)).
+`0x40008534`; `esp32s3.rom.ld` of ESP-IDF). `include "console.abel"` and `wifi.abel` come from `abelle/lib/esp32s3/`,
+the text goes over the USB port of the chip. The examples in `examples/common/` run here too, for example `hello.abel`
+and `scan.abel` (the WiFi networks nearby, see [The WiFi](#the-wifi)).
 
 ## The console and its files
 
@@ -154,8 +157,7 @@ plugged in, you choose it in the list on the left:
 - **Functions of the console for programs** as on the ESP32, from `0x403C0800` on (`exit`, `version`, `put_char`,
   `get_char`, `poll_char`, `print`, `millis`, `file_size`, `file_read`, `file_write`, `flash_read`, `args`, 4 bytes
   each; the table is on the page of the ESP32). Programs as commands too, as there: `name args` starts `name` or
-  `name.bin` of the files. In aBelle: `include "inc/console.abel"`, example `runs.abel`. Under the
-  debugger and without the console `inc/usb.abel` stays.
+  `name.bin` of the files. In aBelle: `include "console.abel"`, example `examples/common/runs.abel`.
 - After a reset the console waits **3 seconds** before an autostart (on the ESP32 one): with the reset the USB port
   goes away for a moment and comes back, only then can a terminal send a key.
 
@@ -171,21 +173,19 @@ core 0 only, the WiFi goes on.
 
 1. The **WiFi package** lies in the flash from `0x100000` to `0x1FFFFF`, as on the ESP32: the library, a head at
    `0x1F0000`, behind it the parts of `wlan.rom` for the RAM and `wlansvc`. When you start a program with
-   `inc/wifi.abel` with F9, Asmonite writes the package over the console if it is missing or does not match (about
+   `wifi.abel` with F9, Asmonite writes the package over the console if it is missing or does not match (about
    300 KB, about 8 seconds). Prepare Board puts it there as well, **Install WiFi** in the Board Manager does it
    by hand.
-2. A program in aBelle with `include "inc/wifi.abel"` (from `examples/abelle/esp32s3/inc/`) loads the service itself
-   from the package, by `run` in the console as under the debugger. `examples/abelle/esp32s3/scan.abel` shows the
+2. A program in aBelle with `include "wifi.abel"` (from `abelle/lib/esp32s3/`) loads the service itself
+   from the package, by `run` in the console as under the debugger. `examples/common/scan.abel` shows the
    networks nearby. While the console uses the flash, it parks core 1 as on the ESP32 ([esp32.md](esp32.md)): files
    can be written while the WiFi runs, a connection stays up.
 3. To connect to a network (open or WPA2): `wlan set` once in the tab Serial, then its name and password, as on the
    ESP32 ([esp32.md](esp32.md)). The console keeps the name and the key, not the password (about 2.3 seconds), in the
-   sectors `0xFE000` and `0xFF000`. The examples are the ones of the ESP32 ([esp32.md](esp32.md)): `dhcp.abel`,
-   `ping.abel`, `dns.abel`, `ntp.abel`, `httpget.abel`, `webserver.abel`, `udpecho.abel`, `wol.abel`, `arpscan.abel`,
-   `telnetd.abel` (the files of the board through the MMU of the S3, `led` switches the RGB LED WS2812 at GPIO 48);
-   they connect to the network of the board with `wifi_connect_saved()`; they write their text over the USB
-   port of the chip (`inc/usb.abel` in place of `inc/uart.abel`), the tab Serial shows it. `net.abel` and `tcp.abel`
-   are the ones of the ESP32. For WPA2 the service unwraps the group key itself (AES key unwrap of RFC 3394): the ROM
+   sectors `0xFE000` and `0xFF000`. The examples are the same as on the ESP32, those in `examples/common/`
+   (`arpscan.abel`, `ping.abel`, `wol.abel`, `httpget.abel`, `httpsget.abel` ...); they connect to the network of the
+   board with `wifi_connect_saved()`; they write their text over the USB port of the chip, the tab Serial shows it.
+   `net.abel` and `tcp.abel` (`abelle/lib/common/`) are the same as on the ESP32. For WPA2 the service unwraps the group key itself (AES key unwrap of RFC 3394): the ROM
    of the S3 has no function for it, unlike the one of the ESP32.
 4. As on the ESP32, the console gets an address by DHCP once connected ("WiFi: connected, address ..."), and the
    service answers ARP and ping for it itself: the board answers ping also without a program ([esp32.md](esp32.md)).
@@ -206,7 +206,7 @@ The RAM with the WiFi (the code bus and the data bus are the same RAM, `0x6F0000
 code may then reach up to `0x4039EFFF` (156 KB, over the window of the data up to the stack), the data lie from
 `0x3FCB0000` (up to 128 KB, the room of the service, of `wlan.rom` and of the heap). The console sees from the
 addresses that the program reaches into the room of the WiFi, stops the WiFi first and starts it again in the
-background when the program has ended; with F9, `run` and the debugger. A program with `inc/wifi.abel` is refused in
+background when the program has ended; with F9, `run` and the debugger. A program with `wifi.abel` is refused in
 the large window.
 
 ## The examples

@@ -1,0 +1,76 @@
+# Slowclock: the LED blinks at a clock of a few kHz, as evenly as at 40 MHz. cpu_clock_khz (include "cpuclock.abel")
+# takes the core down to 39 kHz from the crystal and down to about 5 kHz from the RC_FAST oscillator of the chip (it
+# draws less current then). Below 1 MHz the terminal is silent and millis() counts wrong, so the program counts cycles:
+# at the start it measures how many cycles a round of count() takes (at 40 MHz, by millis()), then half a second at
+# any clock is as many rounds as the clock has cycles in it. At each clock the LED blinks four times, once a second.
+# Not while the WiFi runs (it needs 80 MHz at least): "wlan off" in the console first, "wlan on" afterwards.
+# The line before each clock comes at 40 MHz, the line after it too. At the end the program sets the clock it found
+# again (the console keeps the clock a program leaves; below 1 MHz it takes 40 MHz). Start it with F9, or upload it
+# and type "slowclock" in the console.
+
+target "esp32"
+
+include "console.abel"
+include "cpuclock.abel"
+
+LED_PIN = 2                     # the LED of the ESP32 DevKit V1 (another board: see examples/common/blink.abel)
+LED_LOW = 0                     # 1: the LED lights when its pin is low
+BLINKS = 4
+
+cyc100: i32[1]                  # the cycles of a round of count() * 100
+
+# n rounds of a loop
+def count(n):
+    i = 0
+    while i < n:
+        i += 1
+
+# the LED on (1) or off (0)
+def set_led(on):
+    if LED_LOW:
+        gpio_write(LED_PIN, 1 - on)
+    else:
+        gpio_write(LED_PIN, on)
+
+# half a second at a clock of khz: khz * 500 cycles
+def half_second(khz):
+    count(khz * 50000 / cyc100[0])
+
+# the core at khz, BLINKS blinks, back at 40 MHz
+def blink_at(khz):
+    print("  ")
+    print_int(khz)
+    println(" kHz ...")
+    got = cpu_clock_khz(khz)
+    if got > 0:
+        for b in 0..BLINKS:
+            set_led(1)
+            half_second(got)
+            set_led(0)
+            half_second(got)
+    cpu_clock_khz(40000)
+    if got > 0:
+        print("    blinked at ")
+        print_int(got)
+        println(" kHz")
+    else:
+        println("    not possible now (the WiFi on? \"wlan off\" in the console)")
+
+def main():
+    println("slowclock: the LED blinks once a second at each clock")
+    start = cpu_clock_khz(0)
+    if cpu_clock_khz(40000) != 40000:
+        println("40 MHz is not possible now: the WiFi runs (\"wlan off\" in the console)")
+        return
+    gpio_output(LED_PIN)
+    t = millis()
+    count(200000)
+    cyc100[0] = (millis() - t) * 40000 / 2000          # ms * kHz = cycles; / 200000 rounds * 100
+    blink_at(40000)
+    blink_at(4000)
+    blink_at(1000)
+    blink_at(100)
+    blink_at(10)
+    blink_at(5)
+    cpu_clock_khz(start)
+    println("end")

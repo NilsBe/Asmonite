@@ -1,0 +1,46 @@
+# Clockspeed: the same work at each clock of the core, and the time it takes. cpu_clock (include "cpuclock.abel")
+# sets the clock of the Pico: each whole MHz from 48 to 133 (the console runs it at 48 MHz after a reset; 133 MHz is
+# the most the RP2040 is made for), else -1; 0 only asks. millis(), the terminal and the USB port go on right at each
+# clock. At the end the program sets the clock it found again (the console keeps the clock a program leaves).
+# Start it with F9, or upload it and type "clockspeed" in the console.
+
+target "pico"
+
+include "console.abel"
+include "cpuclock.abel"
+
+# the same work at each clock: a loop of shifts and xor
+def work() i32:
+    s = 0
+    for i in 0..100000:
+        s += i ^ (s >> 3)
+    return s
+
+# the core at mhz, then the work and its time
+def run_at(mhz):
+    got = cpu_clock(mhz)
+    print("  ")
+    print_int(mhz)
+    print(" MHz: ")
+    if got < 0:
+        println("not possible")
+        return
+    start = millis()
+    work()
+    print_int(millis() - start)
+    println(" ms")
+
+def main():
+    start = cpu_clock_khz(0)
+    print("clockspeed: the console runs the core at ")
+    print_int(start)
+    println(" kHz")
+    run_at(133)
+    run_at(125)
+    run_at(100)
+    run_at(75)
+    run_at(48)
+    run_at(18)
+    run_at(200)
+    println("(18 and 200 MHz are outside 48 .. 133 MHz)")
+    cpu_clock_khz(start)

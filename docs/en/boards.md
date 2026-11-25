@@ -3,6 +3,10 @@
 Which boards Asmonite runs programs on, how it debugs them (over a debug probe, or with the USB cable alone), and how
 what a program writes reaches the PC. The details are in the guide of each board.
 
+> **The examples of this page:** the examples in assembly (`examples/<board>/…`) and some in aBelle that this page names
+> are being gone through again and come into the folder `examples/` one by one; until then they are not in the ZIP and
+> not in the public repository. What is released already is in [examples/README.md](../../examples/README.md).
+
 | Board | Chip, cores | Debugging over a probe | Debugging without a probe | Serial output to the PC | Guide |
 |---|---|---|---|---|---|
 | Raspberry Pi Pico 2 | RP2350: Arm Cortex-M33, RISC-V Hazard3 | yes: RAM, flash, pause | yes, the Arm cores over the debug monitor of the console of Asmonite at the USB cable: RAM, pause | over the UART of the Debug Probe; with the console also over the USB cable | [riscv-pico2.md](riscv-pico2.md) |
@@ -39,13 +43,21 @@ Chip** reads the chip, revision, MAC, crystal and flash, and restarts the board 
 the PSRAM in the chip (modules such as N16R8: 8 MB), which Espressif writes into the eFuses; the PSRAM of an ESP32
 WROVER, a chip of its own next to the ESP32, the eFuses do not know.
 
+The files: a right click on a file shows what can be done with it: for a program **Run**, for a text file **Open in
+Editor** (both also Enter or a double click; the editor gets a copy, a change stays on the PC), **Autostart**,
+**Download**, **Delete** (also Del); and, on the empty list too, **Upload File** and **Refresh** (F5). Files dragged
+from the Explorer onto the window go onto the board. **Examples...** opens an example for the board chosen: from
+`examples\common` (for every board), from the folder of the board when it has one (`examples\esp32` ...), or the
+overview of the examples. Asmonite opens it in the editor and, for aBelle, sets **Project > aBelle for** to the board of
+the tab Serial: F9 then runs it there.
+
 | Board | Buttons |
 |---|---|
-| ESP32, ESP32-S3 | the files: **Refresh**, **Upload File**, **Download**, **Delete**, **Run**, **Autostart**; the board: **Reset**, **Chip Details**, **Prepare Board**, **Install WiFi**, **Format**, **Erase Flash** |
+| ESP32, ESP32-S3 | the files: **Upload File**, **Refresh**, in the context menu of a file **Run**, **Autostart**, **Download**, **Delete**; the board: **Reset**, **Chip Details**, **Prepare Board**, **Install WiFi**, **Format**, **Erase Flash** |
 | ESP32-S31 (RISC-V) at the USB port of the chip | as on the ESP32-C3 (the console of `boards/esp32s31`, in the flash at 0x2000), with its WiFi (Install WiFi); **Chip Details** names the chip, revision, MAC, PSRAM, crystal and flash. Behind a USB serial chip Asmonite takes it for an ESP32 until Chip Details finds it |
 | ESP32-S3 or ESP32-C3, not known yet (both have the same USB id, no console answers) | **Chip Details**, **Prepare Board** |
 | ESP32-C3 | as the ESP32 and the ESP32-S3 once its console runs (its console says it is a C3: packet H); without it **Reset**, **Chip Details**, **Prepare Board**, **Erase Flash** (over its boot ROM); more in [esp32c3.md](esp32c3.md) |
-| Pico 2 (Arm cores) and Pico behind the debug probe | the files of the console as for the ESP32 (**Refresh**, **Upload File**, **Download**, **Delete**, **Run**, **Autostart**); the board: **Reset**, **Prepare Board** (the console into the flash over the probe), **Format**, **Erase Flash**, the Pico 2 also **RISC-V Cores**; more in [riscv-pico2.md](riscv-pico2.md) |
+| Pico 2 (Arm cores) and Pico behind the debug probe | the files of the console as for the ESP32 (**Upload File**, **Refresh**, in the context menu **Run**, **Autostart**, **Download**, **Delete**); the board: **Reset**, **Prepare Board** (the console into the flash over the probe), **Format**, **Erase Flash**, the Pico 2 also **RISC-V Cores**; more in [riscv-pico2.md](riscv-pico2.md) |
 | Pico 2 (RISC-V cores), Blue Pill behind the debug probe | **Reset**, **Erase Flash**; the Pico 2 also **Arm Cores** |
 | the clone "Pico W-2023" (an RP2040 with an ESP8285 instead of the CYW43439), the console over the USB cable | the files of the console as on the Pico; the board: **Prepare Board**, **Install WiFi (ESP8285)** (the firmware of Asmonite into the ESP8285, about 40 s; the board plugged in with its BOOT button held, the question says how) |
 | Pico in its USB boot (BOOTSEL) | **Start Program** (leaves the USB boot, the program in the flash starts), **Erase Flash** |
@@ -141,13 +153,18 @@ them now. "–" is missing yet; the aim is the same on every board, as far as it
 | aBelle: F9 (over the console), `gpio_output`, `gpio_write` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | aBelle: F9 with a breakpoint, F7, F8, the variables | ✓ | ✓ | ✓ | ✓ | ✓ |
 | aBelle: network programs (`ping`, `dns`, `ntp`, `httpget` …) | ✓ | ✓ | ✓ (W, clone) | ✓ | `scan`, `arpscan`, `ping` ✓, the others not tried yet |
+| aBelle: the clock of the core (`cpu_clock`, `cpu_clock_khz`; [clock.md](clock.md)) | ✓ (5 kHz … 240 MHz) | ✓ (10 … 240 MHz) | ✓ (1 kHz … 133 or 150 MHz) | ✓ (10 … 160 MHz) | – |
 | aBelle: `telnetd` | ✓ | ✓ | ✓ (W) | – | – |
 | aBelle: `fm`, `webserver` (the board as a web server) | ✓ | ✓ | – | – | – |
+
+A Pico and a Pico 2 without a WiFi chip (without the W) have no network commands: `wlan`, `name` and `passwd` are
+unknown there like any typo, and `help` and `info` do not list them (Prepare Board writes help.txt without those
+lines).
 
 **The clone "Pico W-2023"** has an ESP8285 at UART0 (GPIO 0 and 1) instead of the CYW43439 of a Pico W. With the
 firmware of Asmonite on it (Board Manager > **Install WiFi (ESP8285)**) it is the WiFi of the console as on the Pico W:
 the console names the board "Raspberry Pi Pico (WiFi: ESP8285)", and `wlan`, the network programs and
-`inc/wifi.abel` run unchanged. UART0 belongs to the ESP8285 then: the console talks over the USB cable only. The
+`wifi.abel` run unchanged. UART0 belongs to the ESP8285 then: the console talks over the USB cable only. The
 firmware (`wlan/esp8285_fw.asm`) links the libraries of the ESP8266 NONOS SDK of Espressif with `ablink`; it passes
 the frames over UART0 (460800 baud) to the console, which does ARP, ping and DHCP as on the Pico W. The firmware the
 ESP8285 came with (an AT firmware) is overwritten.

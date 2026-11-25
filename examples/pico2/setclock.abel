@@ -1,0 +1,42 @@
+# Setclock: the clock of the core for the console and every program after it, until a reset. Upload it, then type
+# in the console:
+#   setclock 150      the core at 150 MHz from now on (each whole MHz from 48 to 150)
+#   setclock          says the clock now
+# The console keeps the clock a program leaves (cpu_clock of cpuclock.abel); info and the Board Manager (the line
+# "CPU clock") show it. Not below 48 MHz: with the clocks from the crystal (cpu_clock_khz) Windows cannot open the port
+# of the console anew, so the console takes 48 MHz again after such a program. After a reset the console runs at
+# 48 MHz again; for another clock from the start, make a program for boot ("boot <name>") that calls cpu_clock.
+
+target "pico2"
+
+include "console.abel"
+include "cpuclock.abel"
+
+# the number at the start of a ("150"), -1 when there is none
+def number(a: pchar) i32:
+    k = 0
+    while a[k] == ' ':
+        k += 1
+    if a[k] < '0' or a[k] > '9':
+        return -1
+    v = 0
+    while a[k] >= '0' and a[k] <= '9':
+        v = v * 10 + a[k] - '0'
+        k += 1
+    return v
+
+def main():
+    mhz = number(args())
+    if mhz <= 0:
+        print("the core runs at ")
+        print_int(cpu_clock(0))
+        println(" MHz (setclock <MHz> sets another: 48 .. 150)")
+        return
+    got = cpu_clock(mhz)
+    if got < 0:
+        print_int(mhz)
+        println(" MHz is not possible: 48 .. 150")
+        return
+    print("the core runs at ")
+    print_int(got)
+    println(" MHz now, also after this program (until a reset)")

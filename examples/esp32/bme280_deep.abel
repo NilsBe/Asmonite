@@ -1,0 +1,569 @@
+# BME280 with deep sleep: a reading of the BME280 (as bme280.abel: temperature, air pressure, humidity at I2C), then
+# the ESP32 goes into deep sleep for a minute, wakes, reads again, and so on. In deep sleep almost the whole chip is
+# off (the datasheet: about 10 uA instead of the 0.8 mA of light sleep, bme280_sleep.abel); only the RTC part runs:
+# its timer, and its slow memory keeps 8 KB. Waking is like a reset: the boot ROM starts the console again, and the
+# console starts this program again, its autostart program. What the program has to remember (how many readings, since
+# when, the lowest and the highest temperature) it keeps in the slow memory of the RTC.
+#
+# Once:
+#   1. Upload the program to the board (Project > Compile and Upload; it is then the file bme280_deep).
+#   2. Make it the autostart program: "boot bme280_deep" in the console (or Autostart in the Board Manager).
+#   3. Start it: "bme280_deep" in the console (or reset the board); "bme280_deep 5" reads five times and stops.
+# The way out: hold the button BOOT until the console answers. BOOT (GPIO 0) wakes the chip, and woken by a pin the
+# console starts no program this time ("Woke up from deep sleep by a pin"). "noboot" in the console then takes the
+# autostart away. A board without BOOT: on most boards with a USB serial chip (the DevKit) GPIO 0 is wired to its DTR
+# line for the download mode, so opening the COM port again (connect the tab Serial again) wakes it the same way; or
+# press EN (reset) and a key within a second, as at any start with an autostart program; or GPIO 0 to GND a moment.
+#
+# Woken by the timer, the console starts the program at once, without its WiFi and without its second for a key
+# (boards/esp32/console.asm, deep_wake): every millisecond awake costs current. The program shows how long the chip was
+# awake, and how much of it the start took (the boot ROM and the console).
+#
+# Wiring as in bme280.abel: SDA at GPIO 21, SCL at GPIO 22, VCC at 3.3 V, GND at GND; the sensor at 0x76 or 0x77.
+#
+# Deep sleep (ESP32 Technical Reference Manual, "Low-Power Management"; ESP-IDF rtc_sleep.c, sleep_modes.c): as for
+# light sleep, plus DIG_PWC bit 31 DG_WRAP_PD_EN (the digital part off: that makes it deep), PWC (the slow memory of the
+# RTC kept, its fast memory off, its peripherals on: GPIO 0 needs them), and the core on the crystal first (see
+# deep_sleep). GPIO 0 (BOOT) wakes it as EXT0: the RTC takes
+# the pin (RTC_IO_TOUCH_PAD1: GPIO 0 is RTC GPIO 11), RTC_IO_EXT_WAKEUP0 names it, RTC_CNTL_EXT_WAKEUP_CONF bit 30 0:
+# at a low level.
+
+target "esp32"
+include "console.abel"
+
+SDA = 21                        # the pins of the bus
+SCL = 22
+I2C_DELAY = 20                  # rounds of a loop for half a clock of the bus (about 100 kHz)
+SLEEP_MS = 60000                # deep sleep between two readings: a minute
+
+GPIO_ENABLE_W1TS = 0x24 / 4     # registers of the GPIO (con_gpio of console.abel counts in words)
+GPIO_ENABLE_W1TC = 0x28 / 4
+GPIO_OUT_W1TC = 0x0C / 4
+GPIO_IN = 0x3C / 4
+
+rtc: u32[64] at 0x3FF48000      # RTC_CNTL
+rtcio: u32[64] at 0x3FF48400    # RTC_IO
+uart0: u32[32] at 0x3FF40000    # UART0
+apb: u32[32] at 0x3FF66000      # APB_CTRL
+dport: u32[64] at 0x3FF00000    # DPORT
+
+OPTIONS0 = 0x00 / 4
+SLP_TIMER0 = 0x04 / 4
+SLP_TIMER1 = 0x08 / 4
+TIME_UPDATE = 0x0C / 4
+TIME0 = 0x10 / 4
+TIME1 = 0x14 / 4
+STATE0 = 0x18 / 4
+ANA_CONF = 0x30 / 4
+RESET_STATE = 0x34 / 4
+WAKEUP_STATE = 0x38 / 4
+INT_CLR = 0x48 / 4
+EXT_WAKEUP_CONF = 0x60 / 4
+CLK_CONF = 0x70 / 4
+PWC = 0x80 / 4
+DIG_PWC = 0x84 / 4
+DIG_ISO = 0x88 / 4
+TOUCH_PAD1 = 0x98 / 4           # in RTC_IO: GPIO 0
+EXT_WAKEUP0 = 0xBC / 4          # in RTC_IO
+
+# the slow memory of the RTC (0x50000000, 8 KB; it keeps its contents in deep sleep): what the program remembers
+keep: u32[16] at 0x50001000
+K_MAGIC = 0                     # MAGIC when the rest is valid
+K_SLEEPING = 1                  # 1: the program went to sleep (and is woken by the timer)
+K_READINGS = 2                  # the readings so far
+K_LIMIT = 3                     # how many it should make (0: no end)
+K_HZ = 4                        # the slow clock of the RTC (measured at the first start)
+K_LAST = 5                      # the RTC time at the last reading (bits 31..0)
+K_SECONDS = 6                   # the seconds since the first reading
+K_REST = 7                      # ... and the ticks over them
+K_ALARM = 8                     # the RTC time of the alarm (bits 31..0)
+K_TMIN = 9                      # the lowest temperature (1/100 degree)
+K_TMAX = 10                     # the highest
+MAGIC = 0x44454D42              # "BMED"
+
+BME280 = 0x60                   # the chip id in register 0xD0
+BMP280 = 0x58
+
+buf: char[32]                   # the bytes read from the sensor
+dev: i32 = 0                    # its address on the bus (0x76 or 0x77)
+chip: i32 = 0                   # its chip id
+rtc_hi: u32 = 0                 # bits 47..32 of the RTC time (rtc_now)
+rtc_hz: i32 = 0                 # the slow clock of the RTC
+temp: i32 = 0                   # the temperature of the last reading
+
+# the calibration of the sensor (written into it at the factory), named as in the datasheet: dig_T1 is t1 here
+t1: i32 = 0
+t2: i32 = 0
+t3: i32 = 0
+p1: i32 = 0
+p2: i32 = 0
+p3: i32 = 0
+p4: i32 = 0
+p5: i32 = 0
+p6: i32 = 0
+p7: i32 = 0
+p8: i32 = 0
+p9: i32 = 0
+h1: i32 = 0
+h2: i32 = 0
+h3: i32 = 0
+h4: i32 = 0
+h5: i32 = 0
+h6: i32 = 0
+t_fine: i32 = 0                 # the temperature as the formulas of pressure and humidity need it
+
+# n milliseconds, awake
+def wait_ms(n):
+    t = millis()
+    while millis() - t < n:
+        pass
+
+# ---------- the RTC and the deep sleep ----------
+
+# the time of the RTC in ticks of its slow clock: bits 31..0 (bits 47..32 into rtc_hi); it runs on in deep sleep
+def rtc_now() u32:
+    rtc[TIME_UPDATE] = 0x80000000                   # TIME_UPDATE: copy the time into TIME0/1
+    n = 0
+    while (rtc[TIME_UPDATE] & 0x40000000) == 0 and n < 100000:     # TIME_VALID
+        n += 1
+    rtc_hi = rtc[TIME1] & 0xFFFF
+    return rtc[TIME0]
+
+# ticks of the RTC in milliseconds
+def ticks_ms(ticks: u32) i32:
+    return i32(ticks / u32(rtc_hz / 1000))
+
+# milliseconds in ticks of the RTC
+def ms_ticks(ms) u32:
+    return u32((ms / 1000) * rtc_hz + (ms % 1000) * rtc_hz / 1000)
+
+# the slow clock of the RTC in Hz (about 150 kHz by the datasheet, and not exact): its ticks in half a second
+def measure_rtc_clock():
+    r0 = rtc_now()
+    m0 = millis()
+    wait_ms(500)
+    r1 = rtc_now()
+    rtc_hz = i32(r1 - r0) * 1000 / (millis() - m0)
+
+# the text sent before the sleep: the FIFO empty, then the last byte out
+def uart_drain():
+    while ((uart0[0x1C / 4] >> 16) & 0xFF) != 0:
+        pass
+    wait_ms(2)
+
+# deep sleep for ms milliseconds; the timer or the button BOOT (GPIO 0 low) wakes it: as a reset, it does not come back
+def deep_sleep(ms):
+    lo = rtc_now()
+    hi = rtc_hi
+    alarm = lo + ms_ticks(ms)
+    if alarm < lo:
+        hi += 1
+    keep[K_ALARM] = alarm
+    rtc[SLP_TIMER0] = alarm
+    rtc[SLP_TIMER1] = (hi & 0xFFFF) | 0x10000       # bit 16: the alarm on
+    # GPIO 0 to the RTC (MUX_SEL bit 19, function 0), its input on (FUN_IE bit 13), its pull-up (RUE bit 27); EXT0 is
+    # RTC GPIO 11, at a low level
+    rtcio[TOUCH_PAD1] = (rtcio[TOUCH_PAD1] & ~u32(0x60000)) | u32((1 << 19) | (1 << 13) | (1 << 27))
+    rtcio[EXT_WAKEUP0] = u32(11 << 27)
+    rtc[EXT_WAKEUP_CONF] = rtc[EXT_WAKEUP_CONF] & ~u32(1 << 30)
+    # the power: the slow memory kept (SLOWMEM_PD_EN 17 off, FORCE_PU 16, FORCE_NOISO 2), the fast memory off
+    # (FASTMEM_PD_EN 14, FORCE_PU 13 and FORCE_NOISO 0 off), the peripherals on (PD_EN 20 off: GPIO 0 needs them)
+    pwc = rtc[PWC] & ~u32((1 << 20) | (1 << 17) | (1 << 13) | (1 << 0))
+    rtc[PWC] = pwc | u32((1 << 16) | (1 << 14) | (1 << 2))
+    # the digital part off: DG_WRAP_PD_EN (31); the pads not forced (DIG_ISO 13, 12). (ESP-IDF also clears
+    # DG_WRAP_FORCE_PU, bit 20: here that reset the chip at once, without a sleep; so it stays.)
+    rtc[DIG_PWC] = rtc[DIG_PWC] | 0x80000000
+    rtc[DIG_ISO] = rtc[DIG_ISO] & ~u32((1 << 13) | (1 << 12))
+    # the core onto the crystal (40 MHz): the choice of the clock is in the RTC part and stays, but the PLL is off
+    # after the sleep; on the PLL the boot ROM came up at a wrong clock (its text garbled at a wrong baud rate) and
+    # never started the console. ESP-IDF does the same before every sleep.
+    apb[0] = apb[0] & ~u32(0x3FF)                   # APB_CTRL_SYSCLK_CONF: PRE_DIV_CNT 0, the crystal divided by 1
+    rtc[CLK_CONF] = rtc[CLK_CONF] & ~u32(3 << 27)   # SOC_CLK_SEL 0: the crystal
+    dport[0x3C / 4] = 0                             # DPORT_CPU_PER_CONF
+    # what the console left on for the WiFi and the clocks: BIAS_FORCE_NOSLEEP (16), XTL_FORCE_PU (13),
+    # BB_I2C_FORCE_PU (7); in ANA_CONF the I2C of the PLL and the radio (31, 30, 28, 27)
+    rtc[OPTIONS0] = rtc[OPTIONS0] & ~u32((1 << 16) | (1 << 13) | (1 << 7))
+    rtc[ANA_CONF] = rtc[ANA_CONF] & ~u32(0xD8000000)
+    # who may wake it: the timer (bit 3) and EXT0 (bit 0)
+    rtc[WAKEUP_STATE] = (rtc[WAKEUP_STATE] & ~u32(0x7FF << 11)) | u32(9 << 11)
+    rtc[INT_CLR] = 3
+    rtc[STATE0] = rtc[STATE0] | 0x80000000          # SLEEP_EN: good night
+    while True:
+        pass
+
+# 1: this start is a wake by the timer from the deep sleep of this program
+def woken() i32:
+    if (rtc[RESET_STATE] & 0x3F) != 5:              # 5: DEEPSLEEP_RESET
+        return 0
+    if (rtc[WAKEUP_STATE] & 0x7FF) != 8:            # the timer
+        return 0
+    return keep[K_MAGIC] == MAGIC and keep[K_SLEEPING] == 1
+
+# ---------- I2C by hand (as in bme280.abel) ----------
+
+# half a clock of the bus
+def pause():
+    for i in 0..I2C_DELAY:
+        pass
+
+# a pin for the bus: GPIO, its input on, its pull-up on, its output level 0 but its output off (the line high)
+def i2c_pin(pin):
+    con_iomux[con_mux_off(pin) / 4] = 0x2B00        # MCU_SEL 2: GPIO, FUN_DRV 2, FUN_IE, FUN_WPU
+    con_gpio[0x530 / 4 + pin] = 0x100               # FUNCn_OUT_SEL: the level of GPIO_OUT
+    con_gpio[GPIO_OUT_W1TC] = u32(1 << pin)
+    con_gpio[GPIO_ENABLE_W1TC] = u32(1 << pin)
+
+# the line low (the output on)
+def line_low(pin):
+    con_gpio[GPIO_ENABLE_W1TS] = u32(1 << pin)
+
+# the line let go: the pull-up makes it high, unless a device pulls it low
+def line_free(pin):
+    con_gpio[GPIO_ENABLE_W1TC] = u32(1 << pin)
+
+# the level of the line: 1 or 0
+def line_level(pin) i32:
+    return i32(con_gpio[GPIO_IN] >> u32(pin)) & 1
+
+# SCL high; a device may hold it low a while longer ("clock stretching"): wait for it
+def scl_high():
+    line_free(SCL)
+    n = 0
+    while line_level(SCL) == 0 and n < 1000:
+        n += 1
+    pause()
+
+# start: SDA goes low while SCL is high (also a repeated start in the middle of a transfer)
+def i2c_start():
+    line_free(SDA)
+    pause()
+    scl_high()
+    line_low(SDA)
+    pause()
+    line_low(SCL)
+    pause()
+
+# stop: SDA goes high while SCL is high
+def i2c_stop():
+    line_low(SDA)
+    pause()
+    scl_high()
+    line_free(SDA)
+    pause()
+
+# a byte to the bus, the highest bit first: 1 when the device answered with ACK (it pulled SDA low)
+def i2c_write(b) i32:
+    for i in 0..8:
+        if (b >> (7 - i)) & 1:
+            line_free(SDA)
+        else:
+            line_low(SDA)
+        pause()
+        scl_high()
+        line_low(SCL)
+    line_free(SDA)
+    pause()
+    scl_high()
+    ack = line_level(SDA) == 0
+    line_low(SCL)
+    pause()
+    return ack
+
+# a byte from the bus; more 1: ACK (more bytes are wanted), 0: NACK (the last one)
+def i2c_read(more) i32:
+    line_free(SDA)
+    b = 0
+    for i in 0..8:
+        pause()
+        scl_high()
+        b = (b << 1) | line_level(SDA)
+        line_low(SCL)
+    if more:
+        line_low(SDA)
+    pause()
+    scl_high()
+    line_low(SCL)
+    line_free(SDA)
+    pause()
+    return b
+
+# the pins for the bus; nine clocks first, in case a device still holds SDA low; then a stop
+def i2c_init():
+    i2c_pin(SDA)
+    i2c_pin(SCL)
+    pause()
+    for i in 0..9:
+        line_low(SCL)
+        pause()
+        scl_high()
+    line_low(SCL)
+    pause()
+    i2c_stop()
+
+# ---------- the registers of the sensor (as in bme280.abel) ----------
+
+# n bytes from the register reg on into buf: 1 done, 0 the sensor did not answer
+def bme_read(reg, n) i32:
+    i2c_start()
+    ok = i2c_write(dev << 1)
+    if ok:
+        ok = i2c_write(reg)
+    if ok:
+        i2c_start()
+        ok = i2c_write((dev << 1) | 1)
+    if ok:
+        for i in 0..n:
+            buf[i] = i2c_read(i < n - 1)
+    i2c_stop()
+    return ok
+
+# the value v into the register reg: 1 done, 0 the sensor did not answer
+def bme_write(reg, v) i32:
+    i2c_start()
+    ok = i2c_write(dev << 1)
+    if ok:
+        ok = i2c_write(reg)
+    if ok:
+        ok = i2c_write(v)
+    i2c_stop()
+    return ok
+
+# the two bytes at buf[i] (the low one first) as a number 0 .. 65535
+def le16(i) i32:
+    return buf[i] | (buf[i + 1] << 8)
+
+# ... as a number with a sign, -32768 .. 32767
+def le16s(i) i32:
+    v = le16(i)
+    if v >= 32768:
+        v -= 65536
+    return v
+
+# a byte 0 .. 255 as a number with a sign, -128 .. 127
+def s8(v) i32:
+    if v >= 128:
+        v -= 256
+    return v
+
+# the sensor at 0x76 or 0x77: 1 found (dev, chip), 0 none answered
+def find_sensor() i32:
+    for a in 0x76..0x78:
+        dev = a
+        if bme_read(0xD0, 1):
+            chip = buf[0]
+            return 1
+    return 0
+
+# the calibration out of the sensor: 1 done, 0 it did not answer
+def read_calibration() i32:
+    if not bme_read(0x88, 26):
+        return 0
+    t1 = le16(0)
+    t2 = le16s(2)
+    t3 = le16s(4)
+    p1 = le16(6)
+    p2 = le16s(8)
+    p3 = le16s(10)
+    p4 = le16s(12)
+    p5 = le16s(14)
+    p6 = le16s(16)
+    p7 = le16s(18)
+    p8 = le16s(20)
+    p9 = le16s(22)
+    h1 = buf[25]
+    if chip == BME280:
+        if not bme_read(0xE1, 7):
+            return 0
+        h2 = le16s(0)
+        h3 = buf[2]
+        h4 = (s8(buf[3]) << 4) | (buf[4] & 15)      # 12 bits with a sign, spread over 0xE4 and 0xE5
+        h5 = (s8(buf[5]) << 4) | (buf[4] >> 4)      # ... over 0xE5 and 0xE6
+        h6 = s8(buf[6])
+    return 1
+
+# ---------- the formulas of the datasheet (as in bme280.abel) ----------
+
+# the temperature in 1/100 degree Celsius (2147: 21.47 C); sets t_fine
+def temperature(adc) i32:
+    v1 = (((adc >> 3) - (t1 << 1)) * t2) >> 11
+    d = (adc >> 4) - t1
+    v2 = (((d * d) >> 12) * t3) >> 14
+    t_fine = v1 + v2
+    return (t_fine * 5 + 128) >> 8
+
+# the pressure in pascal (101325: 1013.25 hPa); needs t_fine
+def pressure(adc) i32:
+    v1 = (t_fine >> 1) - 64000
+    v2 = (((v1 >> 2) * (v1 >> 2)) >> 11) * p6
+    v2 = v2 + ((v1 * p5) << 1)
+    v2 = (v2 >> 2) + (p4 << 16)
+    v1 = (((p3 * (((v1 >> 2) * (v1 >> 2)) >> 13)) >> 3) + ((p2 * v1) >> 1)) >> 18
+    v1 = ((32768 + v1) * p1) >> 15
+    if v1 == 0:
+        return 0                                    # no division by 0
+    p = u32(1048576 - adc - (v2 >> 12)) * 3125
+    if p < 0x80000000:
+        p = (p << 1) / u32(v1)
+    else:
+        p = (p / u32(v1)) * 2
+    v1 = (p9 * i32(((p >> 3) * (p >> 3)) >> 13)) >> 12
+    v2 = (i32(p >> 2) * p8) >> 13
+    return i32(p) + ((v1 + v2 + p7) >> 4)
+
+# the humidity in 1/1024 percent (46080: 45.00 %); needs t_fine
+def humidity(adc) i32:
+    v = t_fine - 76800
+    a = (((adc << 14) - (h4 << 20) - (h5 * v)) + 16384) >> 15
+    b = (((((((v * h6) >> 10) * (((v * h3) >> 11) + 32768)) >> 10) + 2097152) * h2 + 8192) >> 14)
+    v = a * b
+    v = v - (((((v >> 15) * (v >> 15)) >> 7) * h1) >> 4)
+    if v < 0:
+        v = 0
+    if v > 419430400:
+        v = 419430400
+    return v >> 12
+
+# ---------- output ----------
+
+# v / 100 with two places: 2147 is "21.47", -5 is "-0.05"
+def print_hundredths(v):
+    if v < 0:
+        put_char('-')
+        v = 0 - v
+    print_int(v / 100)
+    put_char('.')
+    put_char('0' + v / 10 % 10)
+    put_char('0' + v % 10)
+
+# the number at the start of t (its digits), 0 if there are none
+def number(t: pchar) i32:
+    n = 0
+    i = 0
+    while t[i] >= '0' and t[i] <= '9':
+        n = n * 10 + (t[i] - '0')
+        i += 1
+    return n
+
+# the sensor found and its calibration read: 1, else 0 (said why)
+def sensor_ready() i32:
+    i2c_init()
+    if line_level(SDA) == 0 or line_level(SCL) == 0:
+        println("A line of the bus stays low: no pull-up, or SDA/SCL shorted to GND. Check the wiring.")
+        return 0
+    if not find_sensor():
+        println("No sensor answers at 0x76 or 0x77. Check the wiring: SDA GPIO 21, SCL GPIO 22, 3.3 V, GND.")
+        return 0
+    if not read_calibration():
+        println("The sensor does not answer any more.")
+        return 0
+    return 1
+
+# one reading: the sensor measures once ("forced mode"; then it sleeps itself), then its values: 1 done, 0 no answer
+def measure() i32:
+    if chip == BME280:
+        bme_write(0xF2, 1)                          # ctrl_hum: humidity once (before ctrl_meas, which takes it)
+    if not bme_write(0xF4, 0x25):                   # ctrl_meas: temperature once, pressure once, forced mode
+        return 0
+    wait_ms(2)
+    t = millis()
+    while millis() - t < 100:                       # status: bit 3 is 1 while it measures (about 10 ms)
+        if bme_read(0xF3, 1) and (buf[0] & 8) == 0:
+            break
+    if not bme_read(0xF7, 8):                       # the raw values: pressure 20 bits, temperature 20, humidity 16
+        return 0
+    adc_p = (buf[0] << 12) | (buf[1] << 4) | (buf[2] >> 4)
+    adc_t = (buf[3] << 12) | (buf[4] << 4) | (buf[5] >> 4)
+    adc_h = (buf[6] << 8) | buf[7]
+    temp = temperature(adc_t)
+    print("temperature ")
+    print_hundredths(temp)
+    print(" C   pressure ")
+    print_hundredths(pressure(adc_p))
+    print(" hPa")
+    if chip == BME280:
+        print("   humidity ")
+        print_hundredths(humidity(adc_h) * 100 / 1024)
+        print(" %")
+    return 1
+
+# the first start (not a wake): what the program remembers from now on
+def first_start() i32:
+    println("bme280_deep: a reading, then a minute of deep sleep, and again")
+    println("(to end it: hold BOOT, or open the COM port again, or press EN and then a key; then noboot)")
+    if file_size("bme280_deep") < 0:                # the file of this program on the board
+        println("bme280_deep is not in the files of the board: upload it first (Project > Compile and Upload),")
+        println("then \"boot bme280_deep\" in the console: after each deep sleep the console starts its autostart.")
+        return 0
+    if not sensor_ready():
+        return 0
+    bme_write(0xE0, 0xB6)                           # reset: the sensor starts afresh, as after power on
+    wait_ms(5)
+    if not read_calibration():
+        println("The sensor does not answer any more.")
+        return 0
+    measure_rtc_clock()
+    print("The slow clock of the RTC: ")
+    print_int(rtc_hz)
+    println(" Hz. The console starts the autostart program after each wake (boot bme280_deep, once).")
+    keep[K_MAGIC] = MAGIC
+    keep[K_SLEEPING] = 0
+    keep[K_READINGS] = 0
+    keep[K_LIMIT] = u32(number(args()))
+    keep[K_HZ] = u32(rtc_hz)
+    keep[K_LAST] = rtc_now()
+    keep[K_SECONDS] = 0
+    keep[K_REST] = 0
+    keep[K_TMIN] = 0x7FFFFFFF
+    keep[K_TMAX] = 0x80000000
+    return 1
+
+def main():
+    awake = millis()
+    started = rtc_now()                             # the RTC time at the start of the program
+    if woken():
+        keep[K_SLEEPING] = 0
+        rtc_hz = i32(keep[K_HZ])
+        if not sensor_ready():
+            return
+    elif not first_start():
+        keep[K_MAGIC] = 0
+        return
+    # the time since the first reading, from the RTC (it ran on in the sleep)
+    now = rtc_now()
+    ticks = now - keep[K_LAST] + keep[K_REST]
+    keep[K_LAST] = now
+    keep[K_SECONDS] = keep[K_SECONDS] + ticks / u32(rtc_hz)
+    keep[K_REST] = ticks % u32(rtc_hz)
+    keep[K_READINGS] = keep[K_READINGS] + 1
+    print_int(i32(keep[K_READINGS]))
+    print(". at ")
+    print_int(i32(keep[K_SECONDS]))
+    print(" s   ")
+    if measure():
+        if temp < i32(keep[K_TMIN]):
+            keep[K_TMIN] = u32(temp)
+        if temp > i32(keep[K_TMAX]):
+            keep[K_TMAX] = u32(temp)
+        print("   (min ")
+        print_hundredths(i32(keep[K_TMIN]))
+        print(", max ")
+        print_hundredths(i32(keep[K_TMAX]))
+        print(")")
+    else:
+        print("the sensor did not answer")
+    println("")
+    if keep[K_READINGS] > 1:
+        print("   awake ")
+        print_int(ticks_ms(rtc_now() - keep[K_ALARM]))
+        print(" ms since the alarm, of them ")
+        print_int(ticks_ms(started - keep[K_ALARM]))
+        print(" ms the start of the boot ROM and the console, ")
+        print_int(millis() - awake)
+        println(" ms this program")
+    if keep[K_LIMIT] > 0 and keep[K_READINGS] >= keep[K_LIMIT]:
+        println("Done. (noboot in the console takes the autostart away.)")
+        keep[K_MAGIC] = 0
+        return
+    keep[K_SLEEPING] = 1
+    uart_drain()
+    deep_sleep(SLEEP_MS)

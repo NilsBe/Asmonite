@@ -27,8 +27,8 @@
 ; every reset (its note "SHA-256 comparison failed ... Attempting to boot anyway" is harmless: the image has no
 ; hash); or loaded by the boot ROM in its download mode (python wlan\c3rom.py run boards\esp32c3\console@403CC000
 ; --listen 30, or with --send lines for a test). At its start: the watchdogs off, the core at 160 MHz from the PLL
-; (clock_160), timer 0 in microseconds, the trap vector of the console (console_run.asm), the flash attached and its
-; size from its JEDEC id, the directory of the file system (console_fs.asm: the format of the ESP32), then the
+; (clock_160; after a program it keeps the clock the program left, console_clock.asm), timer 0 in microseconds, the
+; trap vector of the console (console_run.asm), the flash attached and its size from its JEDEC id, the directory of the file system (console_fs.asm: the format of the ESP32), then the
 ; program for boot (autostart: 3 seconds, a key stays in the console). The programs: console_run.asm; the packets for
 ; a program on the PC (Asmonite's Board Manager): console_pk.asm; the WiFi (the package of Asmonite in the flash, the
 ; network of the board, packets A and N): console_wifi.asm.
@@ -981,6 +981,7 @@ pd_out:
 .include "console_run.asm"
 .include "console_wifi.asm"
 .include "console_net.asm"
+.include "console_clock.asm"
 
 ; ---------- data ----------
   align 4

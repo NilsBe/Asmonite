@@ -3167,6 +3167,10 @@ wl_e_jioctl:
 wifi_command:
     push {r4, lr}
     mov  r4, r0
+    bl   wifi_present               ; a board without a WiFi chip has no such commands (they are no commands there)
+    cmp  r0, #0
+    beq  wc_none
+    mov  r0, r4
     bl   match_inline
     db   'wlan', 0
     align 2
@@ -3209,16 +3213,6 @@ cmd_wlan:
     push {r4, lr}
     bl   skip_spaces
     mov  r4, r0
-    ldr  r1, wl50_wifi              ; (1 with the ESP8285 of the clones "Pico W-2023" too)
-    ldr  r1, [r1]
-    movs r2, #1
-    tst  r1, r2
-    bne  cw_w
-    bl   print_inline
-    db   'This board has no WiFi chip (a Pico W and a Pico 2 W have one).', 13, 10, 0
-    align 2
-    pop  {r4, pc}
-cw_w:
     bl   wl_net_load
     mov  r0, r4
     bl   match_inline
@@ -3284,6 +3278,15 @@ cw_usage:
     db   'wlan, wlan on, wlan off, wlan scan, wlan set or wlan clear', 13, 10, 0
     align 2
     pop  {r4, pc}
+
+; r0 1 when the board has a WiFi chip (V_WIFI bit 0: a W, or the ESP8285 of the clones "Pico W-2023"), else 0:
+; wifi_command, the short help and info of the console
+wifi_present:
+    ldr  r0, wl50_wifi
+    ldr  r0, [r0]
+    movs r1, #1
+    ands r0, r1
+    bx   lr
 
     align 4
 wl50_wifi:          dd VARS + V_WIFI
@@ -5612,16 +5615,6 @@ cmd_name:
     push {r4, r5, lr}
     bl   skip_spaces
     mov  r4, r0
-    ldr  r1, wlK_wifi
-    ldr  r1, [r1]
-    movs r2, #1
-    tst  r1, r2
-    bne  cnm_w
-    bl   print_inline
-    db   'This board has no WiFi chip (a Pico W and a Pico 2 W have one).', 13, 10, 0
-    align 2
-    pop  {r4, r5, pc}
-cnm_w:
     bl   wl_net_load
     ldrb r0, [r4]
     cmp  r0, #0
@@ -5767,7 +5760,6 @@ cns_end:
     pop  {r4, pc}
 
     align 4
-wlK_wifi:           dd VARS + V_WIFI
 wlK_wlv:            dd WLV
 wlK_name:           dd WL_NET + 80
 wlK_mac:            dd WLV + WL_MAC
@@ -5917,16 +5909,6 @@ cmd_passwd:
     push {r4, lr}
     bl   skip_spaces
     mov  r4, r0
-    ldr  r1, wlM_wifi
-    ldr  r1, [r1]
-    movs r2, #1
-    tst  r1, r2
-    bne  cpw_w
-    bl   print_inline
-    db   'This board has no WiFi chip (a Pico W and a Pico 2 W have one).', 13, 10, 0
-    align 2
-    pop  {r4, pc}
-cpw_w:
     bl   wl_net_load
     ldrb r0, [r4]
     cmp  r0, #0
@@ -6126,7 +6108,6 @@ wlc_end:
     pop  {r4, r5, pc}
 
     align 4
-wlM_wifi:           dd VARS + V_WIFI
 wlM_wlv:            dd WLV
 wlM_mac:            dd WLV + WL_MAC
 wlM_pw:             dd WL_NET + 112

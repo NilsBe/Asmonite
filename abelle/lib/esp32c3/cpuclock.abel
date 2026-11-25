@@ -1,0 +1,77 @@
+# The clock of the core of the ESP32-C3 for aBelle programs, for include "cpuclock.abel" (after include "console.abel").
+# The same names as on the other boards: cpu_clock, cpu_clock_khz. The names of the parameters and local variables here
+# begin with c_, the globals with con_ (as in console.abel).
+#
+# cpu_clock(mhz): the core at 80 or 160 MHz from the PLL, or at 40, 20 or 10 MHz from the crystal (less current, but
+# not while the WiFi runs: its radio needs the PLL); 0: only ask. The clock after it, -1 for another value (nothing
+# changes). millis() counts on right (timer 0 of the console counts the crystal), and so does the terminal. The clock
+# stays after the program (the console keeps it, info and the Board Manager show it) until another program changes it
+# or a reset (then 160 MHz); a program that only wants it for a while sets the one it found (cpu_clock(0) at its
+# start) again before it ends.
+#
+# Not below 10 MHz: from the crystal the bus of the peripherals (the APB) runs at the clock of the core, and the USB
+# port of the chip (the console) needs 10 MHz of it (seen on the ESP32-S3, whose USB port is the same).
+#
+# As ESP-IDF (components/esp_hw_support/port/esp32c3/rtc_clk.c, clk_tree_ll.h; a crystal of 40 MHz): the PLL runs at
+# 480 MHz (the console sets it so at its start and leaves it on: the USB port takes its 48 MHz from it) and gives 80
+# and 160 MHz (CPUPERIOD_SEL 0, 1), the APB gets 80 MHz at both. No change of the voltage: the console sets the one for
+# 160 MHz at its start (28), and ESP-IDF changes it for no clock of the C3. A change is only CPUPERIOD_SEL, the divider
+# PRE_DIV_CNT and SOC_CLK_SEL, then the frequency of the APB for the ROM (RTC_APB_FREQ_REG) and the cycles in a
+# microsecond (ets_update_cpu_frequency: ets_delay_us, the WiFi service).
+#
+# cpu_clock_khz(khz): the same in kHz, for programs that run on every board: 10000 kHz and more in whole MHz as
+# cpu_clock, else -1. 0 only asks.
+
+con_sys: u32[23] at 0x600C0000          # SYSTEM: [0x08 / 4] CPU_PER_CONF (CPUPERIOD_SEL bits 1 .. 0), [0x58 / 4]
+                                        # SYSCLK_CONF (PRE_DIV_CNT bits 9 .. 0, SOC_CLK_SEL bits 11 .. 10: 0 the
+                                        # crystal, 1 the PLL)
+con_rtc: u32[48] at 0x60008000          # RTC_CNTL: [0xBC / 4] RTC_APB_FREQ_REG (the Hz of the APB >> 12, in both halves)
+def con_set_ticks(c_mhz) at 0x40000588  # ets_update_cpu_frequency
+con_svc: u32[2] at 0x403A8000           # "WSVC" when the WiFi service is there, then its version
+def con_svc_state() i32 at 0x403A8058   # wifi_state of the service (version 7): 2 while the WiFi runs
+
+def cpu_clock(c_mhz) i32:
+    c_now = con_clock_now()
+    if c_mhz == 0 or c_mhz == c_now: return c_now
+    if c_mhz <= 40:
+        if c_mhz != 10 and c_mhz != 20 and c_mhz != 40: return -1
+        if con_wifi_runs(): return -1           # the WiFi needs the PLL
+        con_set_ticks(c_mhz)                    # as ESP-IDF: the ticks first, then the divider 1, then the new one
+        c_conf = con_sys[0x58 / 4] & ~u32(0xFFF)
+        con_sys[0x58 / 4] = c_conf
+        con_sys[0x58 / 4] = c_conf | u32(40 / c_mhz - 1)                                # the crystal / n
+        con_apb(c_mhz)
+    else:
+        if c_mhz != 80 and c_mhz != 160: return -1
+        con_sys[0x08 / 4] = (con_sys[0x08 / 4] & ~u32(3)) | u32(c_mhz / 80 - 1)         # CPUPERIOD_SEL
+        con_sys[0x58 / 4] = (con_sys[0x58 / 4] & ~u32(0xFFF)) | u32(0x400)              # the PLL, PRE_DIV_CNT 0
+        con_apb(80)
+        con_set_ticks(c_mhz)
+    return con_clock_now()
+
+def cpu_clock_khz(c_khz) i32:
+    if c_khz == 0: return con_clock_now() * 1000
+    if c_khz < 10000 or c_khz % 1000 != 0: return -1
+    c_r = cpu_clock(c_khz / 1000)
+    if c_r < 0: return -1
+    return c_r * 1000
+
+# the clock now in MHz: the crystal / (PRE_DIV_CNT + 1), or the PLL (80, 160 MHz)
+def con_clock_now() i32:
+    c_conf = con_sys[0x58 / 4]
+    if ((c_conf >> 10) & 3) == 0: return 40 / i32((c_conf & 0x3FF) + 1)
+    if (con_sys[0x08 / 4] & 1) == 0: return 80
+    return 160
+
+# 1 while the WiFi of the service runs (its mark there and wifi_state 2), else 0; a service before version 7 has no
+# wifi_state: there it counts as running
+def con_wifi_runs() i32:
+    if con_svc[0] != u32(0x43565357): return 0
+    if con_svc[1] < u32(7): return 1
+    if con_svc_state() == 2: return 1
+    return 0
+
+# the frequency of the APB in MHz for the ROM: (Hz >> 12) in both halves of RTC_APB_FREQ_REG, as ESP-IDF
+def con_apb(c_mhz):
+    c_v = u32(c_mhz * 1000000) >> u32(12)
+    con_rtc[0xBC / 4] = (c_v << u32(16)) | c_v

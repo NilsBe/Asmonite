@@ -5,6 +5,11 @@ Cortex-M0+), der das Display ansteuert (1,14 Zoll, ST7789, 135 x 240 Pixel), und
 Beide hängen am selben USB-C-Anschluss: **Wie herum der Stecker steckt, wählt den Chip.** Die LED neben dem Anschluss
 zeigt, welcher antwortet: blau für den RP2040, grün für den ESP32-C3.
 
+> **Die Beispiele dieser Seite:** Die Beispiele in Assembler (`examples/<board>/…`) und einige in aBelle, die diese
+> Seite nennt, werden gerade noch einmal durchgesehen und kommen nach und nach in den Ordner `examples/`; bis dahin
+> fehlen sie in der ZIP-Datei und im öffentlichen Repository. Was schon freigegeben ist, steht in
+> [examples/README.de.md](../../examples/README.de.md).
+
 Asmonite debuggt beide, jeweils mit dem einen USB-Kabel, ohne Debug-Probe. Diese Seite sagt, was auf welcher Seite
 geht; die Einzelheiten stehen in den Anleitungen der beiden Chips: [picoboot.md](picoboot.md) für den RP2040 über
 seinen USB-Boot, [esp32c3.md](esp32c3.md) für den ESP32-C3.

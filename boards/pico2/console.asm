@@ -24,6 +24,8 @@
 ;                     network). The console keeps the name and the key of WPA2 made of the password (not the
 ;                     password) in the two sectors behind the files, and joins it; wlan on joins it again
 ;   wlan clear        the board keeps no network
+;                     (wlan, name and passwd only on a board with a WiFi chip: on a Pico 2 they are no commands, and
+;                     Prepare Board writes help.txt without them)
 ;   help              the commands
 ;
 ; Backspace (BS or DEL) takes back a character, Ctrl+C drops the line. A line ends with CR, LF or CR LF.
@@ -64,10 +66,10 @@
 ;     the RAM (VTAB) are made for the RAM (+ RUN_OFFSET)
 ;   - its data and its stack: 0x20078000 .. 0x20080000 (equ below). The RAM from 0x20000000 to 0x20070000 is the
 ;     room of the programs
-;   - the clocks: clk_ref and clk_sys at 12 MHz from the crystal (XOSC; after a reset they run from the ring
-;     oscillator, whose frequency is not exact enough for a baud rate), clk_peri from clk_sys for the UART; SysTick
-;     counts the cycles of the core (the waits for the bytes of a packet), TIMER0 the microseconds (millis; its
-;     tick generator at 1 MHz from clk_ref)
+;   - the clocks: clk_ref at 12 MHz from the crystal (XOSC; after a reset it runs from the ring oscillator, whose
+;     frequency is not exact enough for a baud rate); clk_usb and clk_sys at 48 MHz from PLL_USB, clk_peri from
+;     PLL_USB for the UART (48 MHz also when a program changes clk_sys: cpu_clock, ../pico/console_clock.asm); TIMER0
+;     counts the microseconds (millis; its tick generator at 1 MHz from clk_ref)
 ;
 ; A fault (a read where nothing is, an instruction that is none) goes into the handler fault: it says which
 ; exception it was, its pc, CFSR and BFAR, and returns to the prompt.
@@ -209,6 +211,7 @@ CLK_REF_SELECTED    equ 0x38
 CLK_REF_DIV         equ 0x34
 CLK_SYS_CTRL        equ 0x3c                ; SRC bit 0 (0 clk_ref), AUXSRC bits 7 .. 5
 CLK_SYS_DIV         equ 0x40                ; the whole part in bits 31 .. 16
+CLK_SYS_DIV_SHIFT   equ 16
 CLK_SYS_SELECTED    equ 0x44
 CLK_PERI_CTRL       equ 0x48
 CLK_PERI_DIV        equ 0x4c
@@ -216,6 +219,7 @@ CLK_PERI_ENABLE     equ 1 << 11
 CLK_USB_CTRL        equ 0x60
 CLK_USB_DIV         equ 0x64                ; the whole part in bits 31 .. 16
 PLL_USB             equ 0x40058000          ; +0 CS, +4 PWR, +8 FBDIV, +0xc PRIM
+PLL_SYS             equ 0x40050000          ; the same (cpu_clock of a program; ../pico/console_clock.asm)
 RESET_PLL_USB       equ 1 << 15
 RESETS              equ 0x40020000
 RESET_DONE          equ 0x08
@@ -539,7 +543,7 @@ ui_ref:
     bne  ui_ref
     ; clk_usb and clk_sys at 48 MHz from PLL_USB (the USB controller needs 48 MHz): clk_usb off, PLL_USB 12 MHz / 1
     ; * 40 = 480 MHz, / 5 / 2 = 48 MHz (the steps of pll_init in the SDK), clk_usb on; clk_sys AUXSRC 1 (PLL_USB)
-    ; while SRC is still clk_ref, then SRC 1. clk_peri follows clk_sys below: the UART at 48 MHz too
+    ; while SRC is still clk_ref, then SRC 1. clk_peri from PLL_USB below: the UART at 48 MHz too
     movs r0, #0
     str  r0, [r1, #CLK_USB_CTRL]
 ui_usb_off:
@@ -598,8 +602,8 @@ ui_peri:
     movs r0, #1
     lsls r0, r0, #16
     str  r0, [r1, #CLK_PERI_DIV]    ; 1
-    movw r0, #CLK_PERI_ENABLE   ; AUXSRC 0: clk_sys
-    str  r0, [r1, #CLK_PERI_CTRL]
+    movw r0, #CLK_PERI_ENABLE | (2 << 5)    ; AUXSRC 2: PLL_USB itself, not clk_sys: the UART keeps its 48 MHz
+    str  r0, [r1, #CLK_PERI_CTRL]           ; when a program changes the clock of the core (cpu_clock)
     movw r1, #((RESETS + ALIAS_CLR) & 0xffff)
     movt r1, #((RESETS + ALIAS_CLR) >> 16)
     movw r0, #(RESET_BITS & 0xffff)
@@ -799,6 +803,15 @@ ph_end:
 put_hex8:
     movs r1, #8
     b    put_hex
+
+; r0 / r1 (unsigned, r1 not 0): r0 the quotient, r1 the remainder (as udiv32 of the Pico console, for the shared
+; ../pico/console_clock.asm; the M33 divides itself)
+udiv32:
+    udiv r2, r0, r1
+    mul  r3, r2, r1
+    subs r1, r0, r3
+    mov  r0, r2
+    bx   lr
 
 ; r0 (unsigned) in decimal
 put_dec:
@@ -1698,7 +1711,17 @@ cmd_help:
     pop  {pc}
 hp_short:
     bl   print_inline
-    db   '  ls cat rm df format run boot noboot info reset wlan name passwd help, or a program: name [args]', 13, 10
+    db   '  ls cat rm df format run boot noboot info reset', 0
+    align 2
+    bl   wifi_present           ; (../pico/console_wifi.asm) the commands of the WiFi only on a board with a WiFi chip
+    cmp  r0, #0
+    beq  hp_rest
+    bl   print_inline
+    db   ' wlan name passwd', 0
+    align 2
+hp_rest:
+    bl   print_inline
+    db   ' help, or a program: name [args]', 13, 10
     db   '  (help.txt is missing: "Prepare Board..." in the Board Manager writes it)', 13, 10, 0
     align 2
     pop  {pc}
@@ -2021,7 +2044,11 @@ ci_id:
     ldr  r0, [r0]
     bl   put_hex8
     bl   print_inline
-    db   '), 48 MHz (PLL_USB from the crystal)', 13, 10, 0
+    db   '), ', 0
+    align 2
+    bl   put_clock                  ; the clock now (a program may have left another one: console_clock.asm)
+    bl   print_inline
+    db   13, 10, 0
     align 2
     movs r0, #0x10
     ldr  r4, [r0]               ; the boot ROM: 'M', 'u', 2, its version
@@ -2049,8 +2076,16 @@ ci_console:
     ldr  r0, lit_size2
     bl   put_dec
     bl   print_inline
-    db   ' bytes', 13, 10, 'files     the flash from 0x10100000 to 0x103FE000 (behind: the WiFi network)', 13, 10, 0
+    db   ' bytes', 13, 10, 'files     the flash from 0x10100000 to 0x103FE000', 0
     align 2
+    bl   wifi_present           ; (../pico/console_wifi.asm)
+    cmp  r0, #0
+    beq  ci_end
+    bl   print_inline
+    db   ' (behind: the WiFi network)', 0
+    align 2
+ci_end:
+    bl   put_nl
     pop  {r4, r5, pc}
 
     align 4
@@ -3143,6 +3178,7 @@ prog_finish:
     mov  sp, r1
     movs r1, #0
     str  r1, [r4, #V_RUN]
+    bl   clock_back             ; from the crystal: 48 MHz again; PLL clocks stay (../pico/console_clock.asm)
     ldr  r1, [r4, #V_QUIET]
     cmp  r1, #0
     beq  pf_say
@@ -3172,6 +3208,7 @@ prog_abort:
     mov  sp, r1
     movs r1, #0
     str  r1, [r4, #V_RUN]
+    bl   clock_back             ; from the crystal: 48 MHz again; PLL clocks stay (../pico/console_clock.asm)
     movs r0, #0
     subs r0, r0, #1
     bl   mon_end                ; under the debug monitor: x and -1
@@ -3997,6 +4034,10 @@ px_bad:
 px_none:
     movs r0, #0
     pop  {r4, pc}
+
+; ---------- the clock of the core after a program (cpu_clock) ----------
+
+.include "../pico/console_clock.asm"
 
 ; ---------- the console over the USB cable of the board ----------
 

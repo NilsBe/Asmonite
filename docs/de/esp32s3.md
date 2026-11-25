@@ -4,6 +4,11 @@ Der ESP32-S3 von Espressif hat zwei Xtensa-LX7-Kerne (240 MHz) und einen USB-Ans
 und JTAG-Debugger ist, wie der ESP32-C3. Asmonite assembliert Xtensa-Code (`.arch xtensa`), debuggt ein Programm im RAM
 von Kern 0 und schreibt es in den Flash, **mit einem USB-Kabel, ohne Debug-Probe, ohne OpenOCD und ohne ESP-IDF**.
 
+> **Die Beispiele dieser Seite:** Die Beispiele in Assembler (`examples/<board>/…`) und einige in aBelle, die diese
+> Seite nennt, werden gerade noch einmal durchgesehen und kommen nach und nach in den Ordner `examples/`; bis dahin
+> fehlen sie in der ZIP-Datei und im öffentlichen Repository. Was schon freigegeben ist, steht in
+> [examples/README.de.md](../../examples/README.de.md).
+
 Getestet mit einem Board mit zwei USB-C-Anschlüssen und einer RGB-LED WS2812 an GPIO 48 (ein Anschluss geht an den
 Chip, der andere über einen CH343 an UART0). Andere Boards, deren USB-Anschluss direkt zum Chip geht (GPIO 19 und 20),
 sollten genauso gehen; der Anschluss eines USB-Seriell-Chips (CP2102, CH340, CH343) hat keinen USB-JTAG.
@@ -125,10 +130,9 @@ den Code für das RAM ab `0x40378000` (bis 96 KB) und die Daten ab `0x3FCA0000` 
 Datenbus, hinter dem Code; dort gehen auch Bytes; darüber der Stack und das WLAN). F9 lädt es über den USB-JTAG und debuggt es **im Quelltext**: Breakpoints, F7/F8 Zeile für
 Zeile, Variablen unter der Maus und im Fenster Watch. Funktionen des Boot-ROMs werden wie beim ESP32 mit `at` und
 ihrer Adresse bekannt gemacht; sie liegen beim S3 woanders (`ets_delay_us` bei `0x40000600`, beim ESP32 bei
-`0x40008534`; `esp32s3.rom.ld` von ESP-IDF). Beispiel: `examples/abelle/esp32s3/hello_usb.abel` schreibt „Hello,
-world!“ und einen Zähler über den USB-Anschluss des Chips; `examples/abelle/esp32s3/rgb.abel` lässt die RGB-LED des
-Boards (GPIO 48) in Rot, Grün, Blau und im Farbkreis leuchten, die Impulse der WS2812 erzeugt der RMT;
-`examples/abelle/esp32s3/scan.abel` zeigt die WLAN-Netze in der Nähe (siehe [Das WLAN](#das-wlan)).
+`0x40008534`; `esp32s3.rom.ld` von ESP-IDF). `include "console.abel"` und `wifi.abel` kommen aus `abelle/lib/esp32s3/`,
+der Text geht über den USB-Anschluss des Chips. Die Beispiele in `examples/common/` laufen auch hier, zum Beispiel
+`hello.abel` und `scan.abel` (die WLAN-Netze in der Nähe, siehe [Das WLAN](#das-wlan)).
 
 ## Die Konsole und ihre Dateien
 
@@ -157,8 +161,7 @@ mehrere Boards angesteckt, wählst du es links in der Liste:
 - **Funktionen der Konsole für Programme** wie beim ESP32, ab `0x403C0800` (`exit`, `version`, `put_char`,
   `get_char`, `poll_char`, `print`, `millis`, `file_size`, `file_read`, `file_write`, `flash_read`, `args`, je 4
   Bytes; die Tabelle steht in der Seite zum ESP32). Auch Programme als Befehle wie dort: `name args` startet
-  `name` oder `name.bin` aus den Dateien. In aBelle: `include "inc/console.abel"`, Beispiel `runs.abel`. Unter dem
-  Debugger und ohne Konsole bleibt `inc/usb.abel`.
+  `name` oder `name.bin` aus den Dateien. In aBelle: `include "console.abel"`, Beispiel `examples/common/runs.abel`.
 - Nach einem Reset wartet die Konsole bei einem Autostart **3 Sekunden** (beim ESP32 eine): Mit dem Reset geht der
   USB-Anschluss kurz weg und kommt wieder, erst dann kann ein Terminal eine Taste schicken.
 
@@ -175,20 +178,18 @@ Debugger hält nur Kern 0 an, das WLAN läuft weiter.
 
 1. Das **WLAN-Paket** liegt wie beim ESP32 im Flash von `0x100000` bis `0x1FFFFF`: die Bibliothek, bei `0x1F0000` ein
    Kopf, dahinter die Teile von `wlan.rom` für das RAM und `wlansvc`. Startest du mit F9 ein Programm mit
-   `inc/wifi.abel`, schreibt Asmonite das Paket über die Konsole, wenn es fehlt oder nicht passt (rund 300 KB, etwa
+   `wifi.abel`, schreibt Asmonite das Paket über die Konsole, wenn es fehlt oder nicht passt (rund 300 KB, etwa
    8 Sekunden). Prepare Board legt es gleich mit an, **Install WiFi** im Board Manager tut es von Hand.
-2. Ein Programm in aBelle mit `include "inc/wifi.abel"` (aus `examples/abelle/esp32s3/inc/`) lädt den Dienst selbst
-   aus dem Paket, mit `run` in der Konsole wie unter dem Debugger. `examples/abelle/esp32s3/scan.abel` zeigt die
+2. Ein Programm in aBelle mit `include "wifi.abel"` (aus `abelle/lib/esp32s3/`) lädt den Dienst selbst
+   aus dem Paket, mit `run` in der Konsole wie unter dem Debugger. `examples/common/scan.abel` zeigt die
    Netze in der Nähe. Während die Konsole den Flash benutzt, parkt sie Kern 1 wie beim ESP32 ([esp32.md](esp32.md)):
    Dateien lassen sich bei laufendem WLAN schreiben, eine Verbindung bleibt bestehen.
 3. Mit einem Netz verbinden (offen oder WPA2): einmal `wlan set` im Reiter Serial, dann Name und Passwort, wie beim
    ESP32 ([esp32.md](esp32.md)). Die Konsole speichert den Namen und den Schlüssel, nicht das Passwort (etwa
-   2,3 Sekunden), in den Sektoren `0xFE000` und `0xFF000`. Die Beispiele sind dieselben wie beim ESP32 ([esp32.md](esp32.md)): `dhcp.abel`, `ping.abel`, `dns.abel`,
-   `ntp.abel`, `httpget.abel`, `webserver.abel`, `udpecho.abel`, `wol.abel`, `arpscan.abel`, `telnetd.abel` (die
-   Dateien des Boards über die MMU des S3, `led` schaltet die RGB-LED WS2812 an GPIO 48); sie verbinden sich mit
-   `wifi_connect_saved()` mit dem Netz des Boards; ihren Text schreiben sie
-   über den USB-Anschluss des Chips (`inc/usb.abel` statt `inc/uart.abel`), der Reiter Serial zeigt ihn. `net.abel` und
-   `tcp.abel` sind die des ESP32. Für WPA2 entpackt der Dienst den Gruppenschlüssel selbst (AES Key Unwrap nach
+   2,3 Sekunden), in den Sektoren `0xFE000` und `0xFF000`. Die Beispiele sind dieselben wie beim ESP32, die in
+   `examples/common/` (`arpscan.abel`, `ping.abel`, `wol.abel`, `httpget.abel`, `httpsget.abel` ...); sie verbinden
+   sich mit `wifi_connect_saved()` mit dem Netz des Boards; ihren Text schreiben sie über den USB-Anschluss des Chips,
+   der Reiter Serial zeigt ihn. `net.abel` und `tcp.abel` (`abelle/lib/common/`) sind dieselben wie beim ESP32. Für WPA2 entpackt der Dienst den Gruppenschlüssel selbst (AES Key Unwrap nach
    RFC 3394): Das ROM des S3 hat dafür keine Funktion, anders als das des ESP32.
 4. Wie beim ESP32 holt sich die Konsole nach dem Verbinden per DHCP eine Adresse („WiFi: connected, address …“), und
    der Dienst beantwortet ARP und ping für sie selbst: Das Board ist auch ohne Programm per ping erreichbar
@@ -210,7 +211,7 @@ Das RAM mit dem WLAN (Code- und Datenbus sind dasselbe RAM, `0x6F0000` auseinand
 darf dann bis `0x4039EFFF` reichen (156 KB, über das Datenfenster bis zum Stack), die Daten liegen ab `0x3FCB0000`
 (bis 128 KB, der Bereich des Dienstes, von `wlan.rom` und des Heaps). Die Konsole erkennt an den Adressen, dass das
 Programm in den Bereich des WLAN reicht, hält das WLAN vorher an und startet es nach dem Ende des Programms im
-Hintergrund wieder; mit F9, `run` und dem Debugger. Ein Programm mit `inc/wifi.abel` lehnt der Compiler im großen
+Hintergrund wieder; mit F9, `run` und dem Debugger. Ein Programm mit `wifi.abel` lehnt der Compiler im großen
 Fenster ab.
 
 ## Die Beispiele

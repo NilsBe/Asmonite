@@ -1,0 +1,270 @@
+# SHA-256 (FIPS 180-4), HMAC-SHA-256 (RFC 2104) and HKDF (RFC 5869) in aBelle, for every board and for Windows:
+# include "sha256.abel". The first part of TLS 1.3 (the roadmap httpsget): its key schedule is HKDF on SHA-256.
+#
+#   sha256(data, n, out)                     the hash of the n bytes at data: 32 bytes at out
+#   sha256_start(c)                          a hash in steps, in the context c (0 .. SHA_CONTEXTS - 1) ...
+#   sha256_add(c, data, n)                   ... the next n bytes (as many calls as wanted) ...
+#   sha256_end(c, out)                       ... and its 32 bytes at out
+#   sha256_copy(to, c)                       the context c into the context to (the hash so far goes on in both)
+#   hmac_sha256(key, kn, data, n, out)       HMAC: the 32 bytes of the code of data with the key (kn bytes)
+#   hmac_start(c, key, kn), hmac_add(c, data, n), hmac_end(c, out)     the same in steps, in the context c
+#   hkdf_extract(salt, sn, ikm, n, prk)      HKDF-Extract: 32 bytes at prk (sn = 0: a salt of 32 zeros)
+#   hkdf_expand(prk, info, in, out, n)       HKDF-Expand: n bytes at out (up to 255 * 32)
+#   hkdf_expand_label(secret, label, ctx, cn, out, n)   HKDF-Expand-Label of TLS 1.3 (RFC 8446 7.1): "tls13 " + label
+#
+# The contexts 0 and 1 are the program's; sha256 takes the context 3, the HMAC and the HKDF functions take 2 (and a
+# key longer than 64 bytes is hashed there first). The bytes come one by one into the block of their context; each 64
+# bytes are one block for sha_block. A context: 8 words of state in sha_h, 64 bytes in sha_buf, how many of them are
+# filled (sha_fill) and how many bytes came in all (sha_count; up to 2 GB).
+#
+# The names of this file begin with sha_, hmac_ and hkdf_ (the local ones with sh_, hm_ and hk_): in aBelle a local
+# name may not be the name of a global one of the program.
+
+SHA_CONTEXTS = 4
+SHA_HMAC = 2                        # the context of hmac_sha256 and of the HKDF functions
+SHA_ONCE = 3                        # the context of sha256
+sha_h: u32[32]                      # the state of each context: 8 words
+sha_buf: char[256]                  # the block of each context: 64 bytes
+sha_fill: i32[4]
+sha_count: i32[4]
+sha_w: u32[64]                      # the message schedule of the block in work
+sha_k: u32[64]                      # the round constants
+sha_ready: i32 = 0                  # sha_k filled
+sha_tail: char[72]                  # the padding of sha256_end
+hmac_pad: char[256]                 # for each context: its key XOR 0x5C (the outer pad), for hmac_end
+hmac_key: char[64]                  # the key block in hmac_start
+hmac_inner: char[32]                # the inner hash in hmac_end
+hkdf_t: char[32]                    # the block before in hkdf_expand
+hkdf_byte: char[4]                  # its counter
+hkdf_info: char[600]                # the HkdfLabel of hkdf_expand_label
+
+# the 4 constants of the text s (16 bytes, big-endian) into sha_k from i on
+def sha_put_k(sh_i, sh_s: pchar):
+    for sh_j in 0..4:
+        sh_p = sh_s + 4 * sh_j
+        sha_k[sh_i + sh_j] = (u32(sh_p[0]) << 24) | (u32(sh_p[1]) << 16) | (u32(sh_p[2]) << 8) | u32(sh_p[3])
+
+# the round constants: the first 32 bits of the fractional parts of the cube roots of the first 64 primes (as
+# texts: less code than 64 assignments)
+def sha_constants():
+    sha_put_k(0, "\x42\x8A\x2F\x98\x71\x37\x44\x91\xB5\xC0\xFB\xCF\xE9\xB5\xDB\xA5")
+    sha_put_k(4, "\x39\x56\xC2\x5B\x59\xF1\x11\xF1\x92\x3F\x82\xA4\xAB\x1C\x5E\xD5")
+    sha_put_k(8, "\xD8\x07\xAA\x98\x12\x83\x5B\x01\x24\x31\x85\xBE\x55\x0C\x7D\xC3")
+    sha_put_k(12, "\x72\xBE\x5D\x74\x80\xDE\xB1\xFE\x9B\xDC\x06\xA7\xC1\x9B\xF1\x74")
+    sha_put_k(16, "\xE4\x9B\x69\xC1\xEF\xBE\x47\x86\x0F\xC1\x9D\xC6\x24\x0C\xA1\xCC")
+    sha_put_k(20, "\x2D\xE9\x2C\x6F\x4A\x74\x84\xAA\x5C\xB0\xA9\xDC\x76\xF9\x88\xDA")
+    sha_put_k(24, "\x98\x3E\x51\x52\xA8\x31\xC6\x6D\xB0\x03\x27\xC8\xBF\x59\x7F\xC7")
+    sha_put_k(28, "\xC6\xE0\x0B\xF3\xD5\xA7\x91\x47\x06\xCA\x63\x51\x14\x29\x29\x67")
+    sha_put_k(32, "\x27\xB7\x0A\x85\x2E\x1B\x21\x38\x4D\x2C\x6D\xFC\x53\x38\x0D\x13")
+    sha_put_k(36, "\x65\x0A\x73\x54\x76\x6A\x0A\xBB\x81\xC2\xC9\x2E\x92\x72\x2C\x85")
+    sha_put_k(40, "\xA2\xBF\xE8\xA1\xA8\x1A\x66\x4B\xC2\x4B\x8B\x70\xC7\x6C\x51\xA3")
+    sha_put_k(44, "\xD1\x92\xE8\x19\xD6\x99\x06\x24\xF4\x0E\x35\x85\x10\x6A\xA0\x70")
+    sha_put_k(48, "\x19\xA4\xC1\x16\x1E\x37\x6C\x08\x27\x48\x77\x4C\x34\xB0\xBC\xB5")
+    sha_put_k(52, "\x39\x1C\x0C\xB3\x4E\xD8\xAA\x4A\x5B\x9C\xCA\x4F\x68\x2E\x6F\xF3")
+    sha_put_k(56, "\x74\x8F\x82\xEE\x78\xA5\x63\x6F\x84\xC8\x78\x14\x8C\xC7\x02\x08")
+    sha_put_k(60, "\x90\xBE\xFF\xFA\xA4\x50\x6C\xEB\xBE\xF9\xA3\xF7\xC6\x71\x78\xF2")
+    sha_ready = True
+
+# ---------- SHA-256 ----------
+
+def sha256_start(sh_ctx):
+    if not sha_ready:
+        sha_constants()
+    # the start values: the first 32 bits of the fractional parts of the square roots of the first 8 primes
+    sh_o = sh_ctx * 8
+    sha_h[sh_o] = 0x6A09E667
+    sha_h[sh_o + 1] = 0xBB67AE85
+    sha_h[sh_o + 2] = 0x3C6EF372
+    sha_h[sh_o + 3] = 0xA54FF53A
+    sha_h[sh_o + 4] = 0x510E527F
+    sha_h[sh_o + 5] = 0x9B05688C
+    sha_h[sh_o + 6] = 0x1F83D9AB
+    sha_h[sh_o + 7] = 0x5BE0CD19
+    sha_fill[sh_ctx] = 0
+    sha_count[sh_ctx] = 0
+
+# the 64 bytes at sh_p into the state of the context sh_ctx (FIPS 180-4 6.2.2); a rotation to the right by n is
+# (x >> n) | (x << (32 - n))
+def sha_block(sh_ctx, sh_p: pchar):
+    for sh_i in 0..16:
+        sh_q = sh_p + 4 * sh_i
+        sha_w[sh_i] = (u32(sh_q[0]) << 24) | (u32(sh_q[1]) << 16) | (u32(sh_q[2]) << 8) | u32(sh_q[3])
+    for sh_i in 16..64:
+        sh_x = sha_w[sh_i - 15]
+        sh_y = sha_w[sh_i - 2]
+        sh_s0 = ((sh_x >> 7) | (sh_x << 25)) ^ ((sh_x >> 18) | (sh_x << 14)) ^ (sh_x >> 3)
+        sh_s1 = ((sh_y >> 17) | (sh_y << 15)) ^ ((sh_y >> 19) | (sh_y << 13)) ^ (sh_y >> 10)
+        sha_w[sh_i] = sha_w[sh_i - 16] + sh_s0 + sha_w[sh_i - 7] + sh_s1
+    sh_o = sh_ctx * 8
+    sh_a = sha_h[sh_o]
+    sh_b = sha_h[sh_o + 1]
+    sh_c = sha_h[sh_o + 2]
+    sh_d = sha_h[sh_o + 3]
+    sh_e = sha_h[sh_o + 4]
+    sh_f = sha_h[sh_o + 5]
+    sh_g = sha_h[sh_o + 6]
+    sh_h = sha_h[sh_o + 7]
+    for sh_i in 0..64:
+        sh_s1 = ((sh_e >> 6) | (sh_e << 26)) ^ ((sh_e >> 11) | (sh_e << 21)) ^ ((sh_e >> 25) | (sh_e << 7))
+        sh_ch = (sh_e & sh_f) ^ (~sh_e & sh_g)
+        sh_t1 = sh_h + sh_s1 + sh_ch + sha_k[sh_i] + sha_w[sh_i]
+        sh_s0 = ((sh_a >> 2) | (sh_a << 30)) ^ ((sh_a >> 13) | (sh_a << 19)) ^ ((sh_a >> 22) | (sh_a << 10))
+        sh_maj = (sh_a & sh_b) ^ (sh_a & sh_c) ^ (sh_b & sh_c)
+        sh_h = sh_g
+        sh_g = sh_f
+        sh_f = sh_e
+        sh_e = sh_d + sh_t1
+        sh_d = sh_c
+        sh_c = sh_b
+        sh_b = sh_a
+        sh_a = sh_t1 + sh_s0 + sh_maj
+    sha_h[sh_o] += sh_a
+    sha_h[sh_o + 1] += sh_b
+    sha_h[sh_o + 2] += sh_c
+    sha_h[sh_o + 3] += sh_d
+    sha_h[sh_o + 4] += sh_e
+    sha_h[sh_o + 5] += sh_f
+    sha_h[sh_o + 6] += sh_g
+    sha_h[sh_o + 7] += sh_h
+
+def sha256_add(sh_ctx, sh_data: pchar, sh_n):
+    sh_buf = sha_buf + sh_ctx * 64
+    sh_fill = sha_fill[sh_ctx]
+    for sh_i in 0..sh_n:
+        sh_buf[sh_fill] = sh_data[sh_i]
+        sh_fill += 1
+        if sh_fill == 64:
+            sha_block(sh_ctx, sh_buf)
+            sh_fill = 0
+    sha_fill[sh_ctx] = sh_fill
+    sha_count[sh_ctx] += sh_n
+
+# the padding: 0x80, zeros up to 56 bytes of the last block, the length in bits (64 bits, big-endian); then the state
+# as 32 bytes, big-endian
+def sha256_end(sh_ctx, sh_out: pchar):
+    sh_bits = u32(sha_count[sh_ctx]) << 3
+    sh_high = u32(sha_count[sh_ctx]) >> 29
+    sh_n = 56 - sha_fill[sh_ctx]
+    if sh_n <= 0:
+        sh_n += 64
+    sha_tail[0] = 0x80
+    for sh_i in 1..sh_n:
+        sha_tail[sh_i] = 0
+    sha_put32(sha_tail + sh_n, sh_high)
+    sha_put32(sha_tail + sh_n + 4, sh_bits)
+    sha256_add(sh_ctx, sha_tail, sh_n + 8)
+    for sh_i in 0..8:
+        sha_put32(sh_out + 4 * sh_i, sha_h[sh_ctx * 8 + sh_i])
+
+# the word v as 4 bytes at p, big-endian
+def sha_put32(sh_p: pchar, sh_v: u32):
+    sh_p[0] = i32(sh_v >> 24)
+    sh_p[1] = i32(sh_v >> 16) & 0xFF
+    sh_p[2] = i32(sh_v >> 8) & 0xFF
+    sh_p[3] = i32(sh_v) & 0xFF
+
+def sha256_copy(sh_to, sh_ctx):
+    for sh_i in 0..8:
+        sha_h[sh_to * 8 + sh_i] = sha_h[sh_ctx * 8 + sh_i]
+    for sh_i in 0..64:
+        sha_buf[sh_to * 64 + sh_i] = sha_buf[sh_ctx * 64 + sh_i]
+    sha_fill[sh_to] = sha_fill[sh_ctx]
+    sha_count[sh_to] = sha_count[sh_ctx]
+
+def sha256(sh_data: pchar, sh_n, sh_out: pchar):
+    sha256_start(SHA_ONCE)
+    sha256_add(SHA_ONCE, sh_data, sh_n)
+    sha256_end(SHA_ONCE, sh_out)
+
+# ---------- HMAC-SHA-256 ----------
+
+# HMAC(K, m) = H((K' ^ opad) | H((K' ^ ipad) | m)): K' the key filled up to 64 bytes with zeros (a longer one hashed
+# first), ipad 64 bytes 0x36, opad 64 bytes 0x5C
+def hmac_start(hm_ctx, hm_k: pchar, hm_kn):
+    if hm_kn > 64:
+        sha256_start(hm_ctx)
+        sha256_add(hm_ctx, hm_k, hm_kn)
+        sha256_end(hm_ctx, hmac_key)
+        hm_kn = 32
+    else:
+        for hm_i in 0..hm_kn:
+            hmac_key[hm_i] = hm_k[hm_i]
+    for hm_i in hm_kn..64:
+        hmac_key[hm_i] = 0
+    for hm_i in 0..64:
+        hmac_pad[hm_ctx * 64 + hm_i] = hmac_key[hm_i] ^ 0x5C
+        hmac_key[hm_i] = hmac_key[hm_i] ^ 0x36
+    sha256_start(hm_ctx)
+    sha256_add(hm_ctx, hmac_key, 64)
+
+def hmac_add(hm_ctx, hm_data: pchar, hm_n):
+    sha256_add(hm_ctx, hm_data, hm_n)
+
+def hmac_end(hm_ctx, hm_out: pchar):
+    sha256_end(hm_ctx, hmac_inner)
+    sha256_start(hm_ctx)
+    sha256_add(hm_ctx, hmac_pad + hm_ctx * 64, 64)
+    sha256_add(hm_ctx, hmac_inner, 32)
+    sha256_end(hm_ctx, hm_out)
+
+def hmac_sha256(hm_k: pchar, hm_kn, hm_data: pchar, hm_n, hm_out: pchar):
+    hmac_start(SHA_HMAC, hm_k, hm_kn)
+    hmac_add(SHA_HMAC, hm_data, hm_n)
+    hmac_end(SHA_HMAC, hm_out)
+
+# ---------- HKDF ----------
+
+# PRK = HMAC(salt, IKM); no salt (sn = 0): 32 zeros as the salt
+def hkdf_extract(hk_salt: pchar, hk_sn, hk_ikm: pchar, hk_n, hk_prk: pchar):
+    if hk_sn == 0:
+        for hk_i in 0..32:
+            hkdf_t[hk_i] = 0
+        hmac_start(SHA_HMAC, hkdf_t, 32)
+    else:
+        hmac_start(SHA_HMAC, hk_salt, hk_sn)
+    hmac_add(SHA_HMAC, hk_ikm, hk_n)
+    hmac_end(SHA_HMAC, hk_prk)
+
+# T(1) = HMAC(PRK, info | 1), T(i) = HMAC(PRK, T(i-1) | info | i); the output: T(1) | T(2) | ... cut to n bytes
+def hkdf_expand(hk_prk: pchar, hk_info: pchar, hk_in, hk_out: pchar, hk_n):
+    hk_done = 0
+    hk_round = 1
+    while hk_done < hk_n:
+        hmac_start(SHA_HMAC, hk_prk, 32)
+        if hk_round > 1:
+            hmac_add(SHA_HMAC, hkdf_t, 32)
+        hmac_add(SHA_HMAC, hk_info, hk_in)
+        hkdf_byte[0] = hk_round
+        hmac_add(SHA_HMAC, hkdf_byte, 1)
+        hmac_end(SHA_HMAC, hkdf_t)
+        for hk_i in 0..32:
+            if hk_done < hk_n:
+                hk_out[hk_done] = hkdf_t[hk_i]
+                hk_done += 1
+        hk_round += 1
+    for hk_i in 0..32:
+        hkdf_t[hk_i] = 0
+
+# HKDF-Expand(secret, HkdfLabel, n): HkdfLabel = n (2 bytes), the length of "tls13 " + label (1 byte), "tls13 " + label,
+# the length of the context (1 byte), the context (up to 255 bytes)
+def hkdf_expand_label(hk_secret: pchar, hk_label: pchar, hk_ctx: pchar, hk_cn, hk_out: pchar, hk_n):
+    hk_ln = 0
+    while hk_label[hk_ln] != 0:
+        hk_ln += 1
+    hkdf_info[0] = hk_n >> 8
+    hkdf_info[1] = hk_n & 0xFF
+    hkdf_info[2] = 6 + hk_ln
+    hk_w = 3
+    hk_prefix = "tls13 "
+    for hk_i in 0..6:
+        hkdf_info[hk_w] = hk_prefix[hk_i]
+        hk_w += 1
+    for hk_i in 0..hk_ln:
+        hkdf_info[hk_w] = hk_label[hk_i]
+        hk_w += 1
+    hkdf_info[hk_w] = hk_cn
+    hk_w += 1
+    for hk_i in 0..hk_cn:
+        hkdf_info[hk_w] = hk_ctx[hk_i]
+        hk_w += 1
+    hkdf_expand(hk_secret, hkdf_info, hk_w, hk_out, hk_n)

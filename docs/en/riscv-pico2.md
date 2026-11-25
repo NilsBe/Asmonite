@@ -2,6 +2,10 @@
 
 How to write a program in RISC-V or Arm assembler, run it on a Raspberry Pi Pico or Pico 2 and look at it while it runs. You need no other tool: Asmonite assembles the program, writes it to the board over the debug probe and lets you step through it. The instruction reference is the F1 help of Asmonite (`help\en\riscv.md`). The Pico (RP2040) comes first; most of the guide is then about the Pico 2 (RP2350) and its RISC-V cores, and the steps of [Running and debugging](#running-and-debugging) are the same for both boards.
 
+> **The examples of this page:** the examples in assembly (`examples/<board>/…`) and some in aBelle that this page names
+> are being gone through again and come into the folder `examples/` one by one; until then they are not in the ZIP and
+> not in the public repository. What is released already is in [examples/README.md](../../examples/README.md).
+
 ## What you need
 
 - a **Raspberry Pi Pico** or a **Raspberry Pi Pico 2** (not the W models: there the LED sits on the wireless chip)
@@ -222,10 +226,10 @@ open or secured, the name). `led()` of the programs switches the LED of a W at t
 2 s), not the password, in the last two sectors of the flash, behind the files; `wlan on` starts the chip and joins
 the network again (also after a reset), `wlan` shows it, `wlan clear` forgets it.
 
-**aBelle programs on the network:** `include "inc/net.abel"` (in `abelle/examples/pico2`, after `inc/console.abel`)
-gives them ARP, IPv4, ping, UDP, DHCP, DNS and mDNS, `inc/tcp.abel` adds TCP, with the same functions as on the
-ESP32; `wifi_connect_saved()` starts the chip and joins the network of `wlan set`. The examples `dhcp`, `ping`, `dns`,
-`ntp`, `arpscan` and `httpget` show it: `run ping` in the console or F9 in Asmonite. For this the console has one
+**aBelle programs on the network:** `include "net.abel"` (from `abelle/lib/common/`, after `console.abel`)
+gives them ARP, IPv4, ping, UDP, DHCP, DNS and mDNS, `tcp.abel` adds TCP, with the same functions as on the
+ESP32; `wifi_connect_saved()` starts the chip and joins the network of `wlan set`. The examples in `examples/common/`
+(`scan`, `arpscan`, `ping`, `wol`, `httpget`, `httpsget` ...) show it: `ping` in the console or F9 in Asmonite. For this the console has one
 function more, `wl_call` (+52, see below; `console_version()` 3): frames sent and received, the MAC, the join;
 from `console_version()` 4 also the networks around (`wifi_scan`), from 5 the count of the pings the console
 answered (`wifi_pings`). The
@@ -247,14 +251,15 @@ the program with the code in `r0` ("Program ended (code n)."), and so does `exit
 program (a read where nothing is) and Ctrl+C end it too; the console says how and goes on. Its functions are a table
 of addresses at `0x20078140`, in the order of the ESP32: +0 `exit`, +4 `version`, +8 `put_char`, +12 `get_char`,
 +16 `poll_char`, +20 `print`, +24 `millis`, +28 `file_size`, +32 `file_read`, +44 `args`, +48 `led` (the LED of the
-board, GPIO 25), +52 `wl_call` (the WiFi of a W, for `inc/wifi.abel`; `boards/pico/console_wifi.asm`). A call loads the address from the table and jumps there with `blx`; `r0` to `r3` are the arguments,
+board, GPIO 25), +52 `wl_call` (the WiFi of a W, for `wifi.abel`; `boards/pico/console_wifi.asm`). A call loads the address from the table and jumps there with `blx`; `r0` to `r3` are the arguments,
 `r0` the result. `examples/pico2/hello_console.asm` shows it. The same functions are also code to call at `0x20079E00`
 (16 bytes each, in the same order; the Pico: `0x20039E00`).
 
-**Programs in aBelle** for the console: `target "pico2"` (the Pico: `target "pico"`) and `include "inc/console.abel"`;
+**Programs in aBelle** for the console: `target "pico2"` (the Pico: `target "pico"`) and `include "console.abel"`;
 `abelle_pico.exe` translates them, F9 runs them over the console, with a breakpoint F9, F7 and F8 debug them (over the
-USB cable or the probe), with the variables. Examples in `examples/abelle/pico2` and `examples/abelle/pico`:
-`hello.abel`, `blink.abel`. The Pico W and the Pico 2 W have their LED at the WiFi chip: `led()` switches it there
+USB cable or the probe), with the variables. A program without a line `target` is translated by Asmonite for the
+board of **Project > aBelle for**; so the examples in `examples/common/` run here too, for example `hello.abel` and
+`blink.abel`. The Pico W and the Pico 2 W have their LED at the WiFi chip: `led()` switches it there
 (its first call starts the chip, as `wlan on`).
 
 **F9** debugs the Pico 2 over the probe (SWD), or over the USB cable (see below: debugging over USB). The console

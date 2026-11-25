@@ -1,0 +1,229 @@
+# HTTP GET: the board connects to the network it keeps (wlan set in the console), gets an address by DHCP, finds the
+# server by DNS, opens a TCP connection to its port 80 and asks for a page, as a browser does. It shows what comes
+# back: the status line and the header lines of the answer, then the title of the page, how many bytes came and how
+# long it took. The same source for the ESP32, the ESP32-S3, the ESP32-C3, the ESP32-S31, the Pico W and the Pico 2 W:
+# include "tcp.abel" takes the TCP of aBelle (and with it net.abel, the small IP stack) from abelle\lib. Start it with
+# F9, or upload it and type "httpget" in the console (an argument can only be given there).
+#
+# "httpget" in the console asks example.com for "/"; with an argument that address: "httpget example.com/index.html",
+# "httpget http://192.168.1.20:8080/status". Only http: an address with https:// is for httpsget.abel (TLS 1.3); many
+# servers answer http with a redirect to https ("301 Moved Permanently" and the new address in
+# "Location:"), which this program shows but does not follow.
+#
+# The request is plain text, each line ended by CR LF, an empty line at the end:
+#     GET /index.html HTTP/1.0
+#     Host: example.com
+#     User-Agent: aBelle
+#     Connection: close
+# HTTP/1.0: the server sends the page in one piece and closes the connection at its end (HTTP/1.1 may send it in
+# "chunks" with their lengths in between). The answer: a status line ("HTTP/1.1 200 OK"), header lines ("Name: value"),
+# an empty line, then the page itself.
+include "console.abel"
+include "tcp.abel"
+
+HTTP_KEEP = 4096                    # the first bytes of the answer are kept in http_reply: the header lines, the title
+url_host: char[80]                  # the server, from the argument
+url_path: char[200]                 # the page on it
+url_port: i32 = 80
+url_ip: char[4]                     # the address of the server
+http_request: char[400]
+http_reply: char[4096]
+http_part: char[512]
+
+# the address asked for without an argument
+def default_address() pchar:
+    return "example.com/"
+
+# the text s at the start of t? 1 or 0
+def starts_with(t: pchar, s: pchar) i32:
+    k = 0
+    while s[k] != 0:
+        if t[k] != s[k]:
+            return False
+        k += 1
+    return True
+
+# the text s at http_request + w: the place after it
+def put_text(w, s: pchar) i32:
+    k = 0
+    while s[k] != 0:
+        http_request[w] = s[k]
+        w += 1
+        k += 1
+    return w
+
+# the address a ("http://name:port/path", "name/path", "name") into url_host, url_port and url_path: 1, or 0 with a
+# message
+def split_address(a: pchar) i32:
+    k = 0
+    if starts_with(a, "https://"):
+        println("https: not here yet (it needs TLS); try the address with http://")
+        return False
+    if starts_with(a, "http://"):
+        k = 7
+    n = 0
+    while a[k] != 0 and a[k] != '/' and a[k] != ':' and a[k] != ' ':
+        if n >= 79:
+            println("the name of the server is too long")
+            return False
+        url_host[n] = a[k]
+        n += 1
+        k += 1
+    url_host[n] = 0
+    if n == 0:
+        println("no server in the address")
+        return False
+    url_port = 80
+    if a[k] == ':':
+        k += 1
+        url_port = 0
+        while a[k] >= '0' and a[k] <= '9' and url_port <= 65535:
+            url_port = url_port * 10 + a[k] - '0'
+            k += 1
+        if url_port <= 0 or url_port > 65535:
+            println("not a port")
+            return False
+    n = 0
+    if a[k] != '/':
+        url_path[0] = '/'
+        n = 1
+    while a[k] != 0 and a[k] != ' ':
+        if n >= 199:
+            println("the path is too long")
+            return False
+        url_path[n] = a[k]
+        n += 1
+        k += 1
+    url_path[n] = 0
+    return True
+
+# the request for url_path at url_host into http_request: its length
+def make_request() i32:
+    w = put_text(0, "GET ")
+    w = put_text(w, url_path)
+    w = put_text(w, " HTTP/1.0\r\nHost: ")
+    w = put_text(w, url_host)
+    if url_port != 80:
+        http_request[w] = ':'
+        w += 1
+        # the port in digits
+        digits = 1
+        while digits * 10 <= url_port:
+            digits *= 10
+        while digits > 0:
+            http_request[w] = '0' + url_port / digits % 10
+            w += 1
+            digits /= 10
+    w = put_text(w, "\r\nUser-Agent: aBelle\r\nConnection: close\r\n\r\n")
+    return w
+
+# the place of the text s in the n bytes at p, -1 if it is not there
+def find(p: pchar, n, s: pchar) i32:
+    k = text_len(s)
+    for i in 0..n - k + 1:
+        if same(p + i, s, k):
+            return i
+    return -1
+
+# the bytes at p up to CR, LF or the byte c (or n of them) as a line
+def print_line(p: pchar, n, c):
+    for i in 0..n:
+        if p[i] == 13 or p[i] == 10 or p[i] == c:
+            break
+        put_char(p[i])
+    println("")
+
+# the status line and the header lines of the n bytes in http_reply, "  " before each; the place of the page after
+# the empty line, or n when it is not in them
+def print_head(n) i32:
+    k = 0
+    while k < n:
+        if http_reply[k] == 13 or http_reply[k] == 10:
+            # the empty line: CR LF (or LF alone)
+            if http_reply[k] == 13:
+                k += 1
+            return k + 1
+        print("  ")
+        print_line(http_reply + k, n - k, 0)
+        while k < n and http_reply[k] != 10:
+            k += 1
+        k += 1
+    return n
+
+# the request to url_ip, the answer shown
+def http_get():
+    print("GET http://")
+    print(url_host)
+    if url_port != 80:
+        put_char(':')
+        print_int(url_port)
+    print(url_path)
+    print("  (")
+    print_ip(url_ip)
+    println(")")
+    t0 = wifi_millis()
+    if not tcp_connect(url_ip, url_port):
+        println("tcp: no connection")
+        return
+    print("connected in ")
+    print_int(wifi_millis() - t0)
+    println(" ms")
+    if tcp_send(http_request, make_request()) < 0:
+        println("tcp: the request did not go out")
+        tcp_close()
+        return
+    total = 0
+    have = 0
+    while True:
+        k = tcp_recv(http_part, 512, 5000)
+        if k <= 0:
+            break
+        if have + k <= HTTP_KEEP:
+            copy(http_reply + have, http_part, k)
+            have += k
+        total += k
+    t1 = wifi_millis()
+    tcp_close()
+    if total == 0:
+        println("no answer within 5 s")
+        return
+    println("the answer:")
+    body = print_head(have)
+    i = find(http_reply + body, have - body, "<title>")
+    if i >= 0:
+        print("title: ")
+        print_line(http_reply + body + i + 7, have - body - i - 7, '<')
+    print_int(total)
+    print(" bytes in ")
+    print_int(t1 - t0)
+    print(" ms, the page ")
+    print_int(total - body)
+    println(" bytes")
+
+def main():
+    println("HTTP GET")
+    a = args()
+    if a[0] == 0:
+        a = default_address()
+    if not split_address(a):
+        println("httpget end")
+        return
+    net_init()
+    print("connecting to ")
+    println(wifi_saved_name())
+    r = wifi_connect_saved()
+    if r != 0:
+        print("wifi_connect: error ")
+        print_int(r)
+        print(" (")
+        print(wifi_error_text(r))
+        println(")")
+    elif not dhcp_run():
+        println("dhcp: no answer")
+    elif not dns_lookup(url_host, url_ip):
+        print("dns: no address for ")
+        println(url_host)
+    else:
+        http_get()
+    wifi_done()
+    println("httpget end")

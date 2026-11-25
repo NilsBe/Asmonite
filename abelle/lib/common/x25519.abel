@@ -1,0 +1,219 @@
+# X25519 (RFC 7748) in aBelle, for every board and for Windows: include "x25519.abel". The key exchange of TLS 1.3
+# (stage S3 of the roadmap httpsget).
+#
+#   x25519(out, scalar, u)      out = scalar * u on Curve25519: 32 bytes each (little-endian); with u the public key
+#                               of the other side, out is the shared secret
+#   x25519_base(out, scalar)    out = scalar * 9: the public key of the secret key scalar
+#
+# The numbers are modulo p = 2^255 - 19. aBelle has no 64-bit product: a number is 16 limbs of 16 bits (256 bits),
+# the product of two limbs fits 32 bits exactly, and each one is split into its lower and its upper 16 bits right
+# away, so the sums of a whole product stay below 2^22. The limbs above limb 15 have the weight 2^256, which is 38
+# modulo p: they come back to the limbs below times 38. Between the steps a number is kept with each limb below
+# 2^16 (below 2^256 in all, not always below p); only the result is brought below p.
+#
+# u32 arrays cannot be passed to functions: the numbers lie in the one array x25_f, 16 limbs each, and the functions
+# get their numbers (X25_X1 ...). The swaps of the ladder and the last subtraction of p go without a branch on the
+# bits of the key.
+#
+# The names of this file begin with x25 (the local ones with xs_): in aBelle a local name may not be the name of a
+# global one of the program.
+
+X25_X1 = 0
+X25_X2 = 1
+X25_Z2 = 2
+X25_X3 = 3
+X25_Z3 = 4
+X25_A = 5
+X25_AA = 6
+X25_B = 7
+X25_BB = 8
+X25_E = 9
+X25_C = 10
+X25_D = 11
+X25_DA = 12
+X25_CB = 13
+X25_A24 = 14                        # 121665 = (486662 - 2) / 4
+X25_T = 15                          # the power while x25_invert makes it
+X25_NUMBERS = 16
+
+x25_f: u32[256]                     # the 16 numbers, 16 limbs each
+x25_a: u32[16]                      # the two factors of x25_mul
+x25_b: u32[16]
+x25_m: u32[32]                      # their product, 32 limbs
+x25_t: i32[16]                      # a result before x25_store (limbs with sign, carries not done yet)
+x25_r: i32[16]                      # x25_pack: the number minus p
+x25_k: char[32]                     # the scalar, clamped
+x25_nine: char[32]                  # the u of the base point: 9
+
+# ---------- the numbers modulo p ----------
+
+# x25_t into number o: the carries up the limbs (with sign), the one above limb 15 times 38 back to limb 0, again
+# until there is none
+def x25_store(xs_o):
+    xs_c = 0
+    xs_more = True
+    while xs_more:
+        for xs_i in 0..16:
+            xs_v = x25_t[xs_i] + xs_c
+            x25_t[xs_i] = xs_v & 0xFFFF
+            xs_c = xs_v >> 16
+        if xs_c == 0:
+            xs_more = False
+        else:
+            x25_t[0] += 38 * xs_c
+            xs_c = 0
+    xs_p = 16 * xs_o
+    for xs_i in 0..16:
+        x25_f[xs_p + xs_i] = u32(x25_t[xs_i])
+
+# number o = v (below 2^32)
+def x25_small(xs_o, xs_v: u32):
+    xs_p = 16 * xs_o
+    for xs_i in 0..16:
+        x25_f[xs_p + xs_i] = 0
+    x25_f[xs_p] = xs_v & 0xFFFF
+    x25_f[xs_p + 1] = xs_v >> 16
+
+def x25_copy(xs_o, xs_x):
+    for xs_i in 0..16:
+        x25_f[16 * xs_o + xs_i] = x25_f[16 * xs_x + xs_i]
+
+def x25_add(xs_o, xs_x, xs_y):
+    xs_p = 16 * xs_x
+    xs_q = 16 * xs_y
+    for xs_i in 0..16:
+        x25_t[xs_i] = i32(x25_f[xs_p + xs_i]) + i32(x25_f[xs_q + xs_i])
+    x25_store(xs_o)
+
+def x25_sub(xs_o, xs_x, xs_y):
+    xs_p = 16 * xs_x
+    xs_q = 16 * xs_y
+    for xs_i in 0..16:
+        x25_t[xs_i] = i32(x25_f[xs_p + xs_i]) - i32(x25_f[xs_q + xs_i])
+    x25_store(xs_o)
+
+# o = x * y (o may be x or y)
+def x25_mul(xs_o, xs_x, xs_y):
+    xs_p = 16 * xs_x
+    xs_q = 16 * xs_y
+    for xs_i in 0..16:
+        x25_a[xs_i] = x25_f[xs_p + xs_i]
+        x25_b[xs_i] = x25_f[xs_q + xs_i]
+    for xs_i in 0..32:
+        x25_m[xs_i] = 0
+    for xs_i in 0..16:
+        xs_ai = x25_a[xs_i]
+        for xs_j in 0..16:
+            xs_v = xs_ai * x25_b[xs_j]
+            x25_m[xs_i + xs_j] += xs_v & 0xFFFF
+            x25_m[xs_i + xs_j + 1] += xs_v >> 16
+    # the limbs 16 .. 31 times 38 onto 0 .. 15 (each limb of x25_m is below 2^21)
+    for xs_i in 0..16:
+        x25_t[xs_i] = i32(x25_m[xs_i]) + 38 * i32(x25_m[xs_i + 16])
+    x25_store(xs_o)
+
+# the numbers x and y swapped when bit is 1, left when it is 0 (no branch)
+def x25_swap(xs_x, xs_y, xs_bit):
+    xs_mask = 0 - u32(xs_bit)
+    xs_p = 16 * xs_x
+    xs_q = 16 * xs_y
+    for xs_i in 0..16:
+        xs_d = xs_mask & (x25_f[xs_p + xs_i] ^ x25_f[xs_q + xs_i])
+        x25_f[xs_p + xs_i] ^= xs_d
+        x25_f[xs_q + xs_i] ^= xs_d
+
+# o = x^(p - 2) = 1 / x (o not x): p - 2 = 2^255 - 21 has all bits 254 .. 0 except 4 and 2
+def x25_invert(xs_o, xs_x):
+    x25_copy(X25_T, xs_x)
+    for xs_n in 0..254:
+        xs_bit = 253 - xs_n
+        x25_mul(X25_T, X25_T, X25_T)
+        if xs_bit != 2 and xs_bit != 4:
+            x25_mul(X25_T, X25_T, xs_x)
+    x25_copy(xs_o, X25_T)
+
+# the 32 bytes at s into number o, the top bit left out (RFC 7748 5)
+def x25_unpack(xs_o, xs_s: pchar):
+    xs_p = 16 * xs_o
+    for xs_i in 0..16:
+        x25_f[xs_p + xs_i] = u32(xs_s[2 * xs_i]) | (u32(xs_s[2 * xs_i + 1]) << 8)
+    x25_f[xs_p + 15] &= 0x7FFF
+
+# number x below p as 32 bytes at out: it is below 2^256 < 2 p + 38, so p is taken away twice when it can be
+def x25_pack(xs_out: pchar, xs_x):
+    xs_p = 16 * xs_x
+    for xs_i in 0..16:
+        x25_t[xs_i] = i32(x25_f[xs_p + xs_i])
+    for xs_round in 0..2:
+        # x25_r = x25_t - p (the limbs of p: 0xFFED, 14 times 0xFFFF, 0x7FFF)
+        xs_c = 0
+        for xs_i in 0..16:
+            xs_limb = 0xFFFF
+            if xs_i == 0:
+                xs_limb = 0xFFED
+            elif xs_i == 15:
+                xs_limb = 0x7FFF
+            xs_v = x25_t[xs_i] - xs_limb + xs_c
+            x25_r[xs_i] = xs_v & 0xFFFF
+            xs_c = xs_v >> 16
+        # xs_c is -1 when x25_t < p (keep it), 0 when not (take x25_r)
+        for xs_i in 0..16:
+            x25_t[xs_i] = x25_r[xs_i] ^ ((x25_t[xs_i] ^ x25_r[xs_i]) & xs_c)
+    for xs_i in 0..16:
+        xs_out[2 * xs_i] = x25_t[xs_i] & 0xFF
+        xs_out[2 * xs_i + 1] = x25_t[xs_i] >> 8
+
+# ---------- X25519 ----------
+
+def x25519(xs_out: pchar, xs_scalar: pchar, xs_u: pchar):
+    # the scalar clamped: the low 3 bits cleared, bit 255 cleared, bit 254 set
+    for xs_i in 0..32:
+        x25_k[xs_i] = xs_scalar[xs_i]
+    x25_k[0] &= 248
+    x25_k[31] &= 127
+    x25_k[31] |= 64
+    x25_unpack(X25_X1, xs_u)
+    x25_small(X25_X2, 1)
+    x25_small(X25_Z2, 0)
+    x25_copy(X25_X3, X25_X1)
+    x25_small(X25_Z3, 1)
+    x25_small(X25_A24, 121665)
+    # the Montgomery ladder of RFC 7748 5, bit 254 down to bit 0
+    xs_swap = 0
+    for xs_n in 0..255:
+        xs_t = 254 - xs_n
+        xs_bit = (x25_k[xs_t >> 3] >> (xs_t & 7)) & 1
+        xs_swap = xs_swap ^ xs_bit
+        x25_swap(X25_X2, X25_X3, xs_swap)
+        x25_swap(X25_Z2, X25_Z3, xs_swap)
+        xs_swap = xs_bit
+        x25_add(X25_A, X25_X2, X25_Z2)          # A = x2 + z2, AA = A^2
+        x25_mul(X25_AA, X25_A, X25_A)
+        x25_sub(X25_B, X25_X2, X25_Z2)          # B = x2 - z2, BB = B^2
+        x25_mul(X25_BB, X25_B, X25_B)
+        x25_sub(X25_E, X25_AA, X25_BB)          # E = AA - BB
+        x25_add(X25_C, X25_X3, X25_Z3)          # C = x3 + z3, D = x3 - z3
+        x25_sub(X25_D, X25_X3, X25_Z3)
+        x25_mul(X25_DA, X25_D, X25_A)           # DA = D * A, CB = C * B
+        x25_mul(X25_CB, X25_C, X25_B)
+        x25_add(X25_X3, X25_DA, X25_CB)         # x3 = (DA + CB)^2
+        x25_mul(X25_X3, X25_X3, X25_X3)
+        x25_sub(X25_Z3, X25_DA, X25_CB)         # z3 = x1 * (DA - CB)^2
+        x25_mul(X25_Z3, X25_Z3, X25_Z3)
+        x25_mul(X25_Z3, X25_Z3, X25_X1)
+        x25_mul(X25_X2, X25_AA, X25_BB)         # x2 = AA * BB
+        x25_mul(X25_Z2, X25_A24, X25_E)         # z2 = E * (AA + a24 * E)
+        x25_add(X25_Z2, X25_Z2, X25_AA)
+        x25_mul(X25_Z2, X25_Z2, X25_E)
+    x25_swap(X25_X2, X25_X3, xs_swap)
+    x25_swap(X25_Z2, X25_Z3, xs_swap)
+    # the result x2 / z2
+    x25_invert(X25_A, X25_Z2)
+    x25_mul(X25_X2, X25_X2, X25_A)
+    x25_pack(xs_out, X25_X2)
+
+def x25519_base(xs_out: pchar, xs_scalar: pchar):
+    for xs_i in 0..32:
+        x25_nine[xs_i] = 0
+    x25_nine[0] = 9
+    x25519(xs_out, xs_scalar, x25_nine)

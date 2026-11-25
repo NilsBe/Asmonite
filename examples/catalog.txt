@@ -1,0 +1,289 @@
+# The released examples, one entry each: the source of the lists in README.md and README.de.md and of the page
+# examples.html of asmonite.com. python tools/examples_build.py writes the READMEs; tools/build_site.py builds the
+# page; python tools/examples_build.py --check says whether every released file (git ls-files examples) has its
+# entry here and every file named here exists.
+#
+# A block starts at column 0: "section <id>" (a part of the list, in this order) or "example <id>" (in the section
+# named last). Its lines "  key: value" follow, indented; a line indented deeper goes on with the value before it.
+# Keys of a section: de, en (its heading), de.intro, en.intro (a paragraph under it, optional).
+# Keys of an example:
+#   files    its files, relative to examples/ (one per board when there is one per board)
+#   boards   where it runs and was tested: esp32 esp32s3 esp32c3 esp32s31 pico picow pico2 pico2w windows winarm
+#            dos; "all" is every board with the console (ESP32, ESP32-S3, ESP32-C3, ESP32-S31, Pico, Pico 2, also
+#            the W), "wifi" every board with WiFi
+#   title.de, title.en   the heading of its card on the page
+#   de, en   what it does (in the README behind its file names; on the page under its title)
+# In the texts: `code`, [text](link) (a link relative to examples/, on the page it goes to GitHub).
+
+section first
+  de: Erste Schritte
+  en: First steps
+
+example hello
+  files: common/hello.abel
+  boards: all
+  title.de: Hello, world
+  title.en: Hello, world
+  de: schreibt „Hello, world!“ über die serielle Ausgabe des Boards.
+  en: writes "Hello, world!" over the serial output of the board.
+
+example blink
+  files: common/blink.abel
+  boards: all
+  title.de: Blinken
+  title.en: Blink
+  de: lässt die LED des Boards blinken; vorher oben `LED_PIN` für dein Board setzen.
+  en: blinks the LED of the board; set `LED_PIN` for your board at its top first.
+
+example runs
+  files: common/runs.abel
+  boards: all
+  title.de: Eine Zahl, die bleibt
+  title.en: A number that stays
+  de: zählt, wie oft es gelaufen ist, in der Datei `runs.txt` auf dem Board (`file_size`, `file_read`,
+    `file_write`); die Zahl bleibt auch ohne Strom. `cat runs.txt` in der Konsole zeigt sie, `rm runs.txt` fängt neu
+    an.
+  en: counts how often it has run, in the file `runs.txt` on the board (`file_size`, `file_read`, `file_write`); the
+    number stays when the power is off. `cat runs.txt` in the console shows it, `rm runs.txt` starts again.
+
+section net
+  de: Das Netz, von unten nach oben
+  en: The network, from the bottom up
+  de.intro: Für die Boards mit WLAN. Außer `scan` brauchen sie ein Netz: einmal `wlan set` in der Konsole.
+  en.intro: For the boards with WiFi. Except for `scan`, they need a network: `wlan set` in the console once.
+
+example scan
+  files: common/scan.abel
+  boards: wifi
+  title.de: WLAN-Netze in der Nähe
+  title.en: WiFi networks nearby
+  de: Signal, Kanal, Schutz, BSSID und Name jedes Netzes, das das Board hört; ein Scan hört nur zu und braucht kein
+    Netz.
+  en: the signal, channel, protection, BSSID and name of each network the board hears; a scan only listens and needs
+    no network.
+
+example arpscan
+  files: common/arpscan.abel
+  boards: wifi
+  title.de: Wer ist im Netz?
+  title.en: Who is in the network?
+  de: fragt jede Adresse seines /24-Netzes per ARP und listet die Geräte, die antworten, mit ihrer MAC.
+  en: asks every address of its /24 network by ARP and lists the devices that answer with their MAC.
+
+example ping
+  files: common/ping.abel
+  boards: wifi
+  title.de: Ping
+  title.en: Ping
+  de: pingt den Router und einen Server im Internet (je vier Echo-Anfragen, ICMP) und zeigt die Zeiten wie der Ping
+    eines PCs; mit einem Argument (`ping 192.168.1.20` oder `ping example.com`) diesen Host.
+  en: pings the router and a server in the internet (four echo requests each, ICMP) and shows the times as the ping of
+    a PC does; with an argument (`ping 192.168.1.20` or `ping example.com`) that host.
+
+example pingled
+  files: common/pingled.abel
+  boards: wifi
+  title.de: Die LED blitzt bei jedem Ping
+  title.en: The LED flashes at each ping
+  de: das Board beantwortet die Pings, und seine LED blitzt bei jedem auf; die Adresse, die es zeigt, vom PC oder
+    Handy aus pingen. Vorher oben `LED_PIN` für dein Board setzen.
+  en: the board answers the pings, and its LED flashes at each one; ping the address it shows from a PC or a phone.
+    Set `LED_PIN` for your board at its top first.
+
+example wol
+  files: common/wol.abel
+  boards: wifi
+  title.de: Wake-on-LAN
+  title.en: Wake-on-LAN
+  de: schickt das Magic Packet (ein UDP-Broadcast), das einen PC aus dem Schlaf oder aus dem ausgeschalteten Zustand
+    startet (oben in `pc_mac()` die MAC des PCs setzen, oder `wol 02:00:00:12:34:56`); mit der Adresse des PCs nach
+    der MAC wartet es danach, bis der PC auf einen Ping antwortet. Board und PC müssen im selben Netz sein.
+  en: sends the magic packet (a UDP broadcast) that starts a PC from sleep or from off (set the MAC of the PC in
+    `pc_mac()` at its top, or `wol 02:00:00:12:34:56`); with the address of the PC after the MAC it then waits until
+    the PC answers a ping. The board and the PC have to be in the same network.
+
+example httpget
+  files: common/httpget.abel
+  boards: wifi
+  title.de: Eine Webseite holen
+  title.en: Fetch a web page
+  de: über TCP, wie ein Browser sie anfragt: die Statuszeile und die Kopfzeilen der Antwort, der Titel
+    der Seite, ihre Bytes und die Zeit (`httpget` fragt example.com, `httpget neverssl.com/` oder
+    `httpget http://192.168.1.20:8080/status` eine andere Adresse); nur http.
+  en: over TCP, as a browser asks for it: the status line and the header lines of the answer, the title of
+    the page, its bytes and the time (`httpget` asks example.com, `httpget neverssl.com/` or
+    `httpget http://192.168.1.20:8080/status` another address); only http.
+
+example httpsget
+  files: common/httpsget.abel
+  boards: esp32 esp32s3 esp32s31 picow pico2w
+  title.de: Eine Webseite über HTTPS
+  title.en: A web page over HTTPS
+  de: wie `httpget`, aber verschlüsselt, mit dem TLS 1.3 von aBelle (ChaCha20-Poly1305, X25519; der Handshake dauert auf einem ESP32
+    etwa 2 s): `httpsget` fragt example.com, `httpsget www.wikipedia.org/` einen anderen Server. Das Zertifikat des
+    Servers wird noch nicht geprüft: verschlüsselt, aber nicht sicher gegen jemanden, der sich als der Server ausgibt.
+    Noch nicht auf dem ESP32-C3 (zu groß für seinen RAM).
+  en: as `httpget`, but encrypted, with the TLS 1.3 of aBelle (ChaCha20-Poly1305, X25519; the handshake takes about 2 s on an
+    ESP32): `httpsget` asks example.com, `httpsget www.wikipedia.org/` another server. The certificate of the server
+    is not checked yet: encrypted, but not safe against someone posing as the server. Not on the ESP32-C3 yet (too
+    large for its RAM).
+
+section clock
+  de: Takt und Tempo
+  en: Clock and speed
+  de.intro: Wie schnell das Board rechnet, und der Takt seines Kerns, von einem Programm gesetzt. Was dahintersteckt:
+    [Den Takt des Kerns ändern](../docs/de/takt.md).
+  en.intro: How fast the board computes, and the clock of its core, set by a program. What is behind it:
+    [Changing the clock of the core](../docs/en/clock.md).
+
+example bench
+  files: common/bench.abel
+  boards: all windows
+  title.de: Wie schnell ist das Board?
+  title.en: How fast is the board?
+  de: vier kleine Aufgaben (das Sieb des Eratosthenes, CRC-32, Divisionen, Aufrufe einer Funktion), auf jedem Board
+    dieselbe Arbeit, mit der Zeit für jede und der Summe; es läuft auch unter Windows, als Maßstab.
+  en: four small tasks (the sieve of Eratosthenes, CRC-32, divisions, calls of a function), the same work on every
+    board, with the time of each and the sum; it runs on Windows too, as a yardstick.
+
+example clockspeed
+  files: esp32/clockspeed.abel esp32s3/clockspeed.abel esp32c3/clockspeed.abel pico/clockspeed.abel pico2/clockspeed.abel
+  boards: esp32 esp32s3 esp32c3 pico picow pico2 pico2w
+  title.de: Dieselbe Arbeit bei jedem Takt
+  title.en: The same work at each clock
+  de: misst die Zeit einer Schleife bei jedem Takt des Kerns; `cpu_clock` aus `cpuclock.abel` setzt den Takt
+    (ESP32 1 bis 240 MHz, ESP32-S3 10 bis 240 MHz, ESP32-C3 10 bis 160 MHz, Pico 48 bis 133 MHz, Pico 2 48 bis 150 MHz). Am Ende stellt es den Takt wieder ein, den es
+    vorgefunden hat.
+  en: measures the time of a loop at each clock of the core; `cpu_clock` of `cpuclock.abel` sets the clock
+    (ESP32 1 to 240 MHz, ESP32-S3 10 to 240 MHz, ESP32-C3 10 to 160 MHz, Pico 48 to 133 MHz, Pico 2 48 to 150 MHz). At the end it sets the clock it found again.
+
+example slowclock
+  files: esp32/slowclock.abel pico/slowclock.abel pico2/slowclock.abel
+  boards: esp32 pico picow pico2 pico2w
+  title.de: Blinken bei wenigen kHz
+  title.en: Blinking at a few kHz
+  de: die LED blinkt einmal je Sekunde, auch wenn `cpu_clock_khz` den Kern auf etwa 5 kHz (ESP32) oder 1 kHz (Pico,
+    Pico 2) bringt; das Programm zählt dafür Takte statt Millisekunden. Auf dem ESP32 vorher `wlan off`.
+  en: the LED blinks once a second, also when `cpu_clock_khz` takes the core down to about 5 kHz (ESP32) or 1 kHz
+    (Pico, Pico 2); for that the program counts cycles instead of milliseconds. On the ESP32 `wlan off` first.
+
+example setclock
+  files: esp32/setclock.abel esp32s3/setclock.abel esp32c3/setclock.abel pico/setclock.abel pico2/setclock.abel
+  boards: esp32 esp32s3 esp32c3 pico picow pico2 pico2w
+  title.de: Den Takt der Konsole setzen
+  title.en: Set the clock of the console
+  de: der Takt gilt dann für die Konsole und jedes Programm danach, bis zum Reset: hochladen, dann `setclock 240` (ESP32, ESP32-S3), `setclock 160` (ESP32-C3),
+    `setclock 133` (Pico) oder `setclock 150` (Pico 2) in der Konsole; `setclock` allein zeigt den Takt, `info` und der
+    Board Manager zeigen ihn auch.
+  en: the clock then holds for the console and every program after it, until a reset: upload it, then `setclock 240` (ESP32, ESP32-S3), `setclock 160` (ESP32-C3),
+    `setclock 133` (Pico) or `setclock 150` (Pico 2) in the console; `setclock` alone shows the clock, `info` and the
+    Board Manager show it too.
+
+section board
+  de: Für ein Board
+  en: For one board
+  de.intro: Programme für ein Board, weil sie seine Hardware nutzen: Pins, Sensoren, sein Display.
+  en.intro: Programs for one board, because they use its hardware: pins, sensors, its display.
+
+example bme280
+  files: esp32/bme280.abel
+  boards: esp32
+  title.de: Der Sensor BME280
+  title.en: The BME280 sensor
+  de: Temperatur, Luftdruck und Luftfeuchte eines Sensors BME280 (oder BMP280, ohne Feuchte) am I2C-Bus, alle zwei
+    Sekunden (SDA an GPIO 21, SCL an GPIO 22; I2C von Hand über die Pins); `bme280 5` in der Konsole misst fünfmal.
+  en: the temperature, the air pressure and the humidity of a BME280 sensor (or a BMP280, without humidity) at the I2C
+    bus, every two seconds (SDA at GPIO 21, SCL at GPIO 22; I2C by hand over the pins); `bme280 5` in the console
+    reads five times.
+
+example bme280_sleep
+  files: esp32/bme280_sleep.abel
+  boards: esp32
+  title.de: Messen im Light Sleep
+  title.en: Readings in light sleep
+  de: dieselben Messungen alle zehn Sekunden, dazwischen der ESP32 im Light Sleep (wach etwa 10 ms der zehn Sekunden;
+    der RTC-Timer weckt ihn, eine Taste beendet es). Es schaltet vorher das WLAN ab: Das übersteht den Schlaf nicht.
+  en: the same readings every ten seconds, and in between the ESP32 in light sleep (awake about 10 ms of the ten
+    seconds; the RTC timer wakes it, a key ends it). It switches the WiFi off first: it does not survive the sleep.
+
+example bme280_deep
+  files: esp32/bme280_deep.abel
+  boards: esp32
+  title.de: Messen im Deep Sleep
+  title.en: Readings in deep sleep
+  de: eine Messung, dann eine Minute Deep Sleep, immer wieder; der Chip ist pro Messung etwa 150 ms wach, was es sich
+    merken muss (Anzahl, Zeit, tiefste und höchste Temperatur), liegt im langsamen Speicher der RTC. Vorher hochladen
+    und als Autostart-Programm setzen (`boot bme280_deep`); zum Beenden BOOT gedrückt halten (oder den COM-Port neu
+    öffnen, oder EN und dann eine Taste), danach `noboot`.
+  en: a reading, then a minute of deep sleep, again and again; the chip is awake about 150 ms per reading, what it has
+    to remember (count, time, lowest and highest temperature) is in the slow memory of the RTC. Upload it and make it
+    the autostart program first (`boot bme280_deep`); to end it hold BOOT (or open the COM port again, or press EN
+    and then a key), then `noboot`.
+
+example tdisplay
+  files: esp32/tdisplay.abel
+  boards: esp32
+  title.de: Das Display des T-Display
+  title.en: The display of the T-Display
+  de: das Farbdisplay des LilyGO TTGO T-Display (ST7789V, 240 x 135): Farbbalken, „Hello, world!“ in einer
+    5x7-Schrift (ein- bis dreifach vergrößert), die beiden Tasten (GPIO 0 und 35) mit ihren Zählern; SPI von Hand über
+    die Pins.
+  en: the colour display of the LilyGO TTGO T-Display (ST7789V, 240 x 135): colour bars, "Hello, world!" in a 5 x 7
+    font (1 to 3 times bigger), the two buttons (GPIO 0 and 35) with their counts; SPI by hand over the pins.
+
+example tdisplay_spi
+  files: esp32/tdisplay_spi.abel
+  boards: esp32
+  title.de: Das Display über SPI
+  title.en: The display over SPI
+  de: dasselbe Bild über VSPI, die SPI-Einheit des ESP32, mit 40 MHz: das ganze Bild in 14 ms statt 350 ms von Hand.
+  en: the same picture through VSPI, the SPI unit of the ESP32, at 40 MHz: the whole screen in 14 ms instead of 350 ms
+    by hand.
+
+example rgbblink
+  files: esp32s31/rgbblink.abel
+  boards: esp32s31
+  title.de: Die RGB-LED
+  title.en: The RGB LED
+  de: lässt die RGB-LED des ESP32-S31-Boards (eine WS2812 an GPIO 60) über `rgb()` seiner Konsole blinken; oben
+    `COLOUR` für die Farbe setzen.
+  en: blinks the RGB LED of the ESP32-S31 board (a WS2812 at GPIO 60) by `rgb()` of its console; set `COLOUR` at its
+    top.
+
+section asm
+  de: In Assembler
+  en: In assembly
+  de.intro: Strg+F9 assembliert eine Datei zum Programm daneben, F9 startet es im Debugger (F5 setzt einen
+    Breakpoint, F8/F7 gehen Schritt für Schritt).
+  en.intro: Ctrl+F9 assembles a file into the program next to it, F9 runs it in the debugger (F5 sets a breakpoint,
+    F8/F7 step).
+
+example demo
+  files: windows_intel/demo.asm
+  boards: windows
+  title.de: Von 1 bis 5 zählen
+  title.en: Count from 1 to 5
+  de: zählt von 1 bis 5 und schreibt eine Zeile je Zahl (i386, ein Konsolenprogramm für Windows, `printf` aus
+    `msvcrt.dll`).
+  en: counts from 1 to 5 and writes a line for each number (i386, a console program for Windows, `printf` of
+    `msvcrt.dll`).
+
+example hello_arm32
+  files: windows_arm/hello_arm32.asm
+  boards: winarm
+  title.de: Hello, World auf Windows on ARM
+  title.en: Hello, World on Windows on ARM
+  de: „Hello, World!“ für Windows on ARM (Thumb-2, PE, Machine ARMNT); Dismonite debuggt es auf einem
+    Windows-on-ARM-Rechner (der Debug-Server `asmodbg`, siehe die README der ZIP-Datei).
+  en: "Hello, World!" for Windows on ARM (Thumb-2, PE, machine ARMNT); Dismonite debugs it on a Windows on ARM computer
+    (the debug server `asmodbg`, see the README of the ZIP).
+
+example hello_exe
+  files: dos/hello_exe.asm
+  boards: dos
+  title.de: Eine DOS-.EXE von Hand
+  title.en: A DOS .EXE by hand
+  de: „Hello, World!“ als DOS-Programm (.EXE): der Kopf der Datei von Hand geschrieben und erklärt, und was eine .EXE
+    von einer .COM unterscheidet; F9 startet es in QEMU mit FreeDOS (vorher einmal `qemu\run_freedos.bat`).
+  en: "Hello, World!" as a DOS program (.EXE): the header of the file written by hand and explained, and how an .EXE
+    differs from a .COM; F9 runs it in QEMU with FreeDOS (`qemu\run_freedos.bat` once first).

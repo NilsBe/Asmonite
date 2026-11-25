@@ -5,6 +5,10 @@ reset), 20 KB of RAM and 64 or 128 KB of flash. Asmonite assembles its code (`.a
 loads a program into its RAM or writes it into its flash, and debugs it over a debug probe: breakpoints, steps,
 pause, the registers, the memory. What the program sends on USART1 shows in the tab Serial, over the same probe.
 
+> **The examples of this page:** the examples in assembly (`examples/<board>/…`) and some in aBelle that this page names
+> are being gone through again and come into the folder `examples/` one by one; until then they are not in the ZIP and
+> not in the public repository. What is released already is in [examples/README.md](../../examples/README.md).
+
 Tested with a Blue Pill with an original STM32F103C8 (device id 0x410, 128 KB of flash) and the Raspberry Pi Debug
 Probe.
 

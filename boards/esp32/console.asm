@@ -351,8 +351,8 @@ lit_s_pwdone: dd s_pwdone
 lit_s_pwuse:  dd s_pwuse
 
 ; CAREFUL: the literals above and _start come before the vectors (align 1024: VECBASE, and the functions for programs
-; at VECBASE + 0x400 = 0x4009C800, at fixed places). Together they must stay below 1 KB, 108 bytes are left
-; (2026-11-14): new code and its literals go behind the vectors (a function with its own literals before it). Over the
+; at VECBASE + 0x400 = 0x4009C800, at fixed places). Together they must stay below 1 KB, 105 bytes are left
+; (2026-11-21, deep_wake): new code and its literals go behind the vectors (a function with its own literals before it). Over the
 ; line, the vectors move by 1 KB and every program crashes at its first call of the console.
 _start:
   call8 watchdogs_off
@@ -362,10 +362,11 @@ _start:
   memw
   call8 flash_init
   call8 fs_map                       ; the files for the cache of core 0 (telnetd), before the WiFi
-  call8 wlan_clock_boot              ; the core at 160 MHz before the hello, when the WiFi will start
+  call8 deep_wake                    ; woken from deep sleep? (vars + 264)
+  call8 start_clock                  ; the core at 160 MHz before the hello, when the WiFi will start
   l32r  a10, lit_s_hello
   call8 print
-  call8 wlan_boot                    ; the WiFi in the background (a network kept, not wlan off)
+  call8 start_wifi                   ; the WiFi in the background (a network kept, not wlan off)
   call8 dir_load
   beqz  a10, no_fs
   call8 autostart
@@ -2836,7 +2837,89 @@ sb_one:
   call8 print
   retw
 
-; after the start: the program for boot, unless BOOT is pressed or a key comes within a second
+; Deep sleep: a program that put the chip into deep sleep (examples/esp32/bme280_deep.abel) wakes as after a reset:
+; the boot ROM starts the console again. Woken by the timer of the RTC, the console starts the program for boot at
+; once, without the WiFi and without the second for a key (each of them costs current at every wake; the program
+; starts the WiFi itself if it needs it). Woken another way (a pin: the button BOOT), it starts nothing this time:
+; that is the way out of a program that sleeps and wakes again and again.
+; vars + 264: 0 no deep sleep before, 1 woken by the timer, 2 woken another way; GPIO 0 (BOOT) back from the RTC to
+; the GPIO matrix after any deep sleep (a program may have made it its pin to wake)
+  align 4
+lit_rstate:   dd 0x3FF48034          ; RTC_CNTL_RESET_STATE_REG: bits 5..0 why core 0 was reset (5: deep sleep)
+lit_wstate:   dd 0x3FF48038          ; RTC_CNTL_WAKEUP_STATE_REG: bits 10..0 who woke it (bit 3: the timer)
+lit_tpad1:    dd 0x3FF48498          ; RTC_IO_TOUCH_PAD1_REG: GPIO 0, bit 19 MUX_SEL (1: the RTC has it)
+lit_muxsel:   dd 0x00080000
+lit_s_dpin:   dd s_dpin
+lit_clkconf:  dd 0x3FF48070          ; RTC_CNTL_CLK_CONF_REG: bits 28..27 SOC_CLK_SEL (0: the crystal)
+lit_sysclk:   dd 0x3FF66000          ; APB_CTRL_SYSCLK_CONF_REG: bits 9..0 PRE_DIV_CNT
+deep_wake:
+  entry a1, 32
+  l32r  a3, lit_clkconf              ; the core on the crystal: the boot ROM may leave its cycles per microsecond wrong
+  l32i  a3, a3, 0                    ; (13 was seen after a deep sleep and, 2026-11-24, after the command reset:
+  extui a3, a3, 27, 2                ; millis() 3 times too fast): 40 MHz / (PRE_DIV_CNT + 1), at every start
+  bnez  a3, dw_reason
+  l32r  a3, lit_sysclk
+  l32i  a3, a3, 0
+  extui a3, a3, 0, 10
+  addi  a3, a3, 1
+  movi  a4, 40
+  quou  a4, a4, a3
+  l32r  a3, lit_ticks
+  s32i  a4, a3, 0
+  memw
+dw_reason:
+  movi  a2, 0
+  l32r  a3, lit_rstate
+  l32i  a3, a3, 0
+  extui a3, a3, 0, 6
+  movi  a4, 5
+  bne   a3, a4, dw_set
+dw_pin:
+  l32r  a3, lit_tpad1
+  l32i  a4, a3, 0
+  l32r  a5, lit_muxsel
+  and   a6, a4, a5
+  xor   a4, a4, a6                   ; MUX_SEL off
+  s32i  a4, a3, 0
+  memw
+  movi  a2, 2
+  l32r  a3, lit_wstate
+  l32i  a3, a3, 0
+  extui a3, a3, 0, 11
+  movi  a4, 8
+  bne   a3, a4, dw_set
+  movi  a2, 1                        ; the timer alone
+dw_set:
+  l32r  a3, lit_vars
+  s32i  a2, a3, 264
+  retw
+
+; wlan_clock_boot, not after a wake by the timer of the RTC
+  align 4
+start_clock:
+  entry a1, 32
+  l32r  a2, lit_vars
+  l32i  a2, a2, 264
+  movi  a3, 1
+  beq   a2, a3, sc_done
+  call8 wlan_clock_boot
+sc_done:
+  retw
+
+; wlan_boot, not after a wake by the timer of the RTC
+  align 4
+start_wifi:
+  entry a1, 32
+  l32r  a2, lit_vars
+  l32i  a2, a2, 264
+  movi  a3, 1
+  beq   a2, a3, sw_done
+  call8 wlan_boot
+sw_done:
+  retw
+
+; after the start: the program for boot, unless BOOT is pressed or a key comes within a second; woken by the timer
+; from deep sleep: at once; woken from deep sleep another way: not (deep_wake)
   align 4
 autostart:
   entry a1, 32
@@ -2848,6 +2931,16 @@ autostart:
   mov   a2, a10                      ; the entry: its name
   l8ui  a3, a2, 0
   beqz  a3, as_end
+  l32r  a3, lit_vars
+  l32i  a3, a3, 264
+  movi  a4, 1
+  beq   a3, a4, as_run               ; woken by the timer: at once
+  movi  a4, 2
+  bne   a3, a4, as_wait0
+  l32r  a10, lit_s_dpin              ; "Woke up from deep sleep by a pin: no autostart this time."
+  call8 print
+  retw
+as_wait0:
   l32r  a10, lit_s_auto
   call8 print
   mov   a10, a2
@@ -2876,6 +2969,7 @@ as_wait:
   rsr   a5, ccount
   sub   a5, a5, a4
   bltu  a5, a3, as_wait
+as_run:
   mov   a10, a2
   movi  a11, 0
   movi  a12, 0
@@ -3055,6 +3149,8 @@ ra_go:
   s32i  a3, a5, 108
   mov   a4, a2
   call8 key_off                      ; UART0 as before
+  call8 clock_back                   ; from below 1 MHz (cpu_clock_khz) to 40 MHz; any other clock stays
+  l32r  a5, lit_vars
   movi  a6, 0
   s32i  a6, a5, 164                  ; no Ctrl+C waits (fl_done)
   s32i  a6, a5, 168
@@ -5370,6 +5466,7 @@ kc_err:
   retw
 
 .include "console_dhcp.asm"                ; DHCP: the address of the board (net_tick)
+.include "console_clock.asm"               ; the clock of the core after a program (cpu_clock)
 
 .data 0x3FFD0000
 vars:    dd 0                       ; +0 the ring: where the next byte goes
@@ -5435,6 +5532,7 @@ vars:    dd 0                       ; +0 the ring: where the next byte goes
           dd 0                       ; +252 the time to ask again (half the lease)
           dd 0                       ; +256 the address said last (0: none)
           dd 0                       ; +260 ccount at the last look of net_tick
+          dd 0                       ; +264 deep_wake: 1 woken from deep sleep by the timer, 2 another way, 0 neither
 wname:   dd 0, 0, 0, 0, 0           ; its name (20 bytes)
 digits:   db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 s_hello:  db 13, 10, 'Asmonite console 2 for the ESP32 (help shows the commands)', 13, 10, 0
@@ -5492,6 +5590,7 @@ s_at:     db ' at pc 0x', 0
 s_addr:   db ', address 0x', 0
 s_auto:   db 'Autostart of ', 0
 s_auto2:  db ' in a second (press BOOT or a key to stay in the console)', 13, 10, 0
+s_dpin:   db 'Woke up from deep sleep by a pin: no autostart this time.', 13, 10, 0
 s_stay:   db 'No autostart this time.', 13, 10, 0
 s_boot:   db 'Autostart: ', 0
 s_noboot: db 'No autostart.', 13, 10, 0

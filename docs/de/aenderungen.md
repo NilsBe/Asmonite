@@ -6,6 +6,128 @@ Versionsnummern: MAJOR.MINOR.PATCH. Solange MAJOR 0 ist, darf ein MINOR-Schritt 
 vorhandene Quelltexte bedeuten; solche Änderungen stehen unter „Geändert“ und sind mit
 **(Quelltexte)** markiert.
 
+## Noch nicht veröffentlicht
+
+### Neu
+- **aBelle: der Takt des Kerns in einem Programm (ESP32, Pico, Pico 2)**: `cpu_clock(mhz)` aus dem neuen `cpuclock.abel`
+  (`include "cpuclock.abel"`): beim ESP32 80, 160 oder 240 MHz vom PLL und 40, 20, 10, 8, 5, 4, 2 oder 1 MHz vom Quarz
+  (nicht bei laufendem WLAN), beim Pico jedes ganze MHz von 48 bis 133, beim Pico 2 von 48 bis 150; 0 fragt nur.
+  `millis()` und das Terminal laufen richtig weiter, beim ESP32 auch das WLAN. Die Konsole behält den Takt, den ein
+  Programm hinterlässt (auch nach Ctrl+C): `info` und die Zeile „CPU clock“ im Board Manager zeigen ihn, ein Reset
+  bringt den Standardtakt zurück; nur Takte, bei denen sie nicht erreichbar wäre, behält sie nicht (der ESP32 unter
+  1 MHz: zurück auf 40 MHz; Pico und Pico 2 vom Quarz: zurück auf 48 MHz, dort kann Windows den Port nicht neu öffnen).
+  Gemessen: dieselbe Arbeit dauert beim ESP32 bei 1, 40, 80, 160 und 240 MHz 12900, 322, 161, 80 und 54 ms, beim Pico
+  bei 48, 100 und 133 MHz 269, 129 und 97 ms, beim Pico 2 bei 48, 100 und 150 MHz 200, 96 und 64 ms. Die Konsolen von
+  ESP32, Pico und Pico 2 sind dafür neu (Prepare Board), der WLAN-Dienst des ESP32 auch (Version 12: Er behält den Takt,
+  den ein Programm eingestellt hat; Install WiFi). Der UART der Konsolen der Picos läuft jetzt vom USB-PLL, nicht mehr
+  vom Takt des Kerns. Bis hinunter zu ein paar kHz mit `cpu_clock_khz(khz)`: beim ESP32 vom Quarz bis 39 kHz, von seinem
+  Oszillator RC_FAST bis etwa 5 kHz (unter 1 MHz schweigt das Terminal, und `millis()` zählt falsch); beim Pico und Pico
+  2 1 bis 12000 kHz vom Quarz (das Terminal läuft weiter, `millis()` stimmt bis etwa 1 MHz). Ausführlich:
+  `docs/de/takt.md`.
+- **aBelle: der Takt des Kerns beim ESP32-S3**: `cpu_clock(mhz)` aus `abelle/lib/esp32s3/cpuclock.abel`: 80, 160 oder
+  240 MHz vom PLL, 40, 20 oder 10 MHz vom Quarz (nicht bei laufendem WLAN). Nicht unter 10 MHz: Der USB-Anschluss des
+  Chips, über den die Konsole spricht, hört dort auf zu arbeiten (Zeichen doppelt bei 8 bis 4 MHz, bei 2 und 1 MHz ein
+  toter Port). Für 240 MHz hebt `cpu_clock` die Spannung des Kerns um eine Stufe an und senkt sie danach wieder; bei
+  laufendem WLAN macht das der WLAN-Dienst auf Kern 1 (der Funkteil benutzt denselben Bus im Chip), sonst schreibt die
+  Bibliothek die Register selbst (der Weg über das ROM stürzte direkt nach `wlan on` ab). Die Konsole behält den Takt,
+  den ein Programm hinterlässt, `info` zeigt ihn. Gemessen: dieselbe Arbeit dauert bei 10, 40, 80, 160 und 240 MHz 370,
+  93, 46, 24 und 15 ms; mit verbundenem WLAN gehen Pings und DNS bei 80, 160 und 240 MHz. Neue Konsole (Prepare Board)
+  und WLAN-Dienst Version 13 (Install WiFi; er behält beim Neustart des WLAN einen Takt vom PLL, auch beim ESP32).
+  Beispiele `examples/esp32s3/clockspeed.abel` und `setclock.abel`.
+- **aBelle: der Takt des Kerns beim ESP32-C3**: `cpu_clock(mhz)` aus `abelle/lib/esp32c3/cpuclock.abel`: 80 oder
+  160 MHz vom PLL, 40, 20 oder 10 MHz vom Quarz (nicht bei laufendem WLAN), nicht tiefer (der USB-Anschluss des Chips,
+  wie beim S3). Eine Spannung ist beim C3 nicht zu ändern. `millis()` und das Terminal laufen richtig weiter, bei 80 und
+  160 MHz auch das WLAN; die Konsole behält den Takt, den ein Programm hinterlässt, `info` zeigt ihn. Gemessen:
+  dieselbe Arbeit dauert bei 10, 40, 80 und 160 MHz 350, 87, 44 und 22 ms. Neue Konsole (Prepare Board) und WLAN-Dienst
+  Version 7 (Install WiFi; er sagt, ob das WLAN läuft, und sein erster Start behält einen Takt vom PLL). Beispiele
+  `examples/esp32c3/clockspeed.abel` und `setclock.abel`.
+- **Board Manager: ein Kontextmenü für die Dateien, Examples...**: Ein Rechtsklick auf eine Datei gibt Run bei einem
+  Programm, Open in Editor bei einer Textdatei (eine Kopie; beides auch Enter oder ein Doppelklick), Autostart, Download
+  und Delete (auch Entf), statt ihrer Knöpfe; Upload File und Refresh (F5) bleiben Knöpfe und stehen auch im Menü.
+  Dateien aus dem Explorer, auf das Fenster gezogen, gehen auf das Board. **Examples...** öffnet ein Beispiel für das
+  gewählte Board (`examples\common`, der Ordner des Boards, wenn es einen hat, oder die Übersicht der Beispiele) im
+  Editor; bei aBelle wird Project > aBelle for das Board des Reiters Serial, so dass F9 es dort startet.
+- **Reiter Serial wie ein Terminal**: Ctrl+C im Reiter schickt immer Ctrl+C an das Board (hält ein Programm an);
+  kopieren geht mit Strg+Umschalt+C, Strg+Einfg oder dem neuen Kontextmenü (Copy, Paste to the Board, Select All,
+  Stop); Strg+V schickt die Zwischenablage an das Board. Beim Verbinden erscheint der Prompt der Konsole (ein Enter,
+  wenn das Board eine halbe Sekunde nichts gesagt hat). Ein Klick auf den Reiter, Connect, Reset und Clear setzen den
+  Cursor dorthin, so dass Tippen gleich an das Board geht.
+- **Ein Pico ohne WLAN hat keine Befehle für das Netz**: Auf einem Pico und einem Pico 2 ohne W sind `wlan`, `name`
+  und `passwd` in der Konsole unbekannte Befehle, `help` und `info` nennen sie nicht (Prepare Board schreibt die
+  `help.txt` ohne diese Zeilen; nach Install WiFi auf dem Klon „Pico W-2023“ wieder den ganzen Text).
+- **Erase Flash beim Pico mit Fortschrittsbalken**: im USB-Boot und hinter der Debug Probe zählt der Balken die
+  Blöcke zu 64 KB (STM32 und ESP32-C3 löschen alles auf einmal: der Balken läuft dabei um, wie beim ESP32).
+- **Die ersten Beispiele in Assembler in `examples/`**: `windows_intel/demo.asm` (zählt von 1 bis 5, das Programm der
+  ersten Schritte), `windows_arm/hello_arm32.asm` (Hello, World für Windows on ARM) und `dos/hello_exe.asm` (Hello,
+  World als DOS-EXE mit dem Kopf von Hand). Die README der ZIP-Datei nennt sie statt der noch nicht freigegebenen
+  Beispiele (und nicht mehr `examples\dos\HELLO.EXE` und `examples\winarm\pe_arm32_hello_world.asm`); `examples/README`
+  in drei Teilen und ein Abschnitt „In Assembler“.
+- **Deep Sleep auf dem ESP32**: Weckt der Timer der RTC den ESP32 aus dem Deep Sleep, startet die Konsole ihr
+  Autostart-Programm sofort, ohne WLAN und ohne die Sekunde für eine Taste (beides kostet bei jedem Aufwachen Strom);
+  weckt ihn etwas anderes (ein Pin wie die Taste BOOT), startet sie diesmal kein Programm: der Ausweg aus einem
+  Programm, das immer wieder schläft. Nach einem Deep Sleep mit dem Quarz als Takt stellt sie außerdem die Takte pro
+  Mikrosekunde des Boot-ROMs richtig (sie stimmten nicht, millis() lief dreimal zu schnell). Beispiele
+  `examples/esp32/bme280_sleep.abel` (Light Sleep zwischen den Messungen, wach 9 ms von je 10 s) und
+  `examples/esp32/bme280_deep.abel` (eine Minute Deep Sleep, was es sich merkt im langsamen Speicher der RTC; wach etwa
+  150 ms pro Aufwachen, davon 127 für den Start von Boot-ROM und Konsole).
+- **Beispiele für den ESP32**: `examples/esp32/bme280.abel` (Temperatur, Luftdruck und Feuchte eines BME280 an I2C,
+  von Hand über die Pins) und `examples/esp32/tdisplay.abel` (das Farbdisplay des LilyGO TTGO T-Display: Farben,
+  eine 5x7-Schrift, die Tasten; SPI von Hand), `examples/esp32/tdisplay_spi.abel` (dasselbe über VSPI mit 40 MHz:
+  das ganze Bild in 14 ms statt 350 ms).
+- **Wake-on-LAN für jedes Board mit WLAN**: `examples/common/wol.abel` schickt das Magic Packet, das einen PC startet
+  (seine MAC oben im Programm oder als Argument); mit der Adresse des PCs wartet es danach, bis der PC auf einen Ping
+  antwortet.
+- **HTTP für jedes Board mit WLAN**: `examples/common/httpget.abel` fragt einen Server nach einer Seite (example.com
+  oder die Adresse des Arguments) und zeigt die Statuszeile, die Kopfzeilen, den Titel, die Bytes und die Zeit.
+- **SHA-256, HMAC und HKDF in aBelle** (`abelle/lib/common/sha256.abel`, der erste Schritt zu HTTPS): für jedes Board
+  und für Windows, geprüft mit den Werten aus FIPS 180, RFC 4231, RFC 5869 und RFC 8448
+  (`abelle/tests/lib/sha256_test.abel`).
+- **ChaCha20-Poly1305 in aBelle** (`abelle/lib/common/chacha20.abel`, RFC 8439, die Verschlüsselung für HTTPS): für
+  jedes Board und für Windows, geprüft mit den Fällen des RFC und zufälligen (`abelle/tests/lib/chacha20_test.abel`);
+  auf dem ESP32 16 KB in 177 ms.
+- **X25519 in aBelle** (`abelle/lib/common/x25519.abel`, RFC 7748, der Schlüsseltausch für HTTPS): für jedes Board und
+  für Windows, geprüft mit den Fällen des RFC, Randfällen und zufälligen (`abelle/tests/lib/x25519_test.abel`); auf dem
+  ESP32 ein Schlüssel in 0,8 s.
+- **HTTPS für die Boards mit WLAN**: `examples/common/httpsget.abel` fragt einen Server über TLS 1.3 nach einer Seite,
+  mit einem TLS-Client in aBelle (`abelle/lib/common/tls.abel`: TLS_CHACHA20_POLY1305_SHA256 mit X25519). Auf dem
+  ESP32 dauert der Handshake etwa 2 s; ausprobiert mit example.com, Google, GitHub, Wikipedia und Amazon (1,1 MB in
+  24 s). Das Zertifikat des Servers wird noch nicht geprüft. Seine Teile ohne Netz (`tls_core.abel`) sind mit dem
+  Handshake aus RFC 8448 geprüft (`abelle/tests/lib/tls_core_test.abel`). Noch nicht auf dem ESP32-C3: zu groß für
+  seinen RAM.
+- **Ein Compiler von aBelle für RISC-V, der optimiert** (`abelle/compiler/abelle_riscv_opt.abel`,
+  `bin\abelle_riscv_opt.exe`; der ESP32-C3 und der ESP32-S31): ein einfacher rechter Operand gleich ins zweite
+  Register oder als Konstante im Befehl, ein Vergleich als ein einziger Sprung. Etwa 27 % weniger Code und bis zu ein
+  Viertel weniger Befehle; damit passt `httpsget` in den RAM des ESP32-C3 (84 KB Code statt 118 KB). `abelle_riscv`
+  bleibt, wie er ist; Asmonite nimmt den neuen noch nicht.
+- **Die Bibliothek von aBelle im öffentlichen Repository**: `abelle/lib`, das die Beispiele mit `include` einbinden,
+  liegt jetzt auch dort (in der ZIP-Datei war es schon immer).
+
+### Behoben
+- **ESP32-C3: wlan off ohne gespeichertes Netz**: Kannte das Board kein Netz, tat `wlan off` nichts; ein WLAN, das ein
+  Programm gestartet hatte, blieb also an. Jetzt schaltet es das WLAN in jedem Fall ab.
+- **Tab Serial: Meldungen „Integer overflow“ direkt nach dem Verbinden**: In der ersten halben Sekunde, nachdem sich der
+  Tab Serial mit einem Board verbunden hatte, konnte ein Zeitgeber einen Integer-Überlauf melden, mehrmals
+  hintereinander.
+- **File > Open beginnt im Ordner der zuletzt geöffneten Datei**: auch wenn sie über Open Recent oder Examples... im
+  Board Manager geöffnet wurde (vorher kannte Windows nur den Ordner, der zuletzt im Dialog selbst gewählt wurde); beim
+  Start von Asmonite der Ordner der neuesten Datei von Open Recent. Eine Kopie einer Datei vom Board (Open in Editor)
+  ändert ihn nicht.
+- **ESP32: millis() ohne WLAN dreimal zu schnell**: Nach einem Reset kann das Boot-ROM seine Takte pro Mikrosekunde
+  auf 13 lassen, während der Kern mit 40 MHz läuft (gesehen nach dem Befehl reset); die Konsole stellte 40 MHz nur
+  nach einem Deep Sleep ein, jetzt bei jedem Start.
+- **Reiter Serial: eine Markierung hält den Text nicht mehr auf**: War Text markiert, scrollten neue Zeilen vom Board
+  nur so weit, dass die Markierung im Fenster blieb; jetzt scrollen sie ans Ende wie ohne Markierung, und die Markierung
+  bleibt (zum Kopieren).
+- **Fehler von Compiler und Assembler hinter dem Reiter Serial versteckt**: Der Reiter Output kommt für sie jetzt nach
+  vorn.
+- **Der Name von Asmonite.exe** (in der Taskleiste und im Task-Manager) lautete „x86, x64, ARM and ARM64“; jetzt
+  „multi-target assembler, editor and debugger (x86, x64, ARM, ARM64, RISC-V, Xtensa)“.
+- **Der Klon „Pico W-2023“ nach einer neuen Konsole**: Startete nur der RP2040 neu (ein Update der Konsole über USB;
+  der ESP8285 behält seinen Strom und spricht mit 460800 Baud) und sendete der ESP gerade seine Frames, fand die
+  Konsole ihn nicht: „The ESP8285 does not answer“, oder sie hielt das Board für einen Pico ohne WLAN und zeigte, was
+  der ESP sendete, als Zeichensalat, bis das Board neu eingesteckt wurde. Bytes mit einem Fehler zwischen ihren Pings
+  lassen die Konsole ihn jetzt bei 460800 suchen (20 von 20 Updates der Konsole fanden ihn; vorher 2 von 4).
+
 ## 0.15.0 – 2026-11-20
 
 ### Kurz gesagt

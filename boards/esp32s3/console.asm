@@ -46,7 +46,7 @@
 ; 0x3FCCFFFF (its data, the bus of the data), as F9 loads it (.imagebase 0x40378000; aBelle: the code from
 ; 0x40378000 (96 KB), the data from 0x3FCA0000 (64 KB with the stack)). Above it lies the console, which loads it.
 ; The segments for the flash (0x42000000 .., 0x3C000000 ..) load leaves out. The watchdogs are off already, the core
-; runs at 40 MHz.
+; runs at 40 MHz after a reset, else at the clock the program before left (cpu_clock; console_clock.asm).
 ; A part that load puts into the RAM may bring commands of its own: at 0x403A0000 (where the WiFi service, wlansvc,
 ; has its entries) the word "CMDS" and the address of its table, for each command the address of its name, of its
 ; function (windowed: the name after the command in a2) and of its line for help, then a 0. The console takes a command
@@ -3158,6 +3158,7 @@ ra_go:
   s32i  a3, a5, 108
   mov   a4, a2
   call8 key_off                      ; the USB port as before
+  call8 clock_back                   ; from below 1 MHz (cpu_clock_khz) to 40 MHz; any other clock stays
   movi  a6, 0
   s32i  a6, a5, 164                  ; no Ctrl+C waits (fl_done)
   s32i  a6, a5, 168
@@ -5395,6 +5396,7 @@ glitch_off:
   retw
 
 .include "../esp32/console_dhcp.asm"                ; DHCP: the address of the board (net_tick)
+.include "console_clock.asm"                        ; the clock of the core after a program (cpu_clock)
 
 .data 0x3FCD8000
 vars:    dd 0                       ; +0 the ring: where the next byte goes

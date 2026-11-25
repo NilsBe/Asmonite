@@ -1,0 +1,372 @@
+# BME280: the temperature, the air pressure and the humidity of a Bosch BME280 at the I2C bus of the ESP32, every two
+# seconds, until you stop the program (Ctrl+C in the console, or Stop in Asmonite). A BMP280 (the same sensor without
+# humidity) works too. Start it with F9, or upload it and type "bme280" in the console; "bme280 5" reads five times and
+# ends.
+#
+# Wiring: SDA at GPIO 21, SCL at GPIO 22, VCC at 3.3 V, GND at GND. The sensor answers at the address 0x76 (its pin
+# SDO low) or 0x77 (SDO high); the program tries both.
+#
+# I2C is done by hand here ("bit banging"): both lines are "open drain". A device only ever pulls a line low; when
+# nobody pulls, the pull-up resistor makes it high. So a pin of the ESP32 pulls its line low by switching its output
+# on (its level is always 0) and lets it go by switching the output off; it reads the line through its input. The
+# boards with a BME280 have pull-ups of their own; the pull-ups inside the ESP32 are switched on as well.
+#
+# The formulas that turn the raw values into degrees, pascal and percent are the ones of the datasheet of Bosch, in
+# whole numbers of 32 bits (aBelle has no floating point): the temperature in 1/100 degree, the pressure in pascal
+# (1/100 hPa), the humidity in 1/1024 percent.
+
+target "esp32"
+include "console.abel"
+
+SDA = 21                        # the pins of the bus
+SCL = 22
+I2C_DELAY = 20                  # rounds of a loop for half a clock of the bus (about 100 kHz at the ESP32's clock)
+EVERY_MS = 2000                 # one reading every 2 seconds
+
+GPIO_ENABLE_W1TS = 0x24 / 4     # registers of the GPIO (con_gpio of console.abel counts in words)
+GPIO_ENABLE_W1TC = 0x28 / 4
+GPIO_OUT_W1TC = 0x0C / 4
+GPIO_IN = 0x3C / 4
+
+BME280 = 0x60                   # the chip id in register 0xD0
+BMP280 = 0x58
+
+buf: char[32]                   # the bytes read from the sensor
+dev: i32 = 0                    # its address on the bus (0x76 or 0x77)
+chip: i32 = 0                   # its chip id
+
+# the calibration of the sensor (written into it at the factory), named as in the datasheet: dig_T1 is t1 here
+t1: i32 = 0
+t2: i32 = 0
+t3: i32 = 0
+p1: i32 = 0
+p2: i32 = 0
+p3: i32 = 0
+p4: i32 = 0
+p5: i32 = 0
+p6: i32 = 0
+p7: i32 = 0
+p8: i32 = 0
+p9: i32 = 0
+h1: i32 = 0
+h2: i32 = 0
+h3: i32 = 0
+h4: i32 = 0
+h5: i32 = 0
+h6: i32 = 0
+t_fine: i32 = 0                 # the temperature as the formulas of pressure and humidity need it
+
+# n milliseconds
+def wait_ms(n):
+    t = millis()
+    while millis() - t < n:
+        pass
+
+# ---------- I2C by hand ----------
+
+# half a clock of the bus
+def pause():
+    for i in 0..I2C_DELAY:
+        pass
+
+# a pin for the bus: GPIO, its input on, its pull-up on, its output level 0 but its output off (the line high)
+def i2c_pin(pin):
+    con_iomux[con_mux_off(pin) / 4] = 0x2B00        # MCU_SEL 2: GPIO, FUN_DRV 2, FUN_IE, FUN_WPU
+    con_gpio[0x530 / 4 + pin] = 0x100               # FUNCn_OUT_SEL: the level of GPIO_OUT
+    con_gpio[GPIO_OUT_W1TC] = u32(1 << pin)
+    con_gpio[GPIO_ENABLE_W1TC] = u32(1 << pin)
+
+# the line low (the output on)
+def line_low(pin):
+    con_gpio[GPIO_ENABLE_W1TS] = u32(1 << pin)
+
+# the line let go: the pull-up makes it high, unless a device pulls it low
+def line_free(pin):
+    con_gpio[GPIO_ENABLE_W1TC] = u32(1 << pin)
+
+# the level of the line: 1 or 0
+def line_level(pin) i32:
+    return i32(con_gpio[GPIO_IN] >> u32(pin)) & 1
+
+# SCL high; a device may hold it low a while longer ("clock stretching"): wait for it
+def scl_high():
+    line_free(SCL)
+    n = 0
+    while line_level(SCL) == 0 and n < 1000:
+        n += 1
+    pause()
+
+# start: SDA goes low while SCL is high (also a repeated start in the middle of a transfer)
+def i2c_start():
+    line_free(SDA)
+    pause()
+    scl_high()
+    line_low(SDA)
+    pause()
+    line_low(SCL)
+    pause()
+
+# stop: SDA goes high while SCL is high
+def i2c_stop():
+    line_low(SDA)
+    pause()
+    scl_high()
+    line_free(SDA)
+    pause()
+
+# a byte to the bus, the highest bit first: 1 when the device answered with ACK (it pulled SDA low)
+def i2c_write(b) i32:
+    for i in 0..8:
+        if (b >> (7 - i)) & 1:
+            line_free(SDA)
+        else:
+            line_low(SDA)
+        pause()
+        scl_high()
+        line_low(SCL)
+    line_free(SDA)
+    pause()
+    scl_high()
+    ack = line_level(SDA) == 0
+    line_low(SCL)
+    pause()
+    return ack
+
+# a byte from the bus; more 1: ACK (more bytes are wanted), 0: NACK (the last one)
+def i2c_read(more) i32:
+    line_free(SDA)
+    b = 0
+    for i in 0..8:
+        pause()
+        scl_high()
+        b = (b << 1) | line_level(SDA)
+        line_low(SCL)
+    if more:
+        line_low(SDA)
+    pause()
+    scl_high()
+    line_low(SCL)
+    line_free(SDA)
+    pause()
+    return b
+
+# the pins for the bus; nine clocks first, in case a device was cut off in the middle of a byte and still holds SDA
+# low; then a stop
+def i2c_init():
+    i2c_pin(SDA)
+    i2c_pin(SCL)
+    pause()
+    for i in 0..9:
+        line_low(SCL)
+        pause()
+        scl_high()
+    line_low(SCL)
+    pause()
+    i2c_stop()
+
+# ---------- the registers of the sensor ----------
+
+# n bytes from the register reg on into buf: 1 done, 0 the sensor did not answer
+def bme_read(reg, n) i32:
+    i2c_start()
+    ok = i2c_write(dev << 1)
+    if ok:
+        ok = i2c_write(reg)
+    if ok:
+        i2c_start()
+        ok = i2c_write((dev << 1) | 1)
+    if ok:
+        for i in 0..n:
+            buf[i] = i2c_read(i < n - 1)
+    i2c_stop()
+    return ok
+
+# the value v into the register reg: 1 done, 0 the sensor did not answer
+def bme_write(reg, v) i32:
+    i2c_start()
+    ok = i2c_write(dev << 1)
+    if ok:
+        ok = i2c_write(reg)
+    if ok:
+        ok = i2c_write(v)
+    i2c_stop()
+    return ok
+
+# the two bytes at buf[i] (the low one first) as a number 0 .. 65535
+def le16(i) i32:
+    return buf[i] | (buf[i + 1] << 8)
+
+# ... as a number with a sign, -32768 .. 32767
+def le16s(i) i32:
+    v = le16(i)
+    if v >= 32768:
+        v -= 65536
+    return v
+
+# a byte 0 .. 255 as a number with a sign, -128 .. 127
+def s8(v) i32:
+    if v >= 128:
+        v -= 256
+    return v
+
+# the sensor at 0x76 or 0x77: 1 found (dev, chip), 0 none answered
+def find_sensor() i32:
+    for a in 0x76..0x78:
+        dev = a
+        if bme_read(0xD0, 1):
+            chip = buf[0]
+            return 1
+    return 0
+
+# the calibration out of the sensor: 1 done, 0 it did not answer
+def read_calibration() i32:
+    if not bme_read(0x88, 26):
+        return 0
+    t1 = le16(0)
+    t2 = le16s(2)
+    t3 = le16s(4)
+    p1 = le16(6)
+    p2 = le16s(8)
+    p3 = le16s(10)
+    p4 = le16s(12)
+    p5 = le16s(14)
+    p6 = le16s(16)
+    p7 = le16s(18)
+    p8 = le16s(20)
+    p9 = le16s(22)
+    h1 = buf[25]
+    if chip == BME280:
+        if not bme_read(0xE1, 7):
+            return 0
+        h2 = le16s(0)
+        h3 = buf[2]
+        h4 = (s8(buf[3]) << 4) | (buf[4] & 15)      # 12 bits with a sign, spread over 0xE4 and 0xE5
+        h5 = (s8(buf[5]) << 4) | (buf[4] >> 4)      # ... over 0xE5 and 0xE6
+        h6 = s8(buf[6])
+    return 1
+
+# ---------- the formulas of the datasheet ----------
+
+# the temperature in 1/100 degree Celsius (2147: 21.47 C); sets t_fine
+def temperature(adc) i32:
+    v1 = (((adc >> 3) - (t1 << 1)) * t2) >> 11
+    d = (adc >> 4) - t1
+    v2 = (((d * d) >> 12) * t3) >> 14
+    t_fine = v1 + v2
+    return (t_fine * 5 + 128) >> 8
+
+# the pressure in pascal (101325: 1013.25 hPa); needs t_fine
+def pressure(adc) i32:
+    v1 = (t_fine >> 1) - 64000
+    v2 = (((v1 >> 2) * (v1 >> 2)) >> 11) * p6
+    v2 = v2 + ((v1 * p5) << 1)
+    v2 = (v2 >> 2) + (p4 << 16)
+    v1 = (((p3 * (((v1 >> 2) * (v1 >> 2)) >> 13)) >> 3) + ((p2 * v1) >> 1)) >> 18
+    v1 = ((32768 + v1) * p1) >> 15
+    if v1 == 0:
+        return 0                                    # no division by 0
+    p = u32(1048576 - adc - (v2 >> 12)) * 3125
+    if p < 0x80000000:
+        p = (p << 1) / u32(v1)
+    else:
+        p = (p / u32(v1)) * 2
+    v1 = (p9 * i32(((p >> 3) * (p >> 3)) >> 13)) >> 12
+    v2 = (i32(p >> 2) * p8) >> 13
+    return i32(p) + ((v1 + v2 + p7) >> 4)
+
+# the humidity in 1/1024 percent (46080: 45.00 %); needs t_fine
+def humidity(adc) i32:
+    v = t_fine - 76800
+    a = (((adc << 14) - (h4 << 20) - (h5 * v)) + 16384) >> 15
+    b = (((((((v * h6) >> 10) * (((v * h3) >> 11) + 32768)) >> 10) + 2097152) * h2 + 8192) >> 14)
+    v = a * b
+    v = v - (((((v >> 15) * (v >> 15)) >> 7) * h1) >> 4)
+    if v < 0:
+        v = 0
+    if v > 419430400:
+        v = 419430400
+    return v >> 12
+
+# ---------- output ----------
+
+# v / 100 with two places: 2147 is "21.47", -5 is "-0.05"
+def print_hundredths(v):
+    if v < 0:
+        put_char('-')
+        v = 0 - v
+    print_int(v / 100)
+    put_char('.')
+    put_char('0' + v / 10 % 10)
+    put_char('0' + v % 10)
+
+# the number at the start of t (its digits), 0 if there are none
+def number(t: pchar) i32:
+    n = 0
+    i = 0
+    while t[i] >= '0' and t[i] <= '9':
+        n = n * 10 + (t[i] - '0')
+        i += 1
+    return n
+
+# one reading: the sensor measures once ("forced mode"), then its values: 1 done, 0 it did not answer
+def measure() i32:
+    if chip == BME280:
+        bme_write(0xF2, 1)                          # ctrl_hum: humidity once (before ctrl_meas, which takes it)
+    if not bme_write(0xF4, 0x25):                   # ctrl_meas: temperature once, pressure once, forced mode
+        return 0
+    wait_ms(2)
+    t = millis()
+    while millis() - t < 100:                       # status: bit 3 is 1 while it measures (about 10 ms)
+        if bme_read(0xF3, 1) and (buf[0] & 8) == 0:
+            break
+    if not bme_read(0xF7, 8):                       # the raw values: pressure 20 bits, temperature 20, humidity 16
+        return 0
+    adc_p = (buf[0] << 12) | (buf[1] << 4) | (buf[2] >> 4)
+    adc_t = (buf[3] << 12) | (buf[4] << 4) | (buf[5] >> 4)
+    adc_h = (buf[6] << 8) | buf[7]
+    print("temperature ")
+    print_hundredths(temperature(adc_t))
+    print(" C   pressure ")
+    print_hundredths(pressure(adc_p))
+    print(" hPa")
+    if chip == BME280:
+        print("   humidity ")
+        print_hundredths(humidity(adc_h) * 100 / 1024)
+        print(" %")
+    println("")
+    return 1
+
+def main():
+    count = number(args())                          # 0: until Ctrl+C
+    println("bme280: temperature, pressure and humidity (SDA GPIO 21, SCL GPIO 22; Ctrl+C ends it)")
+    i2c_init()
+    if line_level(SDA) == 0 or line_level(SCL) == 0:
+        println("A line of the bus stays low: no pull-up, or SDA/SCL shorted to GND. Check the wiring.")
+        return
+    if not find_sensor():
+        println("No sensor answers at 0x76 or 0x77. Check the wiring: SDA GPIO 21, SCL GPIO 22, 3.3 V, GND.")
+        return
+    print("Found at 0x")
+    print_byte(dev)
+    print(": ")
+    if chip == BME280:
+        println("a BME280")
+    elif chip == BMP280:
+        println("a BMP280 (no humidity)")
+    else:
+        print("chip id 0x")
+        print_byte(chip)
+        println(": not a BME280 or BMP280; read like a BMP280 (no humidity)")
+    bme_write(0xE0, 0xB6)                           # reset: the sensor starts afresh, as after power on
+    wait_ms(5)
+    if not read_calibration():
+        println("The sensor does not answer any more.")
+        return
+    done = 0
+    while True:
+        if not measure():
+            println("The sensor did not answer.")
+        done += 1
+        if count > 0 and done >= count:
+            break
+        wait_ms(EVERY_MS)

@@ -1,0 +1,377 @@
+# The parts of a TLS 1.3 client (RFC 8446) that need no network, for every board and for Windows: include
+# "tls_core.abel" (tls.abel includes it and adds the connection over tcp.abel). Stage S4 of the roadmap httpsget.
+# One cipher suite, TLS_CHACHA20_POLY1305_SHA256, and one group, X25519.
+#
+#   tls_client_hello(host) i32       the ClientHello record in tls_ch (random, session and key from tls_random,
+#                                     tls_session, tls_priv; host for SNI): its length; the transcript starts with it
+#   tls_server_hello(p, n) i32       the ServerHello message at p (n bytes): TLS_OK and the key of the server in
+#                                     tls_server_pub, or an error (TLS_NO_13, TLS_SUITE, TLS_RETRY, TLS_BAD_HELLO)
+#   tls_transcript_add(p, n)         n bytes of handshake messages into the transcript (SHA-256, context TLS_HASH)
+#   tls_handshake_keys()             from tls_shared and the transcript (up to the ServerHello): the handshake
+#                                     secrets and keys, the master secret
+#   tls_handshake_in(p, n) i32       decrypted handshake bytes of the server (they may split messages anywhere):
+#                                     0 more to come, 1 its Finished came and was right, or an error
+#   tls_finished(secret, out)        the 32 bytes of a Finished for the transcript so far
+#   tls_client_finished(r) i32       our Finished as a record at r (sealed with the handshake keys), then the
+#                                     application keys: the length of the record
+#   tls_app_keys()                   the application secrets and keys (the transcript up to the server's Finished)
+#   tls_seal(r, n, type) i32         the n bytes at r + 5 as a record of that content type at r: its length
+#   tls_open(r, total) i32           the record at r (total bytes, the header included) decrypted in place: the bytes
+#                                     at r + 5, the content type in tls_type; -1 when the tag is wrong
+#   tls_error_text(e) pchar          a line about an error
+#
+# The key schedule (RFC 8446 7.1): early secret = HKDF-Extract(0, 0); handshake secret = HKDF-Extract(Derive-Secret(
+# early, "derived", ""), the X25519 secret); the traffic secrets "c hs traffic", "s hs traffic" over the transcript
+# up to the ServerHello; master secret = HKDF-Extract(Derive-Secret(handshake, "derived", ""), 0); "c ap traffic",
+# "s ap traffic" over the transcript up to the server's Finished. Each traffic secret gives a key (32 bytes) and an
+# iv (12 bytes); the nonce of a record is the iv XOR its sequence number.
+#
+# The names of this file begin with tls_ and TLS_ (the local ones with tl_): in aBelle a local name may not be the
+# name of a global one of the program.
+include "sha256.abel"
+include "chacha20.abel"
+include "x25519.abel"
+
+TLS_OK = 0
+TLS_NO_TCP = -1                     # no TCP connection to the server
+TLS_SEND = -2                       # a record did not go out
+TLS_TIMEOUT = -3                    # the server did not answer
+TLS_CLOSED = -4                     # the server closed the connection
+TLS_ALERT = -5                      # the server sent an alert (its number in tls_alert)
+TLS_BAD_HELLO = -6                  # the ServerHello is not understood
+TLS_NO_13 = -7                      # the server does not speak TLS 1.3
+TLS_SUITE = -8                      # the server chose another cipher suite
+TLS_RETRY = -9                      # HelloRetryRequest: the server wants another group than X25519
+TLS_BAD_RECORD = -10                # a record could not be decrypted (its tag is wrong)
+TLS_FINISHED = -11                  # the Finished of the server is wrong
+TLS_PROTOCOL = -12                  # a record or a message that does not belong there
+TLS_TOO_BIG = -13                   # a record longer than TLS allows
+TLS_CLIENT_CERT = -14               # the server wants a certificate of ours
+
+TLS_HASH = 0                        # the SHA-256 context of the transcript
+TLS_SNAP = 1                        # a copy of it, for its hash so far
+
+tls_priv: char[32]                  # our X25519 key (secret) ...
+tls_pub: char[32]                   # ... and its public key
+tls_server_pub: char[32]            # the key of the server
+tls_shared: char[32]                # the X25519 secret of both
+tls_random: char[32]
+tls_session: char[32]               # legacy_session_id: random (the middlebox compatibility of RFC 8446 D.4)
+tls_secret: char[32]                # the early secret, then the handshake secret
+tls_master: char[32]
+tls_c_secret: char[32]              # the traffic secrets: the handshake ones, then the application ones
+tls_s_secret: char[32]
+tls_c_key: char[32]
+tls_s_key: char[32]
+tls_c_iv: char[12]
+tls_s_iv: char[12]
+tls_c_seq: i32 = 0                  # the sequence numbers of the records (each direction, from 0 at each new key)
+tls_s_seq: i32 = 0
+tls_hash: char[32]                  # the hash of the transcript so far
+tls_empty_hash: char[32]            # SHA-256 of nothing
+tls_zeros: char[32]
+tls_fkey: char[32]                  # a finished key; a salt in tls_handshake_keys
+tls_nonce: char[12]
+tls_type: i32 = 0                   # the content type of the record tls_open opened
+tls_suite: i32 = 0                  # the cipher suite of the ServerHello
+tls_ch: char[512]                   # the ClientHello record
+tls_w: i32 = 0                      # the bytes written into tls_ch
+tls_mhdr: char[4]                   # tls_handshake_in: the header of the message (type, length) ...
+tls_mfill: i32 = 0                  # ... the bytes of the message so far (the header included)
+tls_mtype: i32 = 0
+tls_mlen: i32 = 0                   # the length of its body
+tls_mbody: char[32]                 # the first 32 bytes of its body (a Finished)
+tls_expect: char[32]                # the Finished the server should send
+
+def tls_error_text(tl_e) pchar:
+    if tl_e == TLS_OK:
+        return "ok"
+    if tl_e == TLS_NO_TCP:
+        return "no TCP connection"
+    if tl_e == TLS_SEND:
+        return "a record did not go out"
+    if tl_e == TLS_TIMEOUT:
+        return "no answer from the server"
+    if tl_e == TLS_CLOSED:
+        return "the server closed the connection"
+    if tl_e == TLS_ALERT:
+        return "the server sent an alert"
+    if tl_e == TLS_BAD_HELLO:
+        return "the ServerHello is not understood"
+    if tl_e == TLS_NO_13:
+        return "the server does not speak TLS 1.3"
+    if tl_e == TLS_SUITE:
+        return "the server chose another cipher suite"
+    if tl_e == TLS_RETRY:
+        return "the server wants another key exchange than X25519"
+    if tl_e == TLS_BAD_RECORD:
+        return "a record could not be decrypted"
+    if tl_e == TLS_FINISHED:
+        return "the Finished of the server is wrong"
+    if tl_e == TLS_PROTOCOL:
+        return "a message that does not belong there"
+    if tl_e == TLS_TOO_BIG:
+        return "a record too long"
+    if tl_e == TLS_CLIENT_CERT:
+        return "the server wants a client certificate"
+    return "?"
+
+# ---------- the transcript and the key schedule ----------
+
+def tls_transcript_add(tl_p: pchar, tl_n):
+    sha256_add(TLS_HASH, tl_p, tl_n)
+
+# the hash of the transcript so far (the transcript goes on)
+def tls_transcript_hash(tl_out: pchar):
+    sha256_copy(TLS_SNAP, TLS_HASH)
+    sha256_end(TLS_SNAP, tl_out)
+
+# Derive-Secret(secret, label, the transcript so far)
+def tls_derive(tl_secret: pchar, tl_label: pchar, tl_out: pchar):
+    tls_transcript_hash(tls_hash)
+    hkdf_expand_label(tl_secret, tl_label, tls_hash, 32, tl_out, 32)
+
+# the keys and ivs of both traffic secrets; the sequence numbers from 0
+def tls_keys():
+    hkdf_expand_label(tls_c_secret, "key", tls_hash, 0, tls_c_key, 32)
+    hkdf_expand_label(tls_c_secret, "iv", tls_hash, 0, tls_c_iv, 12)
+    hkdf_expand_label(tls_s_secret, "key", tls_hash, 0, tls_s_key, 32)
+    hkdf_expand_label(tls_s_secret, "iv", tls_hash, 0, tls_s_iv, 12)
+    tls_c_seq = 0
+    tls_s_seq = 0
+
+def tls_handshake_keys():
+    for tl_i in 0..32:
+        tls_zeros[tl_i] = 0
+    sha256(tls_zeros, 0, tls_empty_hash)
+    hkdf_extract(tls_zeros, 0, tls_zeros, 32, tls_secret)
+    hkdf_expand_label(tls_secret, "derived", tls_empty_hash, 32, tls_fkey, 32)
+    hkdf_extract(tls_fkey, 32, tls_shared, 32, tls_secret)
+    tls_derive(tls_secret, "c hs traffic", tls_c_secret)
+    tls_derive(tls_secret, "s hs traffic", tls_s_secret)
+    hkdf_expand_label(tls_secret, "derived", tls_empty_hash, 32, tls_fkey, 32)
+    hkdf_extract(tls_fkey, 32, tls_zeros, 32, tls_master)
+    tls_keys()
+    tls_mfill = 0
+
+def tls_app_keys():
+    tls_derive(tls_master, "c ap traffic", tls_c_secret)
+    tls_derive(tls_master, "s ap traffic", tls_s_secret)
+    tls_keys()
+
+# verify_data = HMAC(HKDF-Expand-Label(secret, "finished", "", 32), the hash of the transcript so far)
+def tls_finished(tl_secret: pchar, tl_out: pchar):
+    hkdf_expand_label(tl_secret, "finished", tls_hash, 0, tls_fkey, 32)
+    tls_transcript_hash(tls_hash)
+    hmac_sha256(tls_fkey, 32, tls_hash, 32, tl_out)
+
+# ---------- records ----------
+
+# the nonce: the iv, its last 4 bytes XOR the sequence number (the 8 bytes before them: 0)
+def tls_make_nonce(tl_iv: pchar, tl_seq):
+    for tl_i in 0..12:
+        tls_nonce[tl_i] = tl_iv[tl_i]
+    tls_nonce[8] ^= (tl_seq >> 24) & 0xFF
+    tls_nonce[9] ^= (tl_seq >> 16) & 0xFF
+    tls_nonce[10] ^= (tl_seq >> 8) & 0xFF
+    tls_nonce[11] ^= tl_seq & 0xFF
+
+# the n bytes at r + 5, the content type after them, encrypted; the tag after them; the header (application_data,
+# 3.3, the length) at r
+def tls_seal(tl_r: pchar, tl_n, tl_type) i32:
+    tl_r[5 + tl_n] = tl_type
+    tl_len = tl_n + 1 + 16
+    tl_r[0] = 23
+    tl_r[1] = 3
+    tl_r[2] = 3
+    tl_r[3] = tl_len >> 8
+    tl_r[4] = tl_len & 0xFF
+    tls_make_nonce(tls_c_iv, tls_c_seq)
+    aead_seal(tls_c_key, tls_nonce, tl_r, 5, tl_r + 5, tl_n + 1, tl_r + 6 + tl_n)
+    tls_c_seq += 1
+    return 5 + tl_len
+
+def tls_open(tl_r: pchar, tl_total) i32:
+    tl_n = tl_total - 5 - 16
+    if tl_n < 1:
+        return -1
+    tls_make_nonce(tls_s_iv, tls_s_seq)
+    if not aead_open(tls_s_key, tls_nonce, tl_r, 5, tl_r + 5, tl_n, tl_r + 5 + tl_n):
+        return -1
+    tls_s_seq += 1
+    # the content type is the last byte that is not 0 (zeros after it: padding)
+    while tl_n > 0 and tl_r[4 + tl_n] == 0:
+        tl_n -= 1
+    if tl_n == 0:
+        return -1
+    tls_type = tl_r[4 + tl_n]
+    return tl_n - 1
+
+# ---------- ClientHello and ServerHello ----------
+
+def tls_byte(tl_v):
+    tls_ch[tls_w] = tl_v & 0xFF
+    tls_w += 1
+
+def tls_two(tl_v):
+    tls_byte(tl_v >> 8)
+    tls_byte(tl_v)
+
+def tls_bytes(tl_p: pchar, tl_n):
+    for tl_i in 0..tl_n:
+        tls_byte(tl_p[tl_i])
+
+# the length at tls_ch + k (2 bytes): the bytes from k + 2 up to the end
+def tls_length_at(tl_k):
+    tl_n = tls_w - tl_k - 2
+    tls_ch[tl_k] = tl_n >> 8
+    tls_ch[tl_k + 1] = tl_n & 0xFF
+
+def tls_client_hello(tl_host: pchar) i32:
+    tl_hn = 0
+    while tl_host[tl_hn] != 0 and tl_hn < 255:
+        tl_hn += 1
+    x25519_base(tls_pub, tls_priv)
+    tls_w = 0
+    tls_byte(22)                                    # the record: handshake, 3.1, the length
+    tls_two(0x0301)
+    tls_two(0)
+    tls_byte(1)                                     # ClientHello, the length (3 bytes)
+    tls_byte(0)
+    tls_two(0)
+    tls_two(0x0303)                                 # legacy_version
+    tls_bytes(tls_random, 32)
+    tls_byte(32)
+    tls_bytes(tls_session, 32)
+    tls_two(2)                                      # the cipher suites: TLS_CHACHA20_POLY1305_SHA256
+    tls_two(0x1303)
+    tls_byte(1)                                     # the compression: none
+    tls_byte(0)
+    tl_ext = tls_w
+    tls_two(0)
+    if tl_hn > 0:
+        tls_two(0x0000)                             # server_name: the host name
+        tls_two(tl_hn + 5)
+        tls_two(tl_hn + 3)
+        tls_byte(0)
+        tls_two(tl_hn)
+        tls_bytes(tl_host, tl_hn)
+    # supported_groups: x25519
+    tls_bytes("\x00\x0A\x00\x04\x00\x02\x00\x1D", 8)
+    # signature_algorithms: ECDSA P-256 and P-384, RSA-PSS (SHA-256/384/512), RSA PKCS#1 (SHA-256/384/512)
+    tls_bytes("\x00\x0D\x00\x12\x00\x10\x04\x03\x05\x03\x08\x04\x08\x05\x08\x06\x04\x01\x05\x01\x06\x01", 22)
+    # supported_versions: TLS 1.3; psk_key_exchange_modes: psk_dhe_ke
+    tls_bytes("\x00\x2B\x00\x03\x02\x03\x04\x00\x2D\x00\x02\x01\x01", 13)
+    # key_share: our X25519 key
+    tls_bytes("\x00\x33\x00\x26\x00\x24\x00\x1D\x00\x20", 10)
+    tls_bytes(tls_pub, 32)
+    tls_length_at(tl_ext)
+    tls_length_at(7)
+    tls_length_at(3)
+    sha256_start(TLS_HASH)
+    tls_transcript_add(tls_ch + 5, tls_w - 5)
+    return tls_w
+
+# 2 bytes at p, big-endian
+def tls_get16(tl_p: pchar) i32:
+    return (tl_p[0] << 8) | tl_p[1]
+
+def tls_server_hello(tl_p: pchar, tl_n) i32:
+    if tl_n < 4 + 2 + 32 + 1 or tl_p[0] != 2:
+        return TLS_BAD_HELLO
+    # the random of a HelloRetryRequest begins with CF 21 AD 74 E5 9A 61 11
+    if tls_get16(tl_p + 6) == 0xCF21 and tls_get16(tl_p + 8) == 0xAD74 and tls_get16(tl_p + 10) == 0xE59A:
+        return TLS_RETRY
+    tl_k = 4 + 2 + 32
+    tl_k += 1 + tl_p[tl_k]                          # legacy_session_id_echo
+    if tl_k + 5 > tl_n:
+        return TLS_BAD_HELLO
+    tls_suite = tls_get16(tl_p + tl_k)
+    tl_k += 3                                       # and the compression
+    tl_end = tl_k + 2 + tls_get16(tl_p + tl_k)
+    tl_k += 2
+    if tl_end > tl_n:
+        return TLS_BAD_HELLO
+    tl_version = 0
+    tl_key = False
+    while tl_k + 4 <= tl_end:
+        tl_type = tls_get16(tl_p + tl_k)
+        tl_len = tls_get16(tl_p + tl_k + 2)
+        tl_k += 4
+        if tl_k + tl_len > tl_end:
+            return TLS_BAD_HELLO
+        if tl_type == 0x002B and tl_len == 2:
+            tl_version = tls_get16(tl_p + tl_k)
+        elif tl_type == 0x0033 and tl_len == 36:
+            if tls_get16(tl_p + tl_k) == 0x001D and tls_get16(tl_p + tl_k + 2) == 32:
+                for tl_i in 0..32:
+                    tls_server_pub[tl_i] = tl_p[tl_k + 4 + tl_i]
+                tl_key = True
+        tl_k += tl_len
+    if tl_version != 0x0304:
+        return TLS_NO_13
+    if tls_suite != 0x1303:
+        return TLS_SUITE
+    if not tl_key:
+        return TLS_BAD_HELLO
+    return TLS_OK
+
+# ---------- the handshake of the server ----------
+
+# a whole message of the server came (tls_mtype, tls_mlen, tls_mbody)
+def tls_message_done() i32:
+    if tls_mtype == 20:
+        if tls_mlen != 32:
+            return TLS_FINISHED
+        tl_diff = 0
+        for tl_i in 0..32:
+            tl_diff |= tls_mbody[tl_i] ^ tls_expect[tl_i]
+        if tl_diff != 0:
+            return TLS_FINISHED
+        return 1
+    if tls_mtype == 13:
+        return TLS_CLIENT_CERT
+    # EncryptedExtensions (8), Certificate (11), CertificateVerify (15): into the transcript, not checked here
+    return 0
+
+def tls_handshake_in(tl_p: pchar, tl_n) i32:
+    tl_i = 0
+    while tl_i < tl_n:
+        if tls_mfill < 4:
+            tls_mhdr[tls_mfill] = tl_p[tl_i]
+            tls_mfill += 1
+            tl_i += 1
+            if tls_mfill == 4:
+                tls_mtype = tls_mhdr[0]
+                tls_mlen = (tls_mhdr[1] << 16) | (tls_mhdr[2] << 8) | tls_mhdr[3]
+                if tls_mtype == 20:
+                    # the Finished of the server is over the transcript before it
+                    tls_finished(tls_s_secret, tls_expect)
+                tls_transcript_add(tls_mhdr, 4)
+        else:
+            tl_k = tls_mlen + 4 - tls_mfill
+            if tl_k > tl_n - tl_i:
+                tl_k = tl_n - tl_i
+            for tl_j in 0..tl_k:
+                tl_b = tls_mfill - 4 + tl_j
+                if tl_b < 32:
+                    tls_mbody[tl_b] = tl_p[tl_i + tl_j]
+            tls_transcript_add(tl_p + tl_i, tl_k)
+            tls_mfill += tl_k
+            tl_i += tl_k
+        if tls_mfill >= 4 and tls_mfill == tls_mlen + 4:
+            tls_mfill = 0
+            tl_r = tls_message_done()
+            if tl_r != 0:
+                return tl_r
+    return 0
+
+def tls_client_finished(tl_r: pchar) i32:
+    tl_r[5] = 20
+    tl_r[6] = 0
+    tl_r[7] = 0
+    tl_r[8] = 32
+    tls_finished(tls_c_secret, tl_r + 9)
+    tl_n = tls_seal(tl_r, 36, 22)
+    tls_app_keys()
+    return tl_n

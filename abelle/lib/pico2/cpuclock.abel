@@ -1,0 +1,123 @@
+# The clock of the core of the Pico 2 for aBelle programs, for include "cpuclock.abel" (after include "console.abel").
+# The same name on every board: cpu_clock.
+# The names of the parameters and local variables here begin with c_, the globals with con_ (as in console.abel).
+#
+# cpu_clock(mhz): clk_sys, the clock of the core, at 48 .. 150 MHz (0: only ask); the clock after it, -1 for a value
+# that cannot be made (nothing changes). The console runs it at 48 MHz from PLL_USB; other values come from PLL_SYS,
+# as the Pico SDK sets it (set_sys_clock_khz): 12 MHz * FBDIV / (POSTDIV1 * POSTDIV2), the VCO from 750 to 1600 MHz:
+# each whole MHz from 48 to 150 can be made so. 150 MHz is the most the RP2350 is made for at its voltage. millis()
+# and the terminal do not notice (TIMER0 counts from the crystal, UART0 and the USB port have their 48 MHz from
+# PLL_USB). The clock of cpu_clock stays after the program (the console keeps it, info and the Board Manager show it)
+# until another program changes it or a reset (then 48 MHz); a program that only wants it for a while sets the one it
+# found (cpu_clock_khz(0) at its start) again before it ends.
+# An older console, whose UART0 follows clk_sys: -1. The switch as the datasheet wants it: clk_sys to clk_ref
+# (glitchless), PLL_SYS reset and set up, its lock, then the aux source (only while clk_ref runs it) and back to it;
+# on a W SysTick (the 10 ms of the WiFi of the console) gets the reload for the new clock.
+#
+# cpu_clock_khz(khz): the clock in kHz, also below 48 MHz: 1 .. 12000 kHz from the crystal (clk_ref, 12 MHz, divided by
+# a whole number: 12000, 6000, 4000, 3000 ... 1 kHz; another value gets the nearest), 48000 .. 150000 as cpu_clock in
+# whole MHz; 0 only asks. The clock after it in kHz, -1 for a value that cannot be made. Back with cpu_clock(mhz) or
+# cpu_clock_khz; a program that ends at one of these clocks from the crystal (also Ctrl+C: at 1 kHz it takes the console
+# some seconds) leaves the console at 48 MHz (boards/pico/console_clock.asm): with clk_sys from the crystal Windows
+# cannot open the port anew (seen at 12, 6 MHz, 1 kHz; a port that is open goes on). The terminal goes on at each clock,
+# slowly at a few kHz (over USB the next lines may come about a second late after a time below some MHz); millis() is
+# right down to about 1 MHz: below it TIMER0 loses its ticks (they come from clk_ref, and clk_sys is too slow to take
+# them). Below 1 MHz the WiFi of a W waits (its SysTick of 10 ms is then about 16 million cycles). No division runs at a
+# low clock (the M0+ has no instruction for it: each one costs hundreds of cycles).
+
+con_clocks: u32[32] at 0x40010000       # CLOCKS: [0x3C / 4] CLK_SYS_CTRL, [0x44 / 4] SELECTED, [0x48 / 4] CLK_PERI
+con_pll_sys: u32[4] at 0x40050000       # PLL_SYS: [0] CS (bit 31 LOCK), [1] PWR, [2] FBDIV, [3] PRIM (post dividers)
+con_resets: u32[3] at 0x40020000        # RESETS: [2] RESET_DONE
+con_resets_set: u32[1] at 0x40022000    # RESETS, its alias that sets bits
+con_resets_clr: u32[1] at 0x40023000    # ... that clears bits
+con_syst: u32[3] at 0xE000E010          # SysTick: [0] CSR (bit 0 on), [1] RVR, [2] CVR
+
+def cpu_clock(c_mhz) i32:
+    if c_mhz == 0: return con_clock_now()
+    if c_mhz < 48 or c_mhz > 150: return -1
+    if i32((con_clocks[0x48 / 4] >> 5) & 7) != 2: return -1     # clk_peri not from PLL_USB: an older console
+    if (con_clocks[0x3C / 4] & 1) == 0:
+        con_clocks[0x40 / 4] = u32(1 << 16)                    # from clk_ref (cpu_clock_khz): 12 MHz first, no
+    else:                                                       # division at a clock of a few kHz (each one costs
+        if c_mhz == con_clock_now(): return c_mhz               # hundreds of cycles on the M0+)
+    c_fb = 0
+    c_prim = 0
+    if c_mhz != 48:
+        # the post dividers from the largest product down: the first VCO that is a multiple of 12 MHz in range
+        c_p1 = 7
+        while c_p1 > 0 and c_fb == 0:
+            c_p2 = c_p1
+            while c_p2 > 0 and c_fb == 0:
+                c_vco = c_mhz * c_p1 * c_p2
+                if c_vco >= 750 and c_vco <= 1600 and c_vco % 12 == 0:
+                    c_fb = c_vco / 12
+                    c_prim = (c_p1 << 16) | (c_p2 << 12)
+                c_p2 -= 1
+            c_p1 -= 1
+        if c_fb == 0: return -1
+    c_n = 0
+    con_clocks[0x3C / 4] = con_clocks[0x3C / 4] & ~u32(1)       # SRC 0: clk_ref
+    while i32(con_clocks[0x44 / 4]) != 1: c_n += 1
+    con_clocks[0x40 / 4] = u32(1 << 16)                         # divider 1 (cpu_clock_khz may have set one)
+    if c_mhz == 48:
+        con_clocks[0x3C / 4] = u32(1 << 5)                      # AUXSRC 1: PLL_USB
+        con_clocks[0x3C / 4] = u32((1 << 5) | 1)                # SRC 1
+        while i32(con_clocks[0x44 / 4]) != 2: c_n += 1
+        con_pll_sys[1] = 0x2D                                   # PLL_SYS powered down
+    else:
+        con_resets_set[0] = u32(1 << 14)                        # PLL_SYS into reset and out again
+        con_resets_clr[0] = u32(1 << 14)
+        while (con_resets[2] & u32(1 << 14)) == 0: c_n += 1
+        con_pll_sys[0] = 1                                      # REFDIV 1
+        con_pll_sys[2] = u32(c_fb)
+        con_pll_sys[1] = 0x0C                                   # PD and VCOPD off
+        while (con_pll_sys[0] >> 31) == 0: c_n += 1             # LOCK
+        con_pll_sys[3] = u32(c_prim)
+        con_pll_sys[1] = 0x04                                   # POSTDIVPD off too
+        con_clocks[0x3C / 4] = 0                                # AUXSRC 0: PLL_SYS
+        con_clocks[0x3C / 4] = 1                                # SRC 1
+        while i32(con_clocks[0x44 / 4]) != 2: c_n += 1
+    con_systick(c_mhz * 1000)
+    return con_clock_now()
+
+def cpu_clock_khz(c_khz) i32:
+    if c_khz == 0: return con_khz_now()
+    if c_khz >= 48000:
+        if c_khz % 1000 != 0: return -1
+        c_r = cpu_clock(c_khz / 1000)
+        if c_r < 0: return -1
+        return c_r * 1000
+    if c_khz < 1 or c_khz > 12000: return -1
+    if i32((con_clocks[0x48 / 4] >> 5) & 7) != 2: return -1     # clk_peri not from PLL_USB: an older console
+    c_div = (12000 + c_khz / 2) / c_khz                         # the nearest divider
+    c_got = 12000 / c_div                                       # (no division at the low clock)
+    c_n = 0
+    con_clocks[0x3C / 4] = con_clocks[0x3C / 4] & ~u32(1)       # SRC 0: clk_ref
+    while i32(con_clocks[0x44 / 4]) != 1: c_n += 1
+    con_clocks[0x40 / 4] = u32(c_div << 16)
+    con_pll_sys[1] = 0x2D                                       # PLL_SYS powered down
+    con_systick(c_got)
+    return c_got
+
+# SysTick (on a W: the 10 ms of the WiFi of the console) for a clock of c_khz; below 1 MHz its longest period
+def con_systick(c_khz):
+    if (con_syst[0] & 1) != 0:
+        if c_khz >= 1000:
+            con_syst[1] = u32(c_khz * 10 - 1)                   # 10 ms
+        else:
+            con_syst[1] = u32(0xFFFFFF)
+        con_syst[2] = 0
+
+# clk_sys now in MHz (0 below 1 MHz)
+def con_clock_now() i32:
+    return con_khz_now() / 1000
+
+# clk_sys now in kHz: clk_ref (12 MHz), PLL_USB (48 MHz) or what PLL_SYS makes, through CLK_SYS_DIV (bits 31 .. 16)
+def con_khz_now() i32:
+    c_ctrl = con_clocks[0x3C / 4]
+    c_div = i32(con_clocks[0x40 / 4] >> 16)
+    if c_div == 0: c_div = 1
+    if (c_ctrl & 1) == 0: return 12000 / c_div
+    if ((c_ctrl >> 5) & 7) == 1: return 48000 / c_div
+    c_prim = con_pll_sys[3]
+    return 12000 * i32(con_pll_sys[2]) / i32(((c_prim >> 16) & 7) * ((c_prim >> 12) & 7)) / c_div

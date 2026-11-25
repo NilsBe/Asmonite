@@ -13,7 +13,8 @@
 ; held) takes the baud rate of the first bytes that come (autobaud), and a ping at 460800 made it deaf for
 ; esp8285rom.py. The steps, at 115200: 100 ms only listen; bytes came (an ESP that starts with the board: its boot ROM,
 ; libmain) -> up to 4 s for the hello of our firmware (H "esp8285 ..."), then up to 8 pings 0.5 s apart (it may start
-; more slowly); none came -> a ping P "ASM", 50 ms for p "ASM". It answered: B, its b, UART0 to 460800, a ping there. No answer to the ping at 115200: one at 460800 (the
+; more slowly; bytes with an error between them: our firmware at 460800 that sends its frames, the RP2040 alone was
+; reset -> on at 460800 as below); none came -> a ping P "ASM", 50 ms for p "ASM". It answered: B, its b, UART0 to 460800, a ping there. No answer to the ping at 115200: one at 460800 (the
 ; console was reset, the ESP runs at 460800 already). Found: WL_ESP 1, UART0 stays at 460800 and belongs to the ESP
 ; (put_char, poll_byte and irq_on of the console leave it out: the console then only over USB). Else UART0 at 115200
 ; (on a Pico with a Debug Probe that may have seen the pings as a few bytes of noise)
@@ -64,9 +65,11 @@ ed_d1:
     bne  ed_hello
     movs r2, #4                     ; step 4: no hello, pings at 115200
     bl   esp_mark
-    push {r4}                       ; no hello (yet): pings at 115200, 8 of them 0.5 s apart (harmless for a boot
+    push {r4, r5}                   ; no hello (yet): pings at 115200, 8 of them 0.5 s apart (harmless for a boot
     movs r4, #8                     ; ROM that waits: it takes 115200 then, the rate of esp8285rom.py)
 ed_again:
+    ldr  r3, esp_lit_diag
+    ldr  r5, [r3, #8]               ; the bytes with an error so far
     adr  r0, esp_ping_frame
     movs r1, #6
     bl   esp_raw
@@ -76,12 +79,22 @@ ed_again:
     bl   esp_listen
     cmp  r0, #0
     bne  ed_answered
+    ldr  r3, esp_lit_diag
+    ldr  r3, [r3, #8]
+    cmp  r3, r5
+    bne  ed_other                   ; bytes with an error while it was asked: it talks at another rate
     subs r4, r4, #1
     bne  ed_again
-    pop  {r4}
+    pop  {r4, r5}
     pop  {pc}                       ; no answer: no ESP of ours (UART0 stays at 115200)
+ed_other:
+    pop  {r4, r5}                   ; our firmware at 460800 (only the RP2040 was reset, by a new console over UF2 or
+    movs r2, #1                     ; reset, and its frames come on; a boot ROM that waits is quiet by then)
+    lsls r2, r2, #8                 ; step 256: bytes with an error between the pings
+    bl   esp_mark
+    b    ed_p460
 ed_answered:
-    pop  {r4}
+    pop  {r4, r5}
     movs r2, #8                     ; step 8: a ping at 115200 answered
     bl   esp_mark
     b    ed_slow

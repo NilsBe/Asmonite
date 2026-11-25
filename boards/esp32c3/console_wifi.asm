@@ -365,6 +365,9 @@ wl_switch:
     mv   s0, a0
     call wl_known
     bnez a0, wlw_net
+    beqz s0, wlw_none                   ; wlan off without a network kept: the WiFi off all the same (a program may
+    call wl_halt                        ; have started it), nothing to keep
+wlw_none:
     la   a0, s_wlnone
     call print
     j    wlw_end

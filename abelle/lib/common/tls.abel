@@ -1,0 +1,203 @@
+# A TLS 1.3 client (RFC 8446) for the WiFi of every board: include "tls.abel" (it includes tcp.abel and
+# tls_core.abel). One connection at a time, TLS_CHACHA20_POLY1305_SHA256 with X25519. Stage S4 of the roadmap
+# httpsget: the certificate of the server is NOT checked yet. The connection is encrypted, but whoever sits between
+# the board and the server could pose as the server.
+#
+#   tls_connect(ip, port, host) i32   TCP to ip (4 bytes) and port, then the handshake with host (the name for SNI):
+#                                     TLS_OK, or an error (tls_error_text; TLS_ALERT: the number in tls_alert)
+#   tls_send(data, n) i32             the n bytes at data, in records: n, or -1
+#   tls_recv(buf, max, ms) i32        received data (up to max bytes) into buf, waiting up to ms milliseconds:
+#                                     their number, 0 when none came, -1 when the server closed the connection
+#   tls_close()                       close_notify to the server, then TCP closed
+#
+# The handshake: our ClientHello (our X25519 key made first: about 0.8 s on an ESP32); the ServerHello (its key: the
+# shared secret, again 0.8 s); then the encrypted messages of the server (EncryptedExtensions, Certificate,
+# CertificateVerify, Finished; its Finished checked); our change_cipher_spec (for middleboxes) and our Finished.
+# After that the records of application data; a NewSessionTicket of the server is passed over.
+include "tcp.abel"
+include "tls_core.abel"
+
+TLS_WAIT = 10000                    # how long a record (once begun) or an answer in the handshake may take: ms
+TLS_CHUNK = 1024                    # the most data in a record we send
+tls_rec: char[16645]                # a record of the server: the header, 16384 bytes and 256 more at most
+tls_out: char[1060]                 # a record of ours
+tls_rpos: i32 = 0                   # tls_recv: the data of the record in tls_rec from tls_rpos to tls_rend
+tls_rend: i32 = 0
+tls_up: i32 = 0                     # the handshake is done, the connection stands
+tls_alert: i32 = 0                  # the number of the last alert of the server (0: close_notify, 40: handshake_failure ...)
+
+# n bytes into p: 1; 0 when none came within ms milliseconds; -1 when the connection ended (or no more came within
+# TLS_WAIT once some had)
+def tls_read(tl_p: pchar, tl_n, tl_ms) i32:
+    tl_have = 0
+    tl_t0 = wifi_millis()
+    while tl_have < tl_n:
+        tl_k = tcp_recv(tl_p + tl_have, tl_n - tl_have, 100)
+        if tl_k < 0:
+            return -1
+        tl_have += tl_k
+        if tl_k == 0:
+            if tl_have == 0 and wifi_millis() - tl_t0 >= tl_ms:
+                return 0
+            if tl_have > 0 and wifi_millis() - tl_t0 >= tl_ms + TLS_WAIT:
+                return -1
+    return 1
+
+# a record into tls_rec: its length (with the header); 0 when none came within ms; or an error
+def tls_record(tl_ms) i32:
+    tl_r = tls_read(tls_rec, 5, tl_ms)
+    if tl_r == 0:
+        return 0
+    if tl_r < 0:
+        return TLS_CLOSED
+    tl_len = (tls_rec[3] << 8) | tls_rec[4]
+    if tl_len > 16384 + 256:
+        return TLS_TOO_BIG
+    if tls_read(tls_rec + 5, tl_len, TLS_WAIT) != 1:
+        return TLS_CLOSED
+    return 5 + tl_len
+
+# the end of a handshake that failed: TCP closed, the error back
+def tls_fail(tl_e) i32:
+    tcp_close()
+    return tl_e
+
+def tls_random_bytes(tl_p: pchar, tl_n):
+    for tl_i in 0..tl_n:
+        tl_p[tl_i] = i32(wifi_random() >> 8) & 0xFF
+
+def tls_connect(tl_ip: pchar, tl_port, tl_host: pchar) i32:
+    tls_up = False
+    tls_alert = 0
+    tls_random_bytes(tls_priv, 32)
+    tls_random_bytes(tls_random, 32)
+    tls_random_bytes(tls_session, 32)
+    tl_n = tls_client_hello(tl_host)
+    if not tcp_connect(tl_ip, tl_port):
+        return TLS_NO_TCP
+    if tcp_send(tls_ch, tl_n) < 0:
+        return tls_fail(TLS_SEND)
+    # the ServerHello: a handshake record (an alert when the server does not want our offer)
+    tl_r = tls_record(TLS_WAIT)
+    if tl_r == 0:
+        return tls_fail(TLS_TIMEOUT)
+    if tl_r < 0:
+        return tls_fail(tl_r)
+    if tls_rec[0] == 21:
+        tls_alert = tls_rec[6]
+        return tls_fail(TLS_ALERT)
+    if tls_rec[0] != 22:
+        return tls_fail(TLS_PROTOCOL)
+    tl_m = 4 + ((tls_rec[6] << 16) | (tls_rec[7] << 8) | tls_rec[8])
+    if tl_m > tl_r - 5:
+        return tls_fail(TLS_BAD_HELLO)
+    tl_e = tls_server_hello(tls_rec + 5, tl_m)
+    if tl_e != TLS_OK:
+        return tls_fail(tl_e)
+    tls_transcript_add(tls_rec + 5, tl_m)
+    x25519(tls_shared, tls_priv, tls_server_pub)
+    tl_zero = 0
+    for tl_i in 0..32:
+        tl_zero |= tls_shared[tl_i]
+    if tl_zero == 0:
+        return tls_fail(TLS_BAD_HELLO)
+    tls_handshake_keys()
+    # the encrypted messages of the server, up to its Finished
+    tl_done = 0
+    while tl_done == 0:
+        tl_r = tls_record(TLS_WAIT)
+        if tl_r == 0:
+            return tls_fail(TLS_TIMEOUT)
+        if tl_r < 0:
+            return tls_fail(tl_r)
+        if tls_rec[0] == 21:
+            tls_alert = tls_rec[6]
+            return tls_fail(TLS_ALERT)
+        if tls_rec[0] == 23:
+            tl_n = tls_open(tls_rec, tl_r)
+            if tl_n < 0:
+                return tls_fail(TLS_BAD_RECORD)
+            if tls_type == 21:
+                tls_alert = tls_rec[6]
+                return tls_fail(TLS_ALERT)
+            if tls_type != 22:
+                return tls_fail(TLS_PROTOCOL)
+            tl_done = tls_handshake_in(tls_rec + 5, tl_n)
+            if tl_done < 0:
+                return tls_fail(tl_done)
+        elif tls_rec[0] != 20:
+            # (20: change_cipher_spec, sent for middleboxes: nothing to do)
+            return tls_fail(TLS_PROTOCOL)
+    # ours: change_cipher_spec, then the Finished (still with the handshake keys); then the application keys
+    tls_out[0] = 20
+    tls_out[1] = 3
+    tls_out[2] = 3
+    tls_out[3] = 0
+    tls_out[4] = 1
+    tls_out[5] = 1
+    if tcp_send(tls_out, 6) < 0:
+        return tls_fail(TLS_SEND)
+    tl_n = tls_client_finished(tls_out)
+    if tcp_send(tls_out, tl_n) < 0:
+        return tls_fail(TLS_SEND)
+    tls_up = True
+    tls_rpos = 0
+    tls_rend = 0
+    return TLS_OK
+
+def tls_send(tl_data: pchar, tl_n) i32:
+    if not tls_up:
+        return -1
+    tl_done = 0
+    while tl_done < tl_n:
+        tl_k = tl_n - tl_done
+        if tl_k > TLS_CHUNK:
+            tl_k = TLS_CHUNK
+        for tl_i in 0..tl_k:
+            tls_out[5 + tl_i] = tl_data[tl_done + tl_i]
+        tl_len = tls_seal(tls_out, tl_k, 23)
+        if tcp_send(tls_out, tl_len) < 0:
+            tls_up = False
+            return -1
+        tl_done += tl_k
+    return tl_n
+
+def tls_recv(tl_buf: pchar, tl_max, tl_ms) i32:
+    while tls_rpos >= tls_rend:
+        if not tls_up:
+            return -1
+        tl_r = tls_record(tl_ms)
+        if tl_r == 0:
+            return 0
+        if tl_r < 0 or tls_rec[0] == 21:
+            tls_up = False
+            return -1
+        if tls_rec[0] == 23:
+            tl_n = tls_open(tls_rec, tl_r)
+            if tl_n < 0:
+                tls_up = False
+                return -1
+            if tls_type == 23:
+                tls_rpos = 5
+                tls_rend = 5 + tl_n
+            elif tls_type == 21:
+                # an alert: close_notify (0) at the end, or an error
+                tls_alert = tls_rec[6]
+                tls_up = False
+                return -1
+            # (22: a NewSessionTicket or the like: passed over)
+    tl_k = tls_rend - tls_rpos
+    if tl_k > tl_max:
+        tl_k = tl_max
+    for tl_i in 0..tl_k:
+        tl_buf[tl_i] = tls_rec[tls_rpos + tl_i]
+    tls_rpos += tl_k
+    return tl_k
+
+def tls_close():
+    if tls_up:
+        tls_out[5] = 1                                  # an alert: warning, close_notify
+        tls_out[6] = 0
+        tl_r = tcp_send(tls_out, tls_seal(tls_out, 2, 21))
+        tls_up = False
+    tcp_close()

@@ -10,7 +10,7 @@ small language with the look of Python, for Windows and the boards (ESP32, ESP32
 Pi Pico and Pico 2), debugged in Asmonite line by line in its source.
 
 Current version: **0.15.0** | Website: [asmonite.com](https://asmonite.com) and
-[dismonite.com](https://dismonite.com) | Chat: [Discord](https://discord.gg/Sj8kvqEkc)
+[dismonite.com](https://dismonite.com) | Chat: [Discord](https://discord.gg/vVf7yqpyR)
 
 ![The Asmonite editor](assets/editor.png)
 
