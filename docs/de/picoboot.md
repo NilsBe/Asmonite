@@ -1,6 +1,6 @@
-# Der Raspberry Pi Pico (RP2040) ohne Debug-Sonde
+# Der Raspberry Pi Pico (RP2040) über seinen USB-Boot
 
-Asmonite debuggt ein Programm im RAM eines RP2040 **mit einem USB-Kabel, ohne Debug-Sonde und ohne Löten**: über den
+Asmonite debuggt ein Programm im RAM eines RP2040 **mit einem USB-Kabel und ohne Löten**: über den
 USB-Boot seines Boot-ROMs (BOOTSEL, die Schnittstelle PICOBOOT, die auch `picotool` benutzt). Breakpoints, Schritte
 Zeile für Zeile, Schritt über einen Aufruf, die Register, der Speicher. Wenn das Programm zurückkehrt, zeigt Asmonite
 `r0` und `r1`.
@@ -8,8 +8,9 @@ Zeile für Zeile, Schritt über einen Aufruf, die Register, der Speicher. Wenn d
 Das geht beim Raspberry Pi Pico und bei anderen Boards mit dem RP2040. Ausprobiert mit einem LilyGO T-PicoC3 (ein
 RP2040 und ein ESP32-C3 auf einem Board, siehe [t-picoc3.md](t-picoc3.md)).
 
-Mit dem Raspberry Pi Debug Probe (oder einer anderen CMSIS-DAP-Sonde) an den SWD-Pins debuggt Asmonite den Pico wie
-bisher, auch Programme im Flash und mit Pause. Der USB-Boot ist der Weg ohne Sonde.
+Der übliche Weg für den Pico ist die Konsole von Asmonite über dasselbe Kabel, mit Pause
+([riscv-pico2.md](riscv-pico2.md)). Der USB-Boot ist der Weg für einen RP2040 ohne die Konsole, etwa den des LilyGO
+T-PicoC3.
 
 ## Was du brauchst
 
@@ -33,7 +34,7 @@ braucht.
    sie finden.
 
 Beides ist einmal für jedes Board nötig. Danach sagt **Test the connection** „an RP2040 (boot ROM version 3) in its USB
-boot (BOOTSEL), no debug probe“ (Version 3 ist der RP2040 B2, Version 1 und 2 die älteren B0 und B1).
+boot (BOOTSEL)“ (Version 3 ist der RP2040 B2, Version 1 und 2 die älteren B0 und B1).
 
 ## Ein Programm
 
@@ -48,7 +49,7 @@ _start:
 ```
 
 Steht das Board in seinem USB-Boot, nehmen F9 (Ausführen) und F7 (Schritt hinein) diesen Weg von selbst; das
-Ausgabefenster sagt „in its USB boot (BOOTSEL), over the USB cable without a debug probe“. Das Programm kommt ins RAM
+Ausgabefenster sagt „in its USB boot (BOOTSEL), over its USB cable“. Das Programm kommt ins RAM
 bei `.imagebase` (ab `0x20000000` bis `0x2003F000`, 252 KB), wird zurückgelesen und startet bei `_start`; F7 hält dort
 an. Dann wie bei den anderen Boards: F7 und F8 gehen Zeile für Zeile, F8 geht über `bl`, F5 setzt einen Breakpoint,
 F9 läuft bis zum nächsten, die Register `r0` bis `r15` und `xPSR` zeigen den Stand, und das Speicherfenster liest das
@@ -75,8 +76,8 @@ hält das Programm am Befehl an: „a HardFault at ...“. Auch ein `bkpt` im Pr
 
 Ein kleiner Stub von Asmonite (268 Bytes bei `0x2003F000`, `src/debugger/picobootstub.asm`) wird vom Boot-ROM
 aufgerufen (der Befehl EXEC von PICOBOOT). Er hebt die Register des Boot-ROMs auf, schaltet die Interrupts ab, setzt
-eine eigene Vektortabelle ein, lädt die Register des Programms und springt an seinen pc. Ohne Debug-Sonde macht der
-Cortex-M0+ aus einem `bkpt` einen HardFault: Der Stub nimmt ihn an, hebt die Register des Programms auf, stellt alles
+eine eigene Vektortabelle ein, lädt die Register des Programms und springt an seinen pc. Ohne einen Debugger an seinen SWD-Pins
+macht der Cortex-M0+ aus einem `bkpt` einen HardFault: Der Stub nimmt ihn an, hebt die Register des Programms auf, stellt alles
 des Boot-ROMs wieder her und kehrt zu ihm zurück. Dann antwortet der USB-Boot wieder, und Asmonite liest die Register
 und den Speicher über USB.
 
@@ -95,9 +96,8 @@ Display des LilyGO T-PicoC3 (geh mit F7 durch das Einrichten des SPI).
 Über den USB-Boot hat ein Programm keinen Weg, Text zum PC zu schicken: Der USB-Anschluss ist das Laufwerk und
 PICOBOOT des Boot-ROMs, sonst nichts (ein COM-Port bräuchte einen USB-Stack im Programm, und das Programm nähme dem
 Debugger den USB-Anschluss weg). Was ein Programm zeigen will: ins RAM, wo es das Speicherfenster an einem Breakpoint
-zeigt, oder auf ein Display. Mit der Debug Probe zeigt der UART der Probe, was der Pico an GP0 sendet
-([riscv-pico2.md](riscv-pico2.md), „Die serielle Ausgabe über die Debug Probe“); ohne sie tut das ein
-USB-Seriell-Adapter an GP0 und GND, auch neben einer Sitzung über den USB-Boot.
+zeigt, oder auf ein Display. Ein USB-Seriell-Adapter an GP0 und GND zeigt, was der Pico an seinem UART0 sendet, auch
+neben einer Sitzung über den USB-Boot.
 
 ## Wenn etwas nicht geht
 
@@ -107,18 +107,18 @@ USB-Seriell-Adapter an GP0 und GND, auch neben einer Sitzung über den USB-Boot.
 | „... Windows has no driver for its interface RP2 Boot“ | Der Treiber wie oben (einmal) |
 | „The USB boot of this board is not set up for Asmonite yet“ | Debug targets: „Set up the USB boot“ (einmal) |
 | „... cannot be opened (another program ...?)“ | picotool oder ein anderes Programm schließen, das sie hat |
-| „a program goes into the RAM only“ | Ein Programm für den Flash braucht die Debug-Sonde, oder Project > UF2 und das Laufwerk RPI-RP2 |
+| „a program goes into the RAM only“ | Ein Programm für den Flash läuft als UF2-Datei: Project > UF2 und das Laufwerk RPI-RP2 |
 
 ## Grenzen
 
 - Nur Programme im RAM, unter `0x2003F000` (darüber der Stub, ganz oben der Stack des Boot-ROMs). Ein Programm für den
-  Flash: mit der Debug-Sonde, oder als UF2-Datei (Project > UF2) auf das Laufwerk `RPI-RP2` kopiert.
+  Flash: als UF2-Datei (Project > UF2) auf das Laufwerk `RPI-RP2` kopiert.
 - Keine Pause eines laufenden Programms (siehe oben).
 - Das Speicherfenster liest das RAM und das ROM; nicht den Flash (den liest der USB-Boot erst nach einem Einrichten
   des Flashs, das Asmonite noch nicht macht) und nicht die Peripherie (das Programm selbst kann sie benutzen).
 - Das Programm läuft mit den Takten, die das Boot-ROM für USB eingerichtet hat (48 MHz).
-- **Der Pico 2 (RP2350) lässt sich so nicht debuggen**; für ihn nimmst du die Debug-Sonde (dort geht alles, auch Pause
-  und Flash). Sein USB-Boot hat zwar auch PICOBOOT, und Windows nimmt ihn ohne jede Einrichtung, aber zwei Dinge
+- **Der Pico 2 (RP2350) lässt sich so nicht debuggen**; er wird über seine Konsole debuggt
+  ([riscv-pico2.md](riscv-pico2.md)). Sein USB-Boot hat zwar auch PICOBOOT, und Windows nimmt ihn ohne jede Einrichtung, aber zwei Dinge
   fehlen (ausprobiert an einem Pico 2): Es gibt den Befehl EXEC nicht mehr (die Antwort ist „unbekannter Befehl“),
   das Boot-ROM kann den Stub also nicht aufrufen und die Kontrolle zurückbekommen; und ein Halt über einen Neustart in
   den USB-Boot ist auch kein Ausweg, denn das Boot-ROM des RP2350 löscht das ganze RAM, bevor es in den USB-Boot geht:

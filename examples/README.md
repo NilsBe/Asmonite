@@ -124,6 +124,28 @@ Ctrl+F9 assembles a file into the program next to it, F9 runs it in the debugger
 - `dos/hello_exe.asm`: **A DOS .EXE by hand.** "Hello, World!" as a DOS program (.EXE): the header of the file
   written by hand and explained, and how an .EXE differs from a .COM; F9 runs it in QEMU with FreeDOS
   (`qemu\run_freedos.bat` once first).
+- `esp32/instructions_xtensa.asm`: **The important instructions, step by step.** The important instructions of the
+  Xtensa core one after the other, each with a comment on what it does and the value it gives: values, arithmetic,
+  bits, memory and stack, conditional branches, loops (`loop` too), subroutines with `call0`, `call8` and `callx8`
+  and a factorial that calls itself. No pin: step through it with F7 and watch the registers; at the end the output
+  window shows 120.
+- `pico2/instructions_arm.asm`: **The important instructions of the Arm core, step by step.** The important
+  instructions of the Cortex-M33 (Thumb-2) one after the other, each with a comment on what it does, the value it
+  gives and the flags (N Z C V) it sets: values (`movw`/`movt`), arithmetic (`udiv`, `mls` too), bits, memory and
+  stack, conditional branches (`cbz`, `tst` too), IT blocks, a loop, subroutines with `bl`, `bx lr` and `blx` and a
+  factorial that calls itself. No pin: step through it with F7 over the USB cable; at the end it goes back to the
+  console, "Program ended (code 120)".
+- `pico/instructions_arm.asm`: **The important instructions of the Cortex-M0+, step by step.** The important
+  instructions of the Pico (Thumb-1) one after the other, each with a comment on what it does, the value it gives and
+  the flags it sets; and how to do without the instructions of the Pico 2: large constants from a word behind the
+  code, the division as a subroutine, branches instead of IT blocks. No pin: step through it with F7 over the USB
+  cable; at the end "Program ended (code 120)".
+- `esp32c3/instructions_riscv.asm`: **The important instructions of RISC-V, step by step.** The important
+  instructions of the ESP32-C3 (RV32IMC) one after the other, each with a comment on what it does and the value it
+  gives: values (`li`, `lui`, `auipc`), arithmetic (`div`, `rem` too), bits and comparisons without flags (`slt`,
+  `sltu`), memory and stack, branches that compare by themselves, a loop, subroutines with `call`, `jal` and `jalr`
+  and a factorial that keeps `ra` on the stack. No pin: step through it with F7 over the USB cable; at the end it
+  waits, Debug > Pause shows a0 = 120.
 
 <!-- EXAMPLES_END -->
 

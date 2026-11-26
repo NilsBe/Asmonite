@@ -1,32 +1,31 @@
 # The boards of Asmonite: debugging and serial output
 
-Which boards Asmonite runs programs on, how it debugs them (over a debug probe, or with the USB cable alone), and how
-what a program writes reaches the PC. The details are in the guide of each board.
+Which boards Asmonite runs programs on, how it debugs them over their USB cable, and how what a program writes
+reaches the PC. The details are in the guide of each board.
 
 > **The examples of this page:** the examples in assembly (`examples/<board>/…`) and some in aBelle that this page names
 > are being gone through again and come into the folder `examples/` one by one; until then they are not in the ZIP and
 > not in the public repository. What is released already is in [examples/README.md](../../examples/README.md).
 
-| Board | Chip, cores | Debugging over a probe | Debugging without a probe | Serial output to the PC | Guide |
-|---|---|---|---|---|---|
-| Raspberry Pi Pico 2 | RP2350: Arm Cortex-M33, RISC-V Hazard3 | yes: RAM, flash, pause | yes, the Arm cores over the debug monitor of the console of Asmonite at the USB cable: RAM, pause | over the UART of the Debug Probe; with the console also over the USB cable | [riscv-pico2.md](riscv-pico2.md) |
-| Raspberry Pi Pico | RP2040: Arm Cortex-M0+ | yes: RAM, flash, pause | yes, over the debug monitor of the console at the USB cable: RAM, pause; or over the USB boot: RAM, no pause | over the UART of the Debug Probe; with the console also over the USB cable | [riscv-pico2.md](riscv-pico2.md), [picoboot.md](picoboot.md) |
-| LilyGO T-PicoC3 | RP2040 and ESP32-C3 (RISC-V) | – | yes, both chips (the RP2040 over its USB boot, the C3 over its USB JTAG) | the C3 over its USB port; the RP2040 none | [t-picoc3.md](t-picoc3.md) |
-| STM32F103 "Blue Pill" | Arm Cortex-M3 | yes: RAM, flash, pause | no | over the UART of the Debug Probe | [stm32.md](stm32.md) |
-| ESP32 | Xtensa LX6 | – | yes, over the USB serial chip of the board (a debug monitor of Asmonite): RAM, flash, pause | yes, UART0 over the same chip: under the debugger too | [esp32.md](esp32.md) |
-| ESP32-S3 | Xtensa LX7 | – | yes, over the USB JTAG of the chip: RAM, flash, pause | yes, the COM port of the USB port of the chip | [esp32s3.md](esp32s3.md) |
-| ESP32-C3 | RISC-V | – | yes, over the USB JTAG of the chip: RAM, flash, pause | yes, the COM port of the USB port of the chip | [esp32c3.md](esp32c3.md) |
-| ESP32-S31 | RISC-V (two HP cores, an LP core) | – | yes, core 0 over the USB JTAG of the chip: RAM (the console of Asmonite starts the program), pause | yes, the COM port of the USB port of the chip | (this page) |
-| MangoPi MQ-Pro | Allwinner D1: RISC-V, 64 bits | – | yes, over the FEL mode of the boot ROM: RAM, no pause | only with a USB serial adapter at UART0 | [d1.md](d1.md) |
+| Board | Chip, cores | Debugging over the USB cable | Serial output to the PC | Guide |
+|---|---|---|---|---|
+| Raspberry Pi Pico 2 | RP2350: Arm Cortex-M33, RISC-V Hazard3 | yes, the Arm cores over the debug monitor of the console of Asmonite: RAM, pause; programs in the flash and for the RISC-V cores run as a UF2 file | yes, the console over the USB cable | [riscv-pico2.md](riscv-pico2.md) |
+| Raspberry Pi Pico | RP2040: Arm Cortex-M0+ | yes, over the debug monitor of the console of Asmonite: RAM, pause; programs in the flash run as a UF2 file | yes, the console over the USB cable | [riscv-pico2.md](riscv-pico2.md) |
+| LilyGO T-PicoC3 | RP2040 and ESP32-C3 (RISC-V) | yes, both chips (the RP2040 over its USB boot, the C3 over its USB JTAG) | the C3 over its USB port; the RP2040 none | [t-picoc3.md](t-picoc3.md) |
+| STM32F103 "Blue Pill" | Arm Cortex-M3 | no: only over a debug probe at its SWD pins (RAM, flash, pause) | over the UART of the probe | [stm32.md](stm32.md) |
+| ESP32 | Xtensa LX6 | yes, over the USB serial chip of the board (a debug monitor of Asmonite): RAM, flash, pause | yes, UART0 over the same chip: under the debugger too | [esp32.md](esp32.md) |
+| ESP32-S3 | Xtensa LX7 | yes, over the USB JTAG of the chip: RAM, flash, pause | yes, the COM port of the USB port of the chip | [esp32s3.md](esp32s3.md) |
+| ESP32-C3 | RISC-V | yes, over the USB JTAG of the chip: RAM, flash, pause | yes, the COM port of the USB port of the chip | [esp32c3.md](esp32c3.md) |
+| ESP32-S31 | RISC-V (two HP cores, an LP core) | yes, core 0 over the USB JTAG of the chip: RAM (the console of Asmonite starts the program), pause | yes, the COM port of the USB port of the chip | (this page) |
+| MangoPi MQ-Pro | Allwinner D1: RISC-V, 64 bits | yes, over the FEL mode of the boot ROM: RAM, no pause | only with a USB serial adapter at UART0 | [d1.md](d1.md) |
 
-The debug probe is a CMSIS-DAP probe at the SWD pins: the Raspberry Pi Debug Probe, or a Pico with the `debugprobe`
-firmware. "–": the board needs none, its USB port does it.
+Every board here but the Blue Pill needs nothing but its USB cable: no debug probe, no wires to solder.
 
 ## The Board Manager
 
 **Board > Board Manager** shows the boards plugged in and, for each, only what can be done with it. On the left are
 the boards (**Scan** looks for them anew) and under them a photo of the board chosen. On the right is what Asmonite knows
-about the board, for an ESP32, an ESP32-S3 and the Pico 2 or the Pico behind the debug probe the files of the console under it,
+about the board, for a board with the console of Asmonite the files of the console under it,
 at the bottom the buttons for the board.
 
 When it opens, the Board Manager reads only what does not disturb the board: what Windows tells about the USB device
@@ -36,9 +35,8 @@ Board writes the current one), on an ESP32, S3, C3 and S31 the version of the Wi
 service: v10 (current: v11)": Install WiFi writes the current one; a right click copies one line or all of
 them; on the line WiFi it sets the network of the board, switches WiFi on or off, forgets the network and sets the
 name of the board, on the line telnet its password: Set Network... lists the networks this PC sees, on the C3, S31 and the Pico W also the ones the
-board sees, and From Windows fills in the password Windows has saved), over the debug probe
-the chip, its revision, the flash and the cores that run, without halting the program, and for the Pico in its USB
-boot the chip and the flash over PICOBOOT. More about an ESP32 without a console only its boot ROM tells: **Read
+board sees, and From Windows fills in the password Windows has saved), and for the Pico in its USB boot the chip and
+the flash over PICOBOOT. More about an ESP32 without a console only its boot ROM tells: **Read
 Chip** reads the chip, revision, MAC, crystal and flash, and restarts the board for it. On the ESP32-S3 it also names
 the PSRAM in the chip (modules such as N16R8: 8 MB), which Espressif writes into the eFuses; the PSRAM of an ESP32
 WROVER, a chip of its own next to the ESP32, the eFuses do not know.
@@ -57,17 +55,16 @@ the tab Serial: F9 then runs it there.
 | ESP32-S31 (RISC-V) at the USB port of the chip | as on the ESP32-C3 (the console of `boards/esp32s31`, in the flash at 0x2000), with its WiFi (Install WiFi); **Chip Details** names the chip, revision, MAC, PSRAM, crystal and flash. Behind a USB serial chip Asmonite takes it for an ESP32 until Chip Details finds it |
 | ESP32-S3 or ESP32-C3, not known yet (both have the same USB id, no console answers) | **Chip Details**, **Prepare Board** |
 | ESP32-C3 | as the ESP32 and the ESP32-S3 once its console runs (its console says it is a C3: packet H); without it **Reset**, **Chip Details**, **Prepare Board**, **Erase Flash** (over its boot ROM); more in [esp32c3.md](esp32c3.md) |
-| Pico 2 (Arm cores) and Pico behind the debug probe | the files of the console as for the ESP32 (**Upload File**, **Refresh**, in the context menu **Run**, **Autostart**, **Download**, **Delete**); the board: **Reset**, **Prepare Board** (the console into the flash over the probe), **Format**, **Erase Flash**, the Pico 2 also **RISC-V Cores**; more in [riscv-pico2.md](riscv-pico2.md) |
-| Pico 2 (RISC-V cores), Blue Pill behind the debug probe | **Reset**, **Erase Flash**; the Pico 2 also **Arm Cores** |
+| Pico 2 and Pico with the console at the USB cable | the files of the console as for the ESP32 (**Upload File**, **Refresh**, in the context menu **Run**, **Autostart**, **Download**, **Delete**); the board: **Reset**, **Prepare Board** (a new console, without the BOOTSEL button), **Format**; more in [riscv-pico2.md](riscv-pico2.md) |
+| Blue Pill behind a debug probe | **Reset**, **Erase Flash**; see [stm32.md](stm32.md) |
 | the clone "Pico W-2023" (an RP2040 with an ESP8285 instead of the CYW43439), the console over the USB cable | the files of the console as on the Pico; the board: **Prepare Board**, **Install WiFi (ESP8285)** (the firmware of Asmonite into the ESP8285, about 40 s; the board plugged in with its BOOT button held, the question says how) |
-| Pico in its USB boot (BOOTSEL) | **Start Program** (leaves the USB boot, the program in the flash starts), **Erase Flash** |
-| Pico 2 in its USB boot (BOOTSEL) | **Arm Cores**, **RISC-V Cores** (over its drive RP2350) |
+| Pico in its USB boot (BOOTSEL) | **Prepare Board** (the console as a UF2 file onto its drive), **Start Program** (leaves the USB boot, the program in the flash starts), **Erase Flash** |
+| Pico 2 in its USB boot (BOOTSEL) | **Prepare Board** (as on the Pico), **Arm Cores**, **RISC-V Cores** (over its drive RP2350) |
 | a board Asmonite does not know | no buttons; only what Windows tells about it |
 
-**RISC-V Cores** and **Arm Cores** switch the Pico 2: the boot ROM starts the cores the program in the flash is for,
-so the Board Manager writes the example `blink` of the other cores into the flash (the LED blinks). An empty Pico 2
-stays in its USB boot, and there its flash cannot be written over the debug probe; the Board Manager then writes the
-program as a UF2 file onto its drive.
+**RISC-V Cores** and **Arm Cores** switch a Pico 2 in its USB boot: the boot ROM starts the cores the program in the
+flash is for, so the Board Manager writes the example `blink` of the other cores as a UF2 file onto its drive (the
+LED blinks). The console is an Arm program: **Prepare Board** brings it, and the Arm cores, back.
 
 **By itself** the Board Manager opens when you plug a board in for the first time, and when Asmonite starts with a
 board plugged in that it has not seen before. After that you open it from the menu. Asmonite remembers the boards in
@@ -84,9 +81,10 @@ the program writes by itself:
   Connect is off while the session lasts.
 - **ESP32-S3, ESP32-C3:** the tab connects to the COM port of the chip when the program is loaded (the reset into
   the boot ROM and the flash use that port before); Connect stays usable.
-- **Pico 2, Pico, Blue Pill over the Raspberry Pi Debug Probe:** the tab connects to the COM port of the probe (its
-  connector "U", a UART) when the program is loaded. The cable: RX of the probe at the TX pin of the board (GP0 of the
-  Pico, PA9 of the Blue Pill), GND at GND.
+- **Pico 2, Pico:** the tab is at the COM port of the console at the USB cable; under the debugger the monitor of the
+  console has it, and the tab shows what the program writes.
+- **Blue Pill over a debug probe:** the tab connects to the COM port of the probe (its connector "U", a UART) when
+  the program is loaded (see [stm32.md](stm32.md)).
 - **The Pico over its USB boot, the D1:** no serial output of their own; with a USB serial adapter at their UART
   the tab shows it after Connect.
 - **The RP2040 of the T-PicoC3:** none (its UART goes to the ESP32-C3 of the board).
@@ -130,8 +128,7 @@ flash over the boot ROM and makes its file system when there is none; files of t
 
 The boards with serial output have an example that writes "Hello, world!" this way: `examples/esp32/hello_uart_ram.asm`,
 `examples/esp32s3/hello_usb_ram.asm`, `examples/esp32c3/blink_ram.asm` (a line at each change of the LEDs),
-`examples/pico2/hello_uart_ram.asm` and `hello_uart_arm_ram.asm`, `examples/pico/hello_uart_ram.asm`,
-`examples/stm32/hello_uart_ram.asm`.
+`examples/pico2/hello_console.asm`, `examples/pico/hello_console.asm` (through the console), `examples/stm32/hello_uart_ram.asm`.
 
 ## What the consoles can do
 

@@ -27,14 +27,13 @@ Aktuelle Version: **0.16.0** | Website: [asmonite.com](https://asmonite.com) und
 - Debugger: Breakpoints, Einzelschritt (über / hinein), bis zum Cursor, Register (Änderungen rot), Stack,
   Speicher, Watch-Fenster, Programmausgabe. Windows-Programme laufen auf diesem Rechner, x64 über einen
   Hilfsprozess, ARM-Programme auf einem Windows-on-ARM-Rechner, DOS-Programme in QEMU mit FreeDOS.
-- **Raspberry Pi Pico 2 und Pico:** RISC-V (Hazard3) und Arm (Cortex-M33, Cortex-M0+) mit `.target pico2` /
-  `.target pico`; F7 schreibt das Programm über eine CMSIS-DAP-Debug-Probe ins RAM oder in den Flash und
-  debuggt es, **ohne OpenOCD**; UF2-Dateien für das BOOTSEL-Laufwerk. Anleitung: [docs/de/riscv-pico2.md](docs/de/riscv-pico2.md).
-  Den Pico (RP2040) auch **ohne Debug-Probe**: ein Programm im RAM über seinen USB-Boot (BOOTSEL), ein Kabel.
-  Anleitung: [docs/de/picoboot.md](docs/de/picoboot.md). Die **Konsole** von Asmonite auf Pico und Pico 2 über ihr
-  USB-Kabel: Dateien, Programme, F9 und der Debugger über sie; auf Pico W, Pico 2 W und dem Klon „Pico W-2023“ dazu
-  das **WLAN** (Ping, DHCP, `name.local`, auch während ein Programm läuft).
-- **Welches Board wie debuggt wird** (über eine Debug-Probe oder mit dem USB-Kabel allein) und wie seine serielle
+- **Raspberry Pi Pico 2 und Pico (auch W):** Arm (Cortex-M33, Cortex-M0+) mit `.target pico2` / `.target pico`,
+  **nur mit dem USB-Kabel**: Die Konsole von Asmonite kommt einmal auf das Board (BOOTSEL, Prepare Board), danach
+  gehen Dateien, Programme, F9 und der Debugger (Breakpoints, Schritte, Pause) über dieses Kabel. Programme im Flash
+  und für die RISC-V-Kerne (Hazard3) des Pico 2: UF2-Dateien für das BOOTSEL-Laufwerk. Auf Pico W, Pico 2 W und dem
+  Klon „Pico W-2023“ dazu das **WLAN** (Ping, DHCP, `name.local`, auch während ein Programm läuft). Anleitung:
+  [docs/de/riscv-pico2.md](docs/de/riscv-pico2.md).
+- **Welches Board wie debuggt wird** (alle außer der Blue Pill mit dem USB-Kabel allein) und wie seine serielle
   Ausgabe zum PC kommt (der Reiter Serial); der **Board Manager** zeigt die angesteckten Boards, was er über sie weiß,
   und nur die Knöpfe, die zum Board passen: [docs/de/boards.md](docs/de/boards.md).
 - **ESP32 und ESP32-S3:** Xtensa (`.arch xtensa`, `.target esp32` / `.target esp32s3`), auch in aBelle. Eine kleine
@@ -56,8 +55,8 @@ Aktuelle Version: **0.16.0** | Website: [asmonite.com](https://asmonite.com) und
 - **ESP32-S31:** der neue RISC-V-Chip von Espressif mit `.target esp32s31`: die Konsole des C3 mit dem WLAN, aBelle,
   der Debugger über seinen USB-JTAG. [docs/de/boards.md](docs/de/boards.md).
   Der **LilyGO T-PicoC3** (ein RP2040 und ein ESP32-C3 auf einem Board, sein Display): [docs/de/t-picoc3.md](docs/de/t-picoc3.md).
-- **STM32F103 (Blue Pill):** Arm Cortex-M3 mit `.target stm32f103`; F7 lädt das Programm über dieselbe Debug-Probe wie
-  beim Pico ins RAM oder schreibt es in den Flash und debuggt es. Anleitung: [docs/de/stm32.md](docs/de/stm32.md).
+- **STM32F103 (Blue Pill):** Arm Cortex-M3 mit `.target stm32f103`; F7 lädt das Programm über eine CMSIS-DAP-Debug-Probe
+  ins RAM oder schreibt es in den Flash und debuggt es. Anleitung: [docs/de/stm32.md](docs/de/stm32.md).
 - **MangoPi MQ-Pro (Allwinner D1):** RISC-V mit 64 Bit (`.arch riscv64`, `.target d1`); F9 lädt das Programm über USB
   (den FEL-Modus des Boot-ROMs) und debuggt es, **mit einem Kabel, ohne JTAG**. Anleitung: [docs/de/d1.md](docs/de/d1.md).
 

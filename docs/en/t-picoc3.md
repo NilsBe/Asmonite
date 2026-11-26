@@ -9,7 +9,7 @@ one answers: blue for the RP2040, green for the ESP32-C3.
 > are being gone through again and come into the folder `examples/` one by one; until then they are not in the ZIP and
 > not in the public repository. What is released already is in [examples/README.md](../../examples/README.md).
 
-Asmonite debugs both, each with the one USB cable, without a debug probe. This page says what works on which side;
+Asmonite debugs both, each with the one USB cable. This page says what works on which side;
 the details are in the guides of the two chips: [picoboot.md](picoboot.md) for the RP2040 over its USB boot,
 [esp32c3.md](esp32c3.md) for the ESP32-C3.
 
@@ -17,7 +17,7 @@ the details are in the guides of the two chips: [picoboot.md](picoboot.md) for t
 
 | | RP2040 (LED blue) | ESP32-C3 (LED green) |
 |---|---|---|
-| Debugging without a probe | yes, over the USB boot (BOOTSEL, PICOBOOT): programs in the RAM | yes, over the USB JTAG of the chip: RAM and flash |
+| Debugging over the USB cable | yes, over the USB boot (BOOTSEL, PICOBOOT): programs in the RAM | yes, over the USB JTAG of the chip: RAM and flash |
 | Breakpoints, steps, registers, memory | yes | yes |
 | Pause of a running program | **no** (the boot ROM waits for the program) | yes |
 | Program in the flash | not over the USB boot (a UF2 file onto the drive `RPI-RP2` does it) | yes (`.target esp32c3 flash`) |
@@ -28,7 +28,7 @@ the details are in the guides of the two chips: [picoboot.md](picoboot.md) for t
 ## The RP2040 side
 
 Turn the plug until the LED is blue. For a session the RP2040 must be in its **USB boot**: hold **BOOT**, press
-**RUN**, let BOOT go; Windows shows the drive `RPI-RP2`. Then F9 or F7 as on a Pico without a probe
+**RUN**, let BOOT go; Windows shows the drive `RPI-RP2`. Then F9 or F7 as on a Pico over its USB boot
 ([picoboot.md](picoboot.md)): Asmonite loads the program into the RAM at `0x20000000` and debugs it over the boot
 ROM. A running program cannot be paused that way: set a breakpoint before it runs into a loop. A program that
 returns (`bx lr`) ends the session, and the board is ready for the next F9.

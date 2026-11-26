@@ -5,6 +5,30 @@ What changed from version to version. German: [docs/de/aenderungen.md](docs/de/a
 Version numbers: MAJOR.MINOR.PATCH. While MAJOR is 0, a MINOR step may change what
 existing sources mean; such changes are listed under "Changed" and marked **(sources)**.
 
+## Unreleased
+
+### New
+- **Examples that go through the important instructions, step by step**: `examples/esp32/instructions_xtensa.asm`
+  (ESP32, Xtensa), `examples/pico2/instructions_arm.asm` (Pico 2, Cortex-M33), `examples/pico/instructions_arm.asm`
+  (Pico, Cortex-M0+, Thumb-1) and `examples/esp32c3/instructions_riscv.asm` (ESP32-C3, RISC-V): each instruction with
+  a comment on what it does and the value it gives (values, arithmetic, bits, memory and stack, conditional
+  branches, loops, subroutines, a factorial that calls itself). No pin: made for F7 and watching the registers.
+
+### Changed
+- **The Pico and the Pico 2 over their USB cable only**: the guide (`docs/en/riscv-pico2.md`), the overview of the
+  boards, the website and the messages of Asmonite describe the way over the USB cable and the console of Asmonite
+  (BOOTSEL once, Prepare Board, then files, F9 and the debugger over that cable); the debug probe is no longer part
+  of them. Programs in the flash and for the RISC-V cores of the Pico 2 run as a UF2 file. Debug > Debug targets
+  shows no settings for the probe and OpenOCD for now; a probe that is plugged in is still used. What was written
+  about the probe is kept in `docs/en/debug-probe.md` (not linked yet).
+- **The message when no Pico is found** says what to do over USB: plug the board in, or BOOTSEL and Prepare Board
+  when it has no console yet; for a program for the flash it says to give it `.imagebase 0x20000000` or to run it
+  as a UF2 file.
+
+### Fixed
+- **Prepare Board started from Asmonite with a Pico at its USB cable** showed the hint "behind the debug probe"
+  instead of preparing the board.
+
 ## 0.16.0 – 2026-11-25
 
 ### In short

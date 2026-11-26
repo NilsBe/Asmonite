@@ -126,6 +126,28 @@ gehen Schritt für Schritt).
 - `dos/hello_exe.asm`: **Eine DOS-.EXE von Hand.** „Hello, World!“ als DOS-Programm (.EXE): der Kopf der Datei von
   Hand geschrieben und erklärt, und was eine .EXE von einer .COM unterscheidet; F9 startet es in QEMU mit FreeDOS
   (vorher einmal `qemu\run_freedos.bat`).
+- `esp32/instructions_xtensa.asm`: **Die wichtigen Befehle, Schritt für Schritt.** Die wichtigen Befehle des
+  Xtensa-Kerns nacheinander, jeder mit einem Kommentar, was er tut und welcher Wert herauskommt: Werte laden,
+  rechnen, Bits, Speicher und Stack, bedingte Sprünge, Schleifen (auch `loop`), Unterprogramme mit `call0`, `call8`
+  und `callx8` und eine Fakultät, die sich selbst aufruft. Ohne Pin: mit F7 Schritt für Schritt durchgehen und die
+  Register verfolgen; am Ende zeigt das Ausgabefenster 120.
+- `pico2/instructions_arm.asm`: **Die wichtigen Befehle des Arm-Kerns, Schritt für Schritt.** Die wichtigen Befehle
+  des Cortex-M33 (Thumb-2) nacheinander, jeder mit einem Kommentar, was er tut, welcher Wert herauskommt und welche
+  Flags (N Z C V) er setzt: Werte laden (`movw`/`movt`), rechnen (auch `udiv`, `mls`), Bits, Speicher und Stack,
+  bedingte Sprünge (auch `cbz`, `tst`), IT-Blöcke, eine Schleife, Unterprogramme mit `bl`, `bx lr` und `blx` und eine
+  Fakultät, die sich selbst aufruft. Ohne Pin: mit F7 über das USB-Kabel Schritt für Schritt durchgehen; am Ende
+  kehrt es zur Konsole zurück, „Program ended (code 120)“.
+- `pico/instructions_arm.asm`: **Die wichtigen Befehle des Cortex-M0+, Schritt für Schritt.** Die wichtigen Befehle
+  des Pico (Thumb-1) nacheinander, jeder mit einem Kommentar, was er tut, welcher Wert herauskommt und welche Flags
+  er setzt; dazu, wie man ohne die Befehle des Pico 2 auskommt: große Konstanten aus einem Wort hinter dem Code, die
+  Division als Unterprogramm, Sprünge statt IT-Blöcken. Ohne Pin: mit F7 über das USB-Kabel Schritt für Schritt
+  durchgehen; am Ende „Program ended (code 120)“.
+- `esp32c3/instructions_riscv.asm`: **Die wichtigen Befehle von RISC-V, Schritt für Schritt.** Die wichtigen Befehle
+  des ESP32-C3 (RV32IMC) nacheinander, jeder mit einem Kommentar, was er tut und welcher Wert herauskommt: Werte
+  laden (`li`, `lui`, `auipc`), rechnen (auch `div`, `rem`), Bits und Vergleiche ohne Flags (`slt`, `sltu`), Speicher
+  und Stack, Sprünge, die selbst vergleichen, eine Schleife, Unterprogramme mit `call`, `jal` und `jalr` und eine
+  Fakultät, die `ra` auf dem Stack sichert. Ohne Pin: mit F7 über das USB-Kabel Schritt für Schritt; am Ende wartet
+  es, Debug > Pause zeigt a0 = 120.
 
 <!-- EXAMPLES_END -->
 

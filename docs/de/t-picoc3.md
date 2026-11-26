@@ -10,7 +10,7 @@ zeigt, welcher antwortet: blau für den RP2040, grün für den ESP32-C3.
 > fehlen sie in der ZIP-Datei und im öffentlichen Repository. Was schon freigegeben ist, steht in
 > [examples/README.de.md](../../examples/README.de.md).
 
-Asmonite debuggt beide, jeweils mit dem einen USB-Kabel, ohne Debug-Probe. Diese Seite sagt, was auf welcher Seite
+Asmonite debuggt beide, jeweils mit dem einen USB-Kabel. Diese Seite sagt, was auf welcher Seite
 geht; die Einzelheiten stehen in den Anleitungen der beiden Chips: [picoboot.md](picoboot.md) für den RP2040 über
 seinen USB-Boot, [esp32c3.md](esp32c3.md) für den ESP32-C3.
 
@@ -18,7 +18,7 @@ seinen USB-Boot, [esp32c3.md](esp32c3.md) für den ESP32-C3.
 
 | | RP2040 (LED blau) | ESP32-C3 (LED grün) |
 |---|---|---|
-| Debuggen ohne Probe | ja, über den USB-Boot (BOOTSEL, PICOBOOT): Programme im RAM | ja, über den USB-JTAG des Chips: RAM und Flash |
+| Debuggen über das USB-Kabel | ja, über den USB-Boot (BOOTSEL, PICOBOOT): Programme im RAM | ja, über den USB-JTAG des Chips: RAM und Flash |
 | Breakpoints, Schritte, Register, Speicher | ja | ja |
 | Pause eines laufenden Programms | **nein** (das Boot-ROM wartet auf das Programm) | ja |
 | Programm im Flash | nicht über den USB-Boot (eine UF2-Datei auf das Laufwerk `RPI-RP2` tut es) | ja (`.target esp32c3 flash`) |
@@ -29,8 +29,8 @@ seinen USB-Boot, [esp32c3.md](esp32c3.md) für den ESP32-C3.
 ## Die Seite des RP2040
 
 Drehe den Stecker, bis die LED blau ist. Für eine Sitzung muss der RP2040 in seinem **USB-Boot** sein: **BOOT**
-halten, **RUN** drücken, BOOT loslassen; Windows zeigt das Laufwerk `RPI-RP2`. Dann F9 oder F7 wie bei einem Pico ohne
-Probe ([picoboot.md](picoboot.md)): Asmonite lädt das Programm ins RAM bei `0x20000000` und debuggt es über das
+halten, **RUN** drücken, BOOT loslassen; Windows zeigt das Laufwerk `RPI-RP2`. Dann F9 oder F7 wie bei einem Pico über
+seinen USB-Boot ([picoboot.md](picoboot.md)): Asmonite lädt das Programm ins RAM bei `0x20000000` und debuggt es über das
 Boot-ROM. Ein laufendes Programm lässt sich so nicht anhalten: Setze einen Breakpoint, bevor es in eine Schleife
 läuft. Ein Programm, das zurückkehrt (`bx lr`), beendet die Sitzung, und das Board ist bereit für das nächste F9.
 
