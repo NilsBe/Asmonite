@@ -4,6 +4,10 @@ Der ESP32-C3 von Espressif hat einen RISC-V-Kern (RV32IMC, 160 MHz) und einen US
 Port und JTAG-Debugger ist. Asmonite nutzt beides: Es debuggt ein Programm im RAM des Chips und schreibt es in den
 Flash, **mit einem USB-Kabel, ohne Debug-Probe, ohne OpenOCD und ohne ESP-IDF**.
 
+> **Neu hier?** Board einstecken, **Board > Board Manager** öffnen und **Prepare Board...** klicken: Dann
+> ist die Konsole von Asmonite auf dem Board, und F9 startet deine Programme dort. Alles über den Board Manager:
+> [board-manager.md](board-manager.md).
+
 > **Die Beispiele dieser Seite:** Die Beispiele in Assembler (`examples/<board>/…`) und einige in aBelle, die diese
 > Seite nennt, werden gerade noch einmal durchgesehen und kommen nach und nach in den Ordner `examples/`; bis dahin
 > fehlen sie in der ZIP-Datei und im öffentlichen Repository. Was schon freigegeben ist, steht in

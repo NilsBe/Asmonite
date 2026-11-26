@@ -6,7 +6,7 @@ Deutsch | [English](README.md)
 und Debugger, der vorhandene Programme liest. Beide sind kostenlos, laufen ohne Installation unter
 Windows und arbeiten mit 32-Bit- und 64-Bit-Intel-Code, mit ARM, mit Xtensa auf dem ESP32 und dem ESP32-S3 und mit RISC-V
 (32 und 64 Bit) auf dem ESP32-C3, dem ESP32-S31, dem Raspberry Pi Pico 2 und dem MangoPi MQ-Pro (Allwinner D1). Dazu
-kommt **aBelle**, eine kleine Sprache mit der Schreibweise von Python, für Windows und die Boards (ESP32, ESP32-S3,
+kommt **aBelle** (eine Python-ähnliche Programmiersprache), für Windows und die Boards (ESP32, ESP32-S3,
 ESP32-C3, ESP32-S31, Raspberry Pi Pico und Pico 2), in Asmonite Zeile für Zeile im Quelltext debuggt.
 
 Aktuelle Version: **0.16.0** | Website: [asmonite.com](https://asmonite.com) und
@@ -33,9 +33,11 @@ Aktuelle Version: **0.16.0** | Website: [asmonite.com](https://asmonite.com) und
   und für die RISC-V-Kerne (Hazard3) des Pico 2: UF2-Dateien für das BOOTSEL-Laufwerk. Auf Pico W, Pico 2 W und dem
   Klon „Pico W-2023“ dazu das **WLAN** (Ping, DHCP, `name.local`, auch während ein Programm läuft). Anleitung:
   [docs/de/riscv-pico2.md](docs/de/riscv-pico2.md).
+- **Der Board Manager** (Menü Board) ist die Zentrale für die Boards: Ein neues Board einstecken, **Prepare Board**
+  klicken, fertig. Danach die Dateien und Programme auf dem Board, das WLAN, der Takt, und bei jedem Board nur die
+  Knöpfe, die zu ihm passen: [docs/de/board-manager.md](docs/de/board-manager.md).
 - **Welches Board wie debuggt wird** (alle außer der Blue Pill mit dem USB-Kabel allein) und wie seine serielle
-  Ausgabe zum PC kommt (der Reiter Serial); der **Board Manager** zeigt die angesteckten Boards, was er über sie weiß,
-  und nur die Knöpfe, die zum Board passen: [docs/de/boards.md](docs/de/boards.md).
+  Ausgabe zum PC kommt (der Reiter Serial): [docs/de/boards.md](docs/de/boards.md).
 - **ESP32 und ESP32-S3:** Xtensa (`.arch xtensa`, `.target esp32` / `.target esp32s3`), auch in aBelle. Eine kleine
   **Konsole** von Asmonite liegt im Flash des Boards, mit Dateien: F9 führt ein Programm über sie aus und debuggt es,
   **ohne JTAG-Probe, ohne BOOT-Taste, ohne Reset**; Ausgabe und Stop im Reiter Serial. Der Board Manager richtet ein

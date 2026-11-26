@@ -4,6 +4,10 @@ The ESP32-C3 from Espressif has one RISC-V core (RV32IMC, 160 MHz) and a USB por
 debugger at the same time. Asmonite uses both: it debugs a program in the RAM of the chip and writes it into the
 flash, **with one USB cable, without a debug probe, without OpenOCD and without ESP-IDF**.
 
+> **New here?** Plug the board in, open **Board > Board Manager** and click **Prepare Board...**: then the
+> Asmonite console is on the board, and F9 runs your programs there. All about the Board Manager:
+> [board-manager.md](board-manager.md).
+
 > **The examples of this page:** the examples in assembly (`examples/<board>/…`) and some in aBelle that this page names
 > are being gone through again and come into the folder `examples/` one by one; until then they are not in the ZIP and
 > not in the public repository. What is released already is in [examples/README.md](../../examples/README.md).

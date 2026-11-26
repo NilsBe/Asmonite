@@ -5,6 +5,10 @@ it runs. All you need is the USB cable of the board: Asmonite puts its console o
 your programs over that cable, runs them and lets you step through them. The instruction reference is the F1 help
 of Asmonite.
 
+> **New here?** Plug the board in (a Pico the first time with its BOOTSEL button held), open **Board > Board Manager** and click **Prepare Board...**: then the
+> Asmonite console is on the board, and F9 runs your programs there. All about the Board Manager:
+> [board-manager.md](board-manager.md).
+
 > **The examples of this page:** the examples in assembly (`examples/<board>/…`) and some in aBelle that this page names
 > are being gone through again and come into the folder `examples/` one by one; until then they are not in the ZIP and
 > not in the public repository. What is released already is in [examples/README.md](../../examples/README.md).

@@ -5,6 +5,10 @@ und ansiehst, während es läuft. Du brauchst nur das USB-Kabel des Boards: Asmo
 das Board, danach lädt es deine Programme über dieses Kabel, startet sie und lässt dich Schritt für Schritt
 hindurchgehen. Die Befehlsreferenz ist die F1-Hilfe von Asmonite.
 
+> **Neu hier?** Board einstecken (einen Pico beim ersten Mal mit gedrückter Taste BOOTSEL), **Board > Board Manager** öffnen und **Prepare Board...** klicken: Dann
+> ist die Konsole von Asmonite auf dem Board, und F9 startet deine Programme dort. Alles über den Board Manager:
+> [board-manager.md](board-manager.md).
+
 > **Die Beispiele dieser Seite:** Die Beispiele in Assembler (`examples/<board>/…`) und einige in aBelle, die diese
 > Seite nennt, werden gerade noch einmal durchgesehen und kommen nach und nach in den Ordner `examples/`; bis dahin
 > fehlen sie in der ZIP-Datei und im öffentlichen Repository. Was schon freigegeben ist, steht in

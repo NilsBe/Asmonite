@@ -8,6 +8,10 @@ and speaks with Asmonite over the serial port. On top come a console with files 
 aBelle program connects to a network, gets an address by DHCP and speaks UDP and TCP, also while the debugger holds it
 at a breakpoint.
 
+> **New here?** Plug the board in, open **Board > Board Manager** and click **Prepare Board...**: then the
+> Asmonite console is on the board, and F9 runs your programs there. All about the Board Manager:
+> [board-manager.md](board-manager.md).
+
 > **The examples of this page:** the examples in assembly (`examples/<board>/…`) and some in aBelle that this page names
 > are being gone through again and come into the folder `examples/` one by one; until then they are not in the ZIP and
 > not in the public repository. What is released already is in [examples/README.md](../../examples/README.md).
@@ -185,7 +189,7 @@ is gone.
 `boards/esp32/console.asm` makes the board a small computer with a file system in the flash: it reaches from 2 MB to
 the end of the flash (2 MB on a flash of 4 MB, 6 MB on one of 8 MB such as a WROVER; the console reads the size from
 the flash chip when it starts). Any terminal program works with it (`ls`, `cat`, `rm`, `df`, `format`, `run`,
-`boot`, `wlan`, `reset`, `help`), and the **Board Manager** of Asmonite (menu Board, see [boards.md](boards.md)) works
+`boot`, `wlan`, `reset`, `help`), and the **Board Manager** of Asmonite (menu Board, see [board-manager.md](board-manager.md)) works
 with it:
 
 - **Prepare Board** writes the console into the flash (over the boot ROM), makes its file system when there
@@ -523,7 +527,7 @@ depending on the module, PSRAM in which even code can run there.
 | "No board with an ESP32 is plugged in" | The USB cable (some carry power only), the driver of the USB serial chip |
 | "… does not go into the download mode by itself: hold the BOOT button" | Hold BOOT down until the program runs |
 | "COM14 is open in another program" | Close the terminal, then F9 again |
-| "The console of Asmonite does not answer" (Board Manager) | A program runs (Reset), or the console is not in the flash (Prepare Board) |
+| "The Asmonite console does not respond" (Board Manager) | A program runs (Reset), or the console is not in the flash (Prepare Board) |
 | "flash read err, 1000" at the COM port | The flash is empty (a new or erased board): Prepare Board in the Board Manager |
 | "wifi_connect: error 2041 (the WiFi package is not on the board …)" | Start the program with F9 (Asmonite writes the package), or Install WiFi in the Board Manager |
 | "the board keeps no WiFi network" | `wlan set` in the console (in the tab Serial) |

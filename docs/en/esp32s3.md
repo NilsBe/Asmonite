@@ -4,6 +4,10 @@ The ESP32-S3 from Espressif has two Xtensa LX7 cores (240 MHz) and a USB port th
 at the same time, as the ESP32-C3. Asmonite assembles Xtensa code (`.arch xtensa`), debugs a program in the RAM of
 core 0 and writes it into the flash, **with one USB cable, without a debug probe, without OpenOCD and without ESP-IDF**.
 
+> **New here?** Plug the board in, open **Board > Board Manager** and click **Prepare Board...**: then the
+> Asmonite console is on the board, and F9 runs your programs there. All about the Board Manager:
+> [board-manager.md](board-manager.md).
+
 > **The examples of this page:** the examples in assembly (`examples/<board>/…`) and some in aBelle that this page names
 > are being gone through again and come into the folder `examples/` one by one; until then they are not in the ZIP and
 > not in the public repository. What is released already is in [examples/README.md](../../examples/README.md).
@@ -137,7 +141,7 @@ and `scan.abel` (the WiFi networks nearby, see [The WiFi](#the-wifi)).
 to its end (a little over 14 MB on 16 MB) and the same packets for Asmonite. It speaks over the USB port of the chip:
 any terminal program on the COM port of the chip, the baud rate does not matter.
 
-The **Board Manager** (menu Board, see [boards.md](boards.md)) works with the S3 as with the ESP32; with several boards
+The **Board Manager** (menu Board, see [board-manager.md](board-manager.md)) works with the S3 as with the ESP32; with several boards
 plugged in, you choose it in the list on the left:
 
 - **Prepare Board** writes the console into the flash over the boot ROM (on the S3 at the address 0) and makes

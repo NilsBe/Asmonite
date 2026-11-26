@@ -15,6 +15,16 @@ vorhandene Quelltexte bedeuten; solche Änderungen stehen unter „Geändert“ 
   Kommentar, was er tut und welcher Wert herauskommt (Werte, Rechnen, Bits, Speicher und Stack, bedingte Sprünge,
   Schleifen, Unterprogramme, eine Fakultät, die sich selbst aufruft). Ohne Pin: gemacht für F7 und den Blick auf die
   Register.
+- **Der Takt des Kerns im Board Manager**: Rechtsklick (oder Doppelklick) auf die Zeile *CPU clock*, *Set the
+  Clock...*, dann einen Takt aus der Liste des Boards wählen (ESP32, ESP32-S3, ESP32-C3, ESP32-S31, Pico, Pico 2). Das
+  Board behält ihn bis zum nächsten Reset. Asmonite stellt ihn mit dem Programm `setclock` ein; fehlt es auf dem Board,
+  kompiliert Asmonite `examples/<board>/setclock.abel` und lädt es vorher hoch. Bei einem Takt, mit dem das WLAN nicht
+  läuft, schaltet Asmonite das WLAN vorher aus (nach Rückfrage).
+- **Eine eigene Seite für den Board Manager**: `docs/de/board-manager.md` und die Seite *Board Manager* auf der Website
+  (ein eigener Menüpunkt): ein neues Board in drei Schritten, das Fenster, die Infozeilen, Dateien und Programme, die
+  Knöpfe jedes Boards, was hilft, wenn etwas nicht klappt. Die Anleitungen der Boards beginnen mit einem kurzen „Neu
+  hier?“, das dorthin zeigt; die alten Knopfnamen auf der Website (Upload This Program, This Program Autostarts, Install
+  WiFi Again, Reset Board, Read Chip) sind jetzt die aktuellen.
 
 ### Geändert
 - **Pico und Pico 2 nur noch über ihr USB-Kabel**: Die Anleitung (`docs/de/riscv-pico2.md`), die Übersicht der

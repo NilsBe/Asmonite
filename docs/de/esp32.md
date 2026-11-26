@@ -8,6 +8,10 @@ läuft neben dem Programm und spricht über den seriellen Port mit Asmonite. Daz
 Flash und das **WLAN**: Ein aBelle-Programm verbindet sich mit einem Netz, holt eine Adresse per DHCP und spricht
 UDP und TCP, auch während der Debugger es an einem Breakpoint anhält.
 
+> **Neu hier?** Board einstecken, **Board > Board Manager** öffnen und **Prepare Board...** klicken: Dann
+> ist die Konsole von Asmonite auf dem Board, und F9 startet deine Programme dort. Alles über den Board Manager:
+> [board-manager.md](board-manager.md).
+
 > **Die Beispiele dieser Seite:** Die Beispiele in Assembler (`examples/<board>/…`) und einige in aBelle, die diese
 > Seite nennt, werden gerade noch einmal durchgesehen und kommen nach und nach in den Ordner `examples/`; bis dahin
 > fehlen sie in der ZIP-Datei und im öffentlichen Repository. Was schon freigegeben ist, steht in
@@ -188,7 +192,7 @@ Ports, das setzt den Chip zurück, und ein Programm im RAM ist weg.
 `boards/esp32/console.asm` macht aus dem Board einen kleinen Rechner mit einem Dateisystem im Flash: Es reicht von
 2 MB bis zum Ende des Flash (bei 4 MB also 2 MB, bei 8 MB wie auf einem WROVER 6 MB; die Konsole liest die Größe beim
 Start aus dem Flash-Chip). Jedes Terminalprogramm arbeitet mit ihr (`ls`, `cat`, `rm`, `df`, `format`, `run`,
-`boot`, `wlan`, `reset`, `help`), und der **Board Manager** von Asmonite (Menü Board, siehe [boards.md](boards.md))
+`boot`, `wlan`, `reset`, `help`), und der **Board Manager** von Asmonite (Menü Board, siehe [board-manager.md](board-manager.md))
 arbeitet mit ihr:
 
 - **Prepare Board** schreibt die Konsole in den Flash (über das Boot-ROM), legt ihr Dateisystem an, wenn es
@@ -537,7 +541,7 @@ PSRAM, in dem dort sogar Code laufen kann.
 | „No board with an ESP32 is plugged in“ | Das USB-Kabel (manche führen nur Strom), der Treiber des USB-Seriell-Chips |
 | „… does not go into the download mode by itself: hold the BOOT button“ | BOOT gedrückt halten, bis das Programm läuft |
 | „COM14 is open in another program“ | Das Terminal schließen, dann noch einmal F9 |
-| „The console of Asmonite does not answer“ (Board Manager) | Ein Programm läuft (Reset), oder die Konsole ist nicht im Flash (Prepare Board) |
+| „The Asmonite console does not respond“ (Board Manager) | Ein Programm läuft (Reset), oder die Konsole ist nicht im Flash (Prepare Board) |
 | „flash read err, 1000“ am COM-Port | Der Flash ist leer (ein neues oder gelöschtes Board): Prepare Board im Board Manager |
 | „wifi_connect: error 2041 (the WiFi package is not on the board …)“ | Das Programm mit F9 starten (Asmonite schreibt das Paket), oder Install WiFi im Board Manager |
 | „the board keeps no WiFi network“ | `wlan set` in der Konsole (im Reiter Serial) |

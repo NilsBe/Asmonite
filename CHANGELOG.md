@@ -13,6 +13,16 @@ existing sources mean; such changes are listed under "Changed" and marked **(sou
   (Pico, Cortex-M0+, Thumb-1) and `examples/esp32c3/instructions_riscv.asm` (ESP32-C3, RISC-V): each instruction with
   a comment on what it does and the value it gives (values, arithmetic, bits, memory and stack, conditional
   branches, loops, subroutines, a factorial that calls itself). No pin: made for F7 and watching the registers.
+- **The clock of the core in the Board Manager**: right-click (or double-click) the line *CPU clock*, choose *Set the
+  Clock...* and pick a clock from the list of the board (ESP32, ESP32-S3, ESP32-C3, ESP32-S31, Pico, Pico 2). The
+  board keeps it until the next reset. Asmonite sets it with the program `setclock`; if it is not on the board,
+  Asmonite compiles `examples/<board>/setclock.abel` and uploads it first. A clock at which the WiFi does not run
+  switches the WiFi off first (asked).
+- **A page of its own for the Board Manager**: `docs/en/board-manager.md` and the page *Board Manager* on the website
+  (its own menu item): a new board in three steps, the window, the info lines, files and programs, the buttons of each
+  board, what to do when something does not work. The guides of the boards start with a short "New here?" pointing
+  to it; the old button names on the website (Upload This Program, This Program Autostarts, Install WiFi Again, Reset
+  Board, Read Chip) are the current ones now.
 
 ### Changed
 - **The Pico and the Pico 2 over their USB cable only**: the guide (`docs/en/riscv-pico2.md`), the overview of the

@@ -5,8 +5,8 @@
 **Asmonite** is an assembler with an editor and a debugger for Windows. **Dismonite** is a disassembler
 and debugger that reads existing programs. Both are free, run on Windows without an installer, and
 work with 32-bit and 64-bit Intel code, with ARM, with Xtensa on the ESP32 and the ESP32-S3, and with RISC-V (32 and 64 bits) on the
-ESP32-C3, the ESP32-S31, the Raspberry Pi Pico 2 and the MangoPi MQ-Pro (Allwinner D1). With them comes **aBelle**, a
-small language with the look of Python, for Windows and the boards (ESP32, ESP32-S3, ESP32-C3, ESP32-S31, Raspberry
+ESP32-C3, the ESP32-S31, the Raspberry Pi Pico 2 and the MangoPi MQ-Pro (Allwinner D1). With them comes **aBelle** (a
+Python-like programming language), for Windows and the boards (ESP32, ESP32-S3, ESP32-C3, ESP32-S31, Raspberry
 Pi Pico and Pico 2), debugged in Asmonite line by line in its source.
 
 Current version: **0.16.0** | Website: [asmonite.com](https://asmonite.com) and
@@ -33,9 +33,11 @@ Current version: **0.16.0** | Website: [asmonite.com](https://asmonite.com) and
   the RISC-V cores (Hazard3) of the Pico 2: UF2 files for the BOOTSEL drive. On the Pico W, the Pico 2 W and the clone
   "Pico W-2023" the **WiFi** too (ping, DHCP, `name.local`, also while a program runs). Guide:
   [docs/en/riscv-pico2.md](docs/en/riscv-pico2.md).
+- **The Board Manager** (menu Board) is the place for the boards: plug in a new board, click **Prepare Board**,
+  done. After that the files and programs on the board, the WiFi, the clock, and for each board only the buttons that
+  fit it: [docs/en/board-manager.md](docs/en/board-manager.md).
 - **Which board is debugged how** (all but the Blue Pill with the USB cable alone) and how its serial output
-  reaches the PC (the tab Serial); the **Board Manager** shows the boards plugged in, what it knows about them, and
-  only the buttons that fit the board: [docs/en/boards.md](docs/en/boards.md).
+  reaches the PC (the tab Serial): [docs/en/boards.md](docs/en/boards.md).
 - **ESP32 and ESP32-S3:** Xtensa (`.arch xtensa`, `.target esp32` / `.target esp32s3`), also in aBelle. A small
   **console** of Asmonite lives in the flash of the board, with files: F9 runs a program over it and debugs it,
   **without a JTAG probe, without the BOOT button, without a reset**; output and Stop in the tab Serial. The Board

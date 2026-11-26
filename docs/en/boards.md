@@ -23,54 +23,9 @@ Every board here but the Blue Pill needs nothing but its USB cable: no debug pro
 
 ## The Board Manager
 
-**Board > Board Manager** shows the boards plugged in and, for each, only what can be done with it. On the left are
-the boards (**Scan** looks for them anew) and under them a photo of the board chosen. On the right is what Asmonite knows
-about the board, for a board with the console of Asmonite the files of the console under it,
-at the bottom the buttons for the board.
-
-When it opens, the Board Manager reads only what does not disturb the board: what Windows tells about the USB device
-(id, maker, port), the hello of the console of Asmonite (chip, version of the console, flash; "Console: v5 (current:
-v5)": the number `console_version()` gives, and the one of the console of this Asmonite; another console: Prepare
-Board writes the current one), on an ESP32, S3, C3 and S31 the version of the WiFi service in its package ("WiFi
-service: v10 (current: v11)": Install WiFi writes the current one; a right click copies one line or all of
-them; on the line WiFi it sets the network of the board, switches WiFi on or off, forgets the network and sets the
-name of the board, on the line telnet its password: Set Network... lists the networks this PC sees, on the C3, S31 and the Pico W also the ones the
-board sees, and From Windows fills in the password Windows has saved), and for the Pico in its USB boot the chip and
-the flash over PICOBOOT. More about an ESP32 without a console only its boot ROM tells: **Read
-Chip** reads the chip, revision, MAC, crystal and flash, and restarts the board for it. On the ESP32-S3 it also names
-the PSRAM in the chip (modules such as N16R8: 8 MB), which Espressif writes into the eFuses; the PSRAM of an ESP32
-WROVER, a chip of its own next to the ESP32, the eFuses do not know.
-
-The files: a right click on a file shows what can be done with it: for a program **Run**, for a text file **Open in
-Editor** (both also Enter or a double click; the editor gets a copy, a change stays on the PC), **Autostart**,
-**Download**, **Delete** (also Del); and, on the empty list too, **Upload File** and **Refresh** (F5). Files dragged
-from the Explorer onto the window go onto the board. **Examples...** opens an example for the board chosen: from
-`examples\common` (for every board), from the folder of the board when it has one (`examples\esp32` ...), or the
-overview of the examples. Asmonite opens it in the editor and, for aBelle, sets **Project > aBelle for** to the board of
-the tab Serial: F9 then runs it there.
-
-| Board | Buttons |
-|---|---|
-| ESP32, ESP32-S3 | the files: **Upload File**, **Refresh**, in the context menu of a file **Run**, **Autostart**, **Download**, **Delete**; the board: **Reset**, **Chip Details**, **Prepare Board**, **Install WiFi**, **Format**, **Erase Flash** |
-| ESP32-S31 (RISC-V) at the USB port of the chip | as on the ESP32-C3 (the console of `boards/esp32s31`, in the flash at 0x2000), with its WiFi (Install WiFi); **Chip Details** names the chip, revision, MAC, PSRAM, crystal and flash. Behind a USB serial chip Asmonite takes it for an ESP32 until Chip Details finds it |
-| ESP32-S3 or ESP32-C3, not known yet (both have the same USB id, no console answers) | **Chip Details**, **Prepare Board** |
-| ESP32-C3 | as the ESP32 and the ESP32-S3 once its console runs (its console says it is a C3: packet H); without it **Reset**, **Chip Details**, **Prepare Board**, **Erase Flash** (over its boot ROM); more in [esp32c3.md](esp32c3.md) |
-| Pico 2 and Pico with the console at the USB cable | the files of the console as for the ESP32 (**Upload File**, **Refresh**, in the context menu **Run**, **Autostart**, **Download**, **Delete**); the board: **Reset**, **Prepare Board** (a new console, without the BOOTSEL button), **Format**; more in [riscv-pico2.md](riscv-pico2.md) |
-| Blue Pill behind a debug probe | **Reset**, **Erase Flash**; see [stm32.md](stm32.md) |
-| the clone "Pico W-2023" (an RP2040 with an ESP8285 instead of the CYW43439), the console over the USB cable | the files of the console as on the Pico; the board: **Prepare Board**, **Install WiFi (ESP8285)** (the firmware of Asmonite into the ESP8285, about 40 s; the board plugged in with its BOOT button held, the question says how) |
-| Pico in its USB boot (BOOTSEL) | **Prepare Board** (the console as a UF2 file onto its drive), **Start Program** (leaves the USB boot, the program in the flash starts), **Erase Flash** |
-| Pico 2 in its USB boot (BOOTSEL) | **Prepare Board** (as on the Pico), **Arm Cores**, **RISC-V Cores** (over its drive RP2350) |
-| a board Asmonite does not know | no buttons; only what Windows tells about it |
-
-**RISC-V Cores** and **Arm Cores** switch a Pico 2 in its USB boot: the boot ROM starts the cores the program in the
-flash is for, so the Board Manager writes the example `blink` of the other cores as a UF2 file onto its drive (the
-LED blinks). The console is an Arm program: **Prepare Board** brings it, and the Arm cores, back.
-
-**By itself** the Board Manager opens when you plug a board in for the first time, and when Asmonite starts with a
-board plugged in that it has not seen before. After that you open it from the menu. Asmonite remembers the boards in
-the section `[Boards]` of the file `Asmonite.ini` (by their USB serial number, without one by the USB socket of the PC). When
-Asmonite is in the background, it flashes in the taskbar. A limit: two ESP32 DevKits with the USB serial chip CP2102
-have the same serial number ("0001"); so the second one counts as seen already.
+**Board > Board Manager** shows the boards plugged in and, for each, only what works with it: preparing a new
+board (**Prepare Board...**), its files and programs, the WiFi, the clock and the buttons for the board. When you
+plug in a board for the first time, it opens by itself. All about it: **[board-manager.md](board-manager.md)**.
 
 ## The tab Serial
 
