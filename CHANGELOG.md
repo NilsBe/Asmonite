@@ -5,7 +5,16 @@ What changed from version to version. German: [docs/de/aenderungen.md](docs/de/a
 Version numbers: MAJOR.MINOR.PATCH. While MAJOR is 0, a MINOR step may change what
 existing sources mean; such changes are listed under "Changed" and marked **(sources)**.
 
-## Unreleased
+## 0.17.0 – 2026-11-26
+
+### In short
+- **The Board Manager** has a page of its own (docs and website): a new board in three steps, the info lines, files
+  and programs, the buttons of each board; and it sets the **clock of the core**: *Set the Clock...* on the line
+  *CPU clock*.
+- **The Pico and the Pico 2 over their USB cable only**: the guides and the messages describe the way without a debug
+  probe.
+- **Examples that go through the important instructions** of Xtensa, Arm (Cortex-M33 and Cortex-M0+) and RISC-V,
+  step by step with F7.
 
 ### New
 - **Examples that go through the important instructions, step by step**: `examples/esp32/instructions_xtensa.asm`

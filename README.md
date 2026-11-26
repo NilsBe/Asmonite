@@ -9,7 +9,7 @@ ESP32-C3, the ESP32-S31, the Raspberry Pi Pico 2 and the MangoPi MQ-Pro (Allwinn
 Python-like programming language), for Windows and the boards (ESP32, ESP32-S3, ESP32-C3, ESP32-S31, Raspberry
 Pi Pico and Pico 2), debugged in Asmonite line by line in its source.
 
-Current version: **0.16.0** | Website: [asmonite.com](https://asmonite.com) and
+Current version: **0.17.0** | Website: [asmonite.com](https://asmonite.com) and
 [dismonite.com](https://dismonite.com) | Chat: [Discord](https://discord.gg/vVf7yqpyR)
 
 ![The Asmonite editor](assets/editor.png)

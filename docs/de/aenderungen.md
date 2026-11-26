@@ -6,7 +6,16 @@ Versionsnummern: MAJOR.MINOR.PATCH. Solange MAJOR 0 ist, darf ein MINOR-Schritt 
 vorhandene Quelltexte bedeuten; solche Änderungen stehen unter „Geändert“ und sind mit
 **(Quelltexte)** markiert.
 
-## Noch nicht veröffentlicht
+## 0.17.0 – 2026-11-26
+
+### Kurz gesagt
+- **Der Board Manager** hat eine eigene Seite (Docs und Website): ein neues Board in drei Schritten, die Infozeilen,
+  Dateien und Programme, die Knöpfe jedes Boards; und er stellt den **Takt des Kerns** ein: *Set the Clock...* auf
+  der Zeile *CPU clock*.
+- **Pico und Pico 2 nur noch über ihr USB-Kabel**: Die Anleitungen und die Meldungen beschreiben den Weg ohne
+  Debug-Probe.
+- **Beispiele, die die wichtigen Befehle durchgehen**, für Xtensa, Arm (Cortex-M33 und Cortex-M0+) und RISC-V, Schritt
+  für Schritt mit F7.
 
 ### Neu
 - **Beispiele, die die wichtigen Befehle Schritt für Schritt durchgehen**: `examples/esp32/instructions_xtensa.asm`
