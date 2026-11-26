@@ -22,7 +22,7 @@ vorhandene Quelltexte bedeuten; solche Änderungen stehen unter „Geändert“ 
   Asmonite (einmal BOOTSEL, Prepare Board, danach Dateien, F9 und der Debugger über dieses Kabel); die Debug-Probe kommt
   darin nicht mehr vor. Programme im Flash und für die RISC-V-Kerne des Pico 2 laufen als UF2-Datei. Debug > Debug
   targets zeigt vorerst keine Einstellungen für die Probe und OpenOCD; eine eingesteckte Probe nimmt Asmonite weiter.
-  Was über die Probe geschrieben war, steht in `docs/de/debug-probe.md` (noch nicht verlinkt).
+  Die Probe bekommt später ein eigenes Kapitel.
 - **Die Meldung, wenn kein Pico gefunden wird**, sagt, was über USB zu tun ist: das Board einstecken, oder BOOTSEL und
   Prepare Board, wenn es noch keine Konsole hat; bei einem Programm für den Flash, ihm `.imagebase 0x20000000` zu geben
   oder es als UF2-Datei zu starten.

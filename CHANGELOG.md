@@ -19,8 +19,8 @@ existing sources mean; such changes are listed under "Changed" and marked **(sou
   boards, the website and the messages of Asmonite describe the way over the USB cable and the console of Asmonite
   (BOOTSEL once, Prepare Board, then files, F9 and the debugger over that cable); the debug probe is no longer part
   of them. Programs in the flash and for the RISC-V cores of the Pico 2 run as a UF2 file. Debug > Debug targets
-  shows no settings for the probe and OpenOCD for now; a probe that is plugged in is still used. What was written
-  about the probe is kept in `docs/en/debug-probe.md` (not linked yet).
+  shows no settings for the probe and OpenOCD for now; a probe that is plugged in is still used. The probe gets
+  a chapter of its own later.
 - **The message when no Pico is found** says what to do over USB: plug the board in, or BOOTSEL and Prepare Board
   when it has no console yet; for a program for the flash it says to give it `.imagebase 0x20000000` or to run it
   as a UF2 file.
