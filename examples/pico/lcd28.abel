@@ -1,0 +1,336 @@
+# The Waveshare Pico-ResTouch-LCD-2.8 on a Raspberry Pi Pico (W): the colour display (2.8 inch, 320 x 240 pixels, an
+# ST7789VW) through SPI1, the SPI unit of the RP2040. The program fills the whole screen a few times and says how
+# long that takes, draws colour bars and text, and then shows how many seconds it runs. Ctrl+C in the console (or
+# Stop in Asmonite) ends it.
+#
+# The pins of the display (the Pico sits on its back):
+#   LCD_DC GP8, LCD_CS GP9, SPI1 SCK GP10, MOSI GP11, MISO GP12, the backlight GP13, LCD_RST GP15,
+#   the touch (XPT2046, next step) TP_CS GP16, TP_IRQ GP17.
+# The WiFi chip of the Pico W uses GP23, GP24, GP25 and GP29: no pin is used twice.
+#
+# SPI1 (RP2040 datasheet, chapter "SPI", an ARM PL022) at 0x40040000:
+#   SSPCR0 (0x00): DSS (bits 3..0) the bits of a word - 1 (7: 8 bits, 15: 16 bits), SPI mode 0, SCR (bits 15..8);
+#   SSPCR1 (0x04) bit 1 SSE: on (as master);
+#   SSPDR (0x08): a word into the FIFO to send (8 words deep), the words it got back;
+#   SSPSR (0x0C): bit 1 TNF (room in the FIFO), bit 2 RNE (a word got back), bit 4 BSY (it sends);
+#   SSPCPSR (0x10): the prescaler, even. The clock is clk_peri / (prescaler * (1 + SCR)). The console runs clk_peri
+#   at 48 MHz, so 2 and SCR 0 give 24 MHz, the most the RP2040 can.
+# Out of its reset: RESETS (0x4000C000) bit 17, cleared through its alias 0x4000F000, RESET_DONE at 0x4000C008.
+# The pins: FUNCSEL 1 (SPI) in IO_BANK0 for GP10, GP11, GP12.
+#
+# The display: commands with DC low, their data and the pixels with DC high. A pixel is a 16-bit word (RGB565); for
+# a run of pixels the SPI sends 16-bit words, so each pixel is one write into the FIFO.
+#
+# Measured on a Pico W (the clock of the core set in the Board Manager):
+#   133 MHz: the whole screen in 56 ms, "Hello, world!" four times bigger in 8 ms;
+#    48 MHz: the whole screen in 127 ms, "Hello, world!" four times bigger in 22 ms.
+# 320 x 240 pixels of 16 bits at 24 MHz take 51 ms at least. At 133 MHz the SPI is the limit; at 48 MHz the loop is
+# (about 80 cycles of the core a pixel). clk_peri stays at 48 MHz at every clock of the core (cpu_clock leaves it
+# alone), so the SPI never gets faster than 24 MHz.
+
+target "pico"
+include "console.abel"
+
+LCD_DC = 8                      # the pins of the display
+LCD_CS = 9
+SPI_SCK = 10
+SPI_MOSI = 11
+SPI_MISO = 12
+LCD_BL = 13
+LCD_RST = 15
+TP_CS = 16
+
+WIDTH = 320                     # the display in landscape
+HEIGHT = 240
+
+spi: u32[8] at 0x40040000       # SPI1
+SSPCR0 = 0
+SSPCR1 = 1
+SSPDR = 2
+SSPSR = 3
+SSPCPSR = 4
+SPI_TNF = 2                     # bits of SSPSR
+SPI_RNE = 4
+SPI_BSY = 16
+
+resets: u32[3] at 0x4000C000    # RESETS: [2] RESET_DONE
+resets_clr: u32[1] at 0x4000F000
+
+BLACK = 0x0000                  # colours in RGB565: 5 bits red, 6 green, 5 blue
+WHITE = 0xFFFF
+RED = 0xF800
+GREEN = 0x07E0
+BLUE = 0x001F
+YELLOW = 0xFFE0
+CYAN = 0x07FF
+MAGENTA = 0xF81F
+GREY = 0x8410
+ORANGE = 0xFD20
+
+digits: char[12]
+
+# n milliseconds
+def wait_ms(n):
+    t = millis()
+    while millis() - t < n:
+        pass
+
+# ---------- SPI1 ----------
+
+# SPI1 out of its reset, on as master at 24 MHz, mode 0, 8 bits; its pins
+def spi_init():
+    resets_clr[0] = u32(1 << 17)
+    while (resets[2] & u32(1 << 17)) == 0:
+        pass
+    spi[SSPCR1] = 0                                 # off while it is set up
+    spi[SSPCPSR] = 2                                # 48 MHz / 2
+    spi[SSPCR0] = 7                                 # 8 bits, mode 0, SCR 0: 24 MHz
+    spi[SSPCR1] = 2                                 # SSE: on
+    con_pads[1 + SPI_SCK] = 0x63                    # the input on, 8 mA, Schmitt trigger, fast edges
+    con_pads[1 + SPI_MOSI] = 0x63
+    con_pads[1 + SPI_MISO] = 0x52                   # the input on
+    con_io[1 + 2 * SPI_SCK] = 1                     # FUNCSEL 1: SPI1
+    con_io[1 + 2 * SPI_MOSI] = 1
+    con_io[1 + 2 * SPI_MISO] = 1
+
+# back when the SPI has sent everything; the words it got back thrown away
+def spi_wait():
+    while spi[SSPSR] & SPI_BSY:
+        pass
+    while spi[SSPSR] & SPI_RNE:
+        d = spi[SSPDR]
+
+# words of 8 or 16 bits from now on (only while the SPI is idle)
+def spi_bits(n):
+    spi_wait()
+    spi[SSPCR0] = u32(n - 1)
+
+# a word into the FIFO (when it has room)
+def spi_put(v):
+    while (spi[SSPSR] & SPI_TNF) == 0:
+        pass
+    spi[SSPDR] = u32(v)
+
+# ---------- the display ----------
+
+# a command (DC low); its data bytes follow with spi_put; CS high and low again first
+def command(c):
+    spi_bits(8)
+    gpio_write(LCD_CS, 1)
+    gpio_write(LCD_CS, 0)
+    gpio_write(LCD_DC, 0)
+    spi_put(c)
+    spi_wait()
+    gpio_write(LCD_DC, 1)
+
+# the pins as outputs, the reset, the commands that switch it on
+def display_init():
+    gpio_output(LCD_CS)
+    gpio_output(LCD_DC)
+    gpio_output(LCD_RST)
+    gpio_output(LCD_BL)
+    gpio_output(TP_CS)
+    gpio_write(TP_CS, 1)                            # the touch not selected: it shares the SPI
+    gpio_write(LCD_CS, 1)
+    gpio_write(LCD_DC, 1)
+    spi_init()
+    gpio_write(LCD_RST, 1)
+    wait_ms(5)
+    gpio_write(LCD_RST, 0)                          # a reset by its pin
+    wait_ms(20)
+    gpio_write(LCD_RST, 1)
+    wait_ms(150)
+    command(0x01)                                   # SWRESET
+    wait_ms(150)
+    command(0x11)                                   # SLPOUT: out of sleep
+    wait_ms(120)
+    command(0x3A)                                   # COLMOD: 16 bits per pixel
+    spi_put(0x55)
+    command(0x36)                                   # MADCTL: landscape (MV, MX)
+    spi_put(0x60)
+    command(0x21)                                   # INVON (the IPS panel needs it)
+    command(0x13)                                   # NORON: the normal mode
+    command(0x29)                                   # DISPON
+    spi_wait()
+    wait_ms(20)
+    gpio_write(LCD_BL, 1)                           # the backlight on
+
+# the window from x0, y0 to x1, y1 (both included); then 16-bit words: its pixels follow
+def window(x0, y0, x1, y1):
+    command(0x2A)                                   # CASET: the columns
+    spi_put(x0 >> 8)
+    spi_put(x0 & 0xFF)
+    spi_put(x1 >> 8)
+    spi_put(x1 & 0xFF)
+    command(0x2B)                                   # RASET: the rows
+    spi_put(y0 >> 8)
+    spi_put(y0 & 0xFF)
+    spi_put(y1 >> 8)
+    spi_put(y1 & 0xFF)
+    command(0x2C)                                   # RAMWR: the pixels from here on
+    spi_bits(16)
+
+# a rectangle in one colour
+def fill_rect(x, y, w, h, colour):
+    window(x, y, x + w - 1, y + h - 1)
+    n = w * h
+    while n > 0:
+        while (spi[SSPSR] & SPI_TNF) == 0:
+            pass
+        spi[SSPDR] = u32(colour)
+        n -= 1
+    spi_wait()
+
+# ---------- text ----------
+
+# the 5 columns of the characters 4 g .. 4 g + 3 (from 32 on), a column a byte, its lowest bit at the top (the same
+# font as examples/esp32/tdisplay.abel)
+def glyphs(g) pchar:
+    if g == 0:
+        return "\x00\x00\x00\x00\x00\x00\x00\x5F\x00\x00\x00\x07\x00\x07\x00\x14\x7F\x14\x7F\x14"
+    if g == 1:
+        return "\x24\x2A\x7F\x2A\x12\x23\x13\x08\x64\x62\x36\x49\x55\x22\x50\x00\x05\x03\x00\x00"
+    if g == 2:
+        return "\x00\x1C\x22\x41\x00\x00\x41\x22\x1C\x00\x08\x2A\x1C\x2A\x08\x08\x08\x3E\x08\x08"
+    if g == 3:
+        return "\x00\x50\x30\x00\x00\x08\x08\x08\x08\x08\x00\x60\x60\x00\x00\x20\x10\x08\x04\x02"
+    if g == 4:
+        return "\x3E\x51\x49\x45\x3E\x00\x42\x7F\x40\x00\x42\x61\x51\x49\x46\x21\x41\x45\x4B\x31"
+    if g == 5:
+        return "\x18\x14\x12\x7F\x10\x27\x45\x45\x45\x39\x3C\x4A\x49\x49\x30\x01\x71\x09\x05\x03"
+    if g == 6:
+        return "\x36\x49\x49\x49\x36\x06\x49\x49\x29\x1E\x00\x36\x36\x00\x00\x00\x56\x36\x00\x00"
+    if g == 7:
+        return "\x08\x14\x22\x41\x00\x14\x14\x14\x14\x14\x00\x41\x22\x14\x08\x02\x01\x51\x09\x06"
+    if g == 8:
+        return "\x32\x49\x79\x41\x3E\x7E\x11\x11\x11\x7E\x7F\x49\x49\x49\x36\x3E\x41\x41\x41\x22"
+    if g == 9:
+        return "\x7F\x41\x41\x22\x1C\x7F\x49\x49\x49\x41\x7F\x09\x09\x01\x01\x3E\x41\x41\x51\x32"
+    if g == 10:
+        return "\x7F\x08\x08\x08\x7F\x00\x41\x7F\x41\x00\x20\x40\x41\x3F\x01\x7F\x08\x14\x22\x41"
+    if g == 11:
+        return "\x7F\x40\x40\x40\x40\x7F\x02\x04\x02\x7F\x7F\x04\x08\x10\x7F\x3E\x41\x41\x41\x3E"
+    if g == 12:
+        return "\x7F\x09\x09\x09\x06\x3E\x41\x51\x21\x5E\x7F\x09\x19\x29\x46\x46\x49\x49\x49\x31"
+    if g == 13:
+        return "\x01\x01\x7F\x01\x01\x3F\x40\x40\x40\x3F\x1F\x20\x40\x20\x1F\x7F\x20\x18\x20\x7F"
+    if g == 14:
+        return "\x63\x14\x08\x14\x63\x03\x04\x78\x04\x03\x61\x51\x49\x45\x43\x00\x7F\x41\x41\x00"
+    if g == 15:
+        return "\x02\x04\x08\x10\x20\x00\x41\x41\x7F\x00\x04\x02\x01\x02\x04\x40\x40\x40\x40\x40"
+    if g == 16:
+        return "\x00\x01\x02\x04\x00\x20\x54\x54\x54\x78\x7F\x48\x44\x44\x38\x38\x44\x44\x44\x20"
+    if g == 17:
+        return "\x38\x44\x44\x48\x7F\x38\x54\x54\x54\x18\x08\x7E\x09\x01\x02\x08\x54\x54\x54\x3C"
+    if g == 18:
+        return "\x7F\x08\x04\x04\x78\x00\x44\x7D\x40\x00\x20\x40\x44\x3D\x00\x7F\x10\x28\x44\x00"
+    if g == 19:
+        return "\x00\x41\x7F\x40\x00\x7C\x04\x18\x04\x78\x7C\x08\x04\x04\x78\x38\x44\x44\x44\x38"
+    if g == 20:
+        return "\x7C\x14\x14\x14\x08\x08\x14\x14\x18\x7C\x7C\x08\x04\x04\x08\x48\x54\x54\x54\x20"
+    if g == 21:
+        return "\x04\x3F\x44\x40\x20\x3C\x40\x40\x20\x7C\x1C\x20\x40\x20\x1C\x3C\x40\x30\x40\x3C"
+    if g == 22:
+        return "\x44\x28\x10\x28\x44\x0C\x50\x50\x50\x3C\x44\x64\x54\x4C\x44\x00\x08\x36\x41\x00"
+    if g == 23:
+        return "\x00\x00\x7F\x00\x00\x00\x41\x36\x08\x00\x08\x04\x08\x10\x08\x00\x06\x09\x09\x06"
+    return "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+
+# the character c at x, y, size times bigger (its cell: 6 x 8 pixels times size), in the colour fg on bg. Each row
+# and each column of the font goes out size times, so no pixel needs a division (the Cortex-M0+ has no instruction
+# for it)
+def draw_char(x, y, c, size, fg, bg):
+    if c < 32 or c > 127:
+        c = '?'
+    g = glyphs((c - 32) / 4)
+    first = ((c - 32) % 4) * 5
+    window(x, y, x + 6 * size - 1, y + 8 * size - 1)
+    for r in 0..8:
+        for sy in 0..size:
+            for k in 0..6:
+                colour = bg
+                if k < 5 and r < 7:
+                    if (g[first + k] >> r) & 1:
+                        colour = fg
+                for sx in 0..size:
+                    while (spi[SSPSR] & SPI_TNF) == 0:
+                        pass
+                    spi[SSPDR] = u32(colour)
+    spi_wait()
+
+# a text at x, y; the x behind it
+def draw_text(x, y, s: pchar, size, fg, bg) i32:
+    i = 0
+    while s[i] != 0:
+        draw_char(x, y, s[i], size, fg, bg)
+        x += 6 * size
+        i += 1
+    return x
+
+# a number at x, y; the x behind it
+def draw_int(x, y, v, size, fg, bg) i32:
+    p = digits + 11
+    p[0] = 0
+    if v < 0:
+        x = draw_text(x, y, "-", size, fg, bg)
+        v = 0 - v
+    while True:
+        p -= 1
+        p[0] = '0' + v % 10
+        v = v / 10
+        if v == 0:
+            break
+    return draw_text(x, y, p, size, fg, bg)
+
+def main():
+    println("lcd28: the Pico-ResTouch-LCD-2.8 through SPI1 (Ctrl+C ends it)")
+    display_init()
+    # the speed: the whole screen six times, in six colours
+    t = millis()
+    fill_rect(0, 0, WIDTH, HEIGHT, RED)
+    fill_rect(0, 0, WIDTH, HEIGHT, GREEN)
+    fill_rect(0, 0, WIDTH, HEIGHT, BLUE)
+    fill_rect(0, 0, WIDTH, HEIGHT, YELLOW)
+    fill_rect(0, 0, WIDTH, HEIGHT, CYAN)
+    fill_rect(0, 0, WIDTH, HEIGHT, BLACK)
+    screen = (millis() - t) / 6
+    print("The whole screen in ")
+    print_int(screen)
+    println(" ms (SPI1 at 24 MHz).")
+    # the colours: a bar each, with its name
+    w = WIDTH / 6
+    fill_rect(0, 0, w, 28, RED)
+    fill_rect(w, 0, w, 28, GREEN)
+    fill_rect(2 * w, 0, w, 28, BLUE)
+    fill_rect(3 * w, 0, w, 28, YELLOW)
+    fill_rect(4 * w, 0, w, 28, CYAN)
+    fill_rect(5 * w, 0, w, 28, MAGENTA)
+    draw_text(6, 10, "red", 1, WHITE, RED)
+    draw_text(w + 6, 10, "green", 1, BLACK, GREEN)
+    draw_text(2 * w + 6, 10, "blue", 1, WHITE, BLUE)
+    draw_text(3 * w + 6, 10, "yellow", 1, BLACK, YELLOW)
+    draw_text(4 * w + 6, 10, "cyan", 1, BLACK, CYAN)
+    draw_text(5 * w + 6, 10, "magenta", 1, WHITE, MAGENTA)
+    t = millis()
+    draw_text(8, 48, "Hello, world!", 4, WHITE, BLACK)
+    print("\"Hello, world!\" four times bigger in ")
+    print_int(millis() - t)
+    println(" ms.")
+    draw_text(8, 100, "Raspberry Pi Pico + aBelle", 2, ORANGE, BLACK)
+    x = draw_text(8, 130, "The whole screen in ", 2, GREY, BLACK)
+    x = draw_int(x, 130, screen, 2, GREY, BLACK)
+    draw_text(x, 130, " ms", 2, GREY, BLACK)
+    # the corners: a small square in each, to see that the whole panel is used
+    fill_rect(0, HEIGHT - 10, 10, 10, WHITE)
+    fill_rect(WIDTH - 10, HEIGHT - 10, 10, 10, WHITE)
+    # how long it runs, once a second
+    start = millis()
+    seconds = -1
+    while True:
+        s = (millis() - start) / 1000
+        if s != seconds:
+            seconds = s
+            x = draw_text(8, 180, "running ", 3, CYAN, BLACK)
+            x = draw_int(x, 180, seconds, 3, CYAN, BLACK)
+            draw_text(x, 180, " s ", 3, CYAN, BLACK)
+        wait_ms(20)

@@ -109,6 +109,12 @@ Programs for one board, because they use its hardware: pins, sensors, its displa
   with their counts; SPI by hand over the pins.
 - `esp32/tdisplay_spi.abel`: **The display over SPI.** The same picture through VSPI, the SPI unit of the ESP32, at
   40 MHz: the whole screen in 14 ms instead of 350 ms by hand.
+- `pico/lcd28.abel`: **The Pico-ResTouch-LCD-2.8 display.** The plug-on colour display by Waveshare (ST7789VW, 320 x
+  240) through SPI1, the SPI unit of the RP2040, at 24 MHz: colour bars, "Hello, world!" in a 5 x 7 font, the seconds
+  since the start; the whole screen in 56 ms (at 133 MHz, at 48 MHz 127 ms).
+- `pico/touch28.abel`: **Painting on the touch display.** The touch screen (XPT2046) of the same display on the same
+  SPI1: tap three crosses first (the calibration), then paint with a finger or a pen, pick the colour at the top;
+  readings with too little pressure or too much scatter do not count, so no stray points appear.
 - `esp32s31/rgbblink.abel`: **The RGB LED.** Blinks the RGB LED of the ESP32-S31 board (a WS2812 at GPIO 60) by
   `rgb()` of its console; set `COLOUR` at its top.
 

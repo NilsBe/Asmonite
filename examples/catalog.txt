@@ -307,6 +307,30 @@ example tdisplay_spi
   en: the same picture through VSPI, the SPI unit of the ESP32, at 40 MHz: the whole screen in 14 ms instead of 350 ms
     by hand.
 
+example lcd28
+  files: pico/lcd28.abel
+  boards: picow
+  title.de: Das Display Pico-ResTouch-LCD-2.8
+  title.en: The Pico-ResTouch-LCD-2.8 display
+  de: das Farbdisplay von Waveshare zum Aufstecken (ST7789VW, 320 x 240) über SPI1, die SPI-Einheit des RP2040, mit
+    24 MHz: Farbbalken, „Hello, world!“ in einer 5x7-Schrift, die Sekunden seit dem Start; das ganze Bild in 56 ms
+    (bei 133 MHz, bei 48 MHz 127 ms).
+  en: the plug-on colour display by Waveshare (ST7789VW, 320 x 240) through SPI1, the SPI unit of the RP2040, at
+    24 MHz: colour bars, "Hello, world!" in a 5 x 7 font, the seconds since the start; the whole screen in 56 ms (at
+    133 MHz, at 48 MHz 127 ms).
+
+example touch28
+  files: pico/touch28.abel
+  boards: picow
+  title.de: Malen auf dem Touch-Display
+  title.en: Painting on the touch display
+  de: der Touchscreen (XPT2046) desselben Displays am selben SPI1: erst drei Kreuze antippen (die Kalibrierung), dann
+    mit Finger oder Stift malen, oben die Farbe wählen; Messungen bei zu wenig Druck oder zu großer Streuung zählen
+    nicht, so springen keine Punkte daneben.
+  en: the touch screen (XPT2046) of the same display on the same SPI1: tap three crosses first (the calibration), then
+    paint with a finger or a pen, pick the colour at the top; readings with too little pressure or too much scatter do
+    not count, so no stray points appear.
+
 example rgbblink
   files: esp32s31/rgbblink.abel
   boards: esp32s31

@@ -1,0 +1,483 @@
+# The touch of the Waveshare Pico-ResTouch-LCD-2.8 on a Raspberry Pi Pico (W): a small paint program. First it asks
+# for three taps on crosses (the calibration), then you paint with a finger or a pen; the bar at the top picks the
+# colour, "clear" wipes the picture. Ctrl+C in the console (or Stop in Asmonite) ends it.
+#
+# The touch controller is an XPT2046. It shares SPI1 with the display (see examples/pico/lcd28.abel), has its own
+# chip select TP_CS (GP16) and says through TP_IRQ (GP17, low) that the panel is touched. It is read at 2 MHz (the
+# display runs at 24 MHz, too fast for it): a command byte, then two bytes with the 12-bit value, its highest bit
+# first, one bit after the command:
+#   0xD0: the X plate, 0x90: the Y plate, 0xB0: Z1, the pressure (12 bits, differential, between the readings the
+#   IRQ stays on).
+# While a finger lands or leaves, the pressure is low and single values are far off: such readings are thrown away.
+# Which plate runs along the x of the screen depends on how the panel is built in; the calibration finds it out.
+
+target "pico"
+include "console.abel"
+
+LCD_DC = 8                      # the pins of the display and the touch
+LCD_CS = 9
+SPI_SCK = 10
+SPI_MOSI = 11
+SPI_MISO = 12
+LCD_BL = 13
+LCD_RST = 15
+TP_CS = 16
+TP_IRQ = 17
+
+WIDTH = 320                     # the display in landscape
+HEIGHT = 240
+BAR = 30                        # the height of the colour bar at the top
+PRESSURE = 100                  # Z1 at least this high: a real touch
+SPREAD = 40                     # the 8 values of a plate at most this far apart (of 4096)
+
+spi: u32[8] at 0x40040000       # SPI1
+SSPCR0 = 0
+SSPCR1 = 1
+SSPDR = 2
+SSPSR = 3
+SSPCPSR = 4
+SPI_TNF = 2                     # bits of SSPSR
+SPI_RNE = 4
+SPI_BSY = 16
+
+resets: u32[3] at 0x4000C000    # RESETS: [2] RESET_DONE
+resets_clr: u32[1] at 0x4000F000
+
+BLACK = 0x0000                  # colours in RGB565: 5 bits red, 6 green, 5 blue
+WHITE = 0xFFFF
+RED = 0xF800
+GREEN = 0x07E0
+BLUE = 0x001F
+YELLOW = 0xFFE0
+CYAN = 0x07FF
+MAGENTA = 0xF81F
+GREY = 0x8410
+
+digits: char[12]
+cal: i32[6]                     # the calibration: [0] 1 if screen x comes from the Y plate, [1] [2] raw x at screen
+                                # x 20 and 300, [3] [4] raw y at screen y 20 and 220
+raw: i32[2]                     # the last reading: X plate, Y plate
+point: i32[2]                   # the last point on the screen
+
+# n milliseconds
+def wait_ms(n):
+    t = millis()
+    while millis() - t < n:
+        pass
+
+# ---------- SPI1 ----------
+
+# SPI1 out of its reset, on as master at 24 MHz, mode 0, 8 bits; its pins
+def spi_init():
+    resets_clr[0] = u32(1 << 17)
+    while (resets[2] & u32(1 << 17)) == 0:
+        pass
+    spi[SSPCR1] = 0                                 # off while it is set up
+    spi[SSPCPSR] = 2                                # 48 MHz / 2
+    spi[SSPCR0] = 7                                 # 8 bits, mode 0, SCR 0: 24 MHz
+    spi[SSPCR1] = 2                                 # SSE: on
+    con_pads[1 + SPI_SCK] = 0x63                    # the input on, 8 mA, Schmitt trigger, fast edges
+    con_pads[1 + SPI_MOSI] = 0x63
+    con_pads[1 + SPI_MISO] = 0x52                   # the input on
+    con_io[1 + 2 * SPI_SCK] = 1                     # FUNCSEL 1: SPI1
+    con_io[1 + 2 * SPI_MOSI] = 1
+    con_io[1 + 2 * SPI_MISO] = 1
+
+# back when the SPI has sent everything; the words it got back thrown away
+def spi_wait():
+    while spi[SSPSR] & SPI_BSY:
+        pass
+    while spi[SSPSR] & SPI_RNE:
+        d = spi[SSPDR]
+
+# words of 8 or 16 bits at 24 MHz from now on (only while the SPI is idle)
+def spi_bits(n):
+    spi_wait()
+    spi[SSPCR0] = u32(n - 1)
+
+# a word into the FIFO (when it has room)
+def spi_put(v):
+    while (spi[SSPSR] & SPI_TNF) == 0:
+        pass
+    spi[SSPDR] = u32(v)
+
+# ---------- the display ----------
+
+# a command (DC low); its data bytes follow with spi_put; CS high and low again first
+def command(c):
+    spi_bits(8)
+    gpio_write(LCD_CS, 1)
+    gpio_write(LCD_CS, 0)
+    gpio_write(LCD_DC, 0)
+    spi_put(c)
+    spi_wait()
+    gpio_write(LCD_DC, 1)
+
+# the pins as outputs, the reset, the commands that switch it on
+def display_init():
+    gpio_output(LCD_CS)
+    gpio_output(LCD_DC)
+    gpio_output(LCD_RST)
+    gpio_output(LCD_BL)
+    gpio_output(TP_CS)
+    gpio_write(TP_CS, 1)                            # the touch not selected
+    gpio_write(LCD_CS, 1)
+    gpio_write(LCD_DC, 1)
+    spi_init()
+    gpio_write(LCD_RST, 1)
+    wait_ms(5)
+    gpio_write(LCD_RST, 0)                          # a reset by its pin
+    wait_ms(20)
+    gpio_write(LCD_RST, 1)
+    wait_ms(150)
+    command(0x01)                                   # SWRESET
+    wait_ms(150)
+    command(0x11)                                   # SLPOUT: out of sleep
+    wait_ms(120)
+    command(0x3A)                                   # COLMOD: 16 bits per pixel
+    spi_put(0x55)
+    command(0x36)                                   # MADCTL: landscape (MV, MX)
+    spi_put(0x60)
+    command(0x21)                                   # INVON (the IPS panel needs it)
+    command(0x13)                                   # NORON: the normal mode
+    command(0x29)                                   # DISPON
+    spi_wait()
+    wait_ms(20)
+    gpio_write(LCD_BL, 1)                           # the backlight on
+
+# the window from x0, y0 to x1, y1 (both included); then 16-bit words: its pixels follow
+def window(x0, y0, x1, y1):
+    command(0x2A)                                   # CASET: the columns
+    spi_put(x0 >> 8)
+    spi_put(x0 & 0xFF)
+    spi_put(x1 >> 8)
+    spi_put(x1 & 0xFF)
+    command(0x2B)                                   # RASET: the rows
+    spi_put(y0 >> 8)
+    spi_put(y0 & 0xFF)
+    spi_put(y1 >> 8)
+    spi_put(y1 & 0xFF)
+    command(0x2C)                                   # RAMWR: the pixels from here on
+    spi_bits(16)
+
+# a rectangle in one colour
+def fill_rect(x, y, w, h, colour):
+    window(x, y, x + w - 1, y + h - 1)
+    n = w * h
+    while n > 0:
+        while (spi[SSPSR] & SPI_TNF) == 0:
+            pass
+        spi[SSPDR] = u32(colour)
+        n -= 1
+    spi_wait()
+
+# ---------- text ----------
+
+# the 5 columns of the characters 4 g .. 4 g + 3 (from 32 on), a column a byte, its lowest bit at the top (the same
+# font as examples/esp32/tdisplay.abel)
+def glyphs(g) pchar:
+    if g == 0:
+        return "\x00\x00\x00\x00\x00\x00\x00\x5F\x00\x00\x00\x07\x00\x07\x00\x14\x7F\x14\x7F\x14"
+    if g == 1:
+        return "\x24\x2A\x7F\x2A\x12\x23\x13\x08\x64\x62\x36\x49\x55\x22\x50\x00\x05\x03\x00\x00"
+    if g == 2:
+        return "\x00\x1C\x22\x41\x00\x00\x41\x22\x1C\x00\x08\x2A\x1C\x2A\x08\x08\x08\x3E\x08\x08"
+    if g == 3:
+        return "\x00\x50\x30\x00\x00\x08\x08\x08\x08\x08\x00\x60\x60\x00\x00\x20\x10\x08\x04\x02"
+    if g == 4:
+        return "\x3E\x51\x49\x45\x3E\x00\x42\x7F\x40\x00\x42\x61\x51\x49\x46\x21\x41\x45\x4B\x31"
+    if g == 5:
+        return "\x18\x14\x12\x7F\x10\x27\x45\x45\x45\x39\x3C\x4A\x49\x49\x30\x01\x71\x09\x05\x03"
+    if g == 6:
+        return "\x36\x49\x49\x49\x36\x06\x49\x49\x29\x1E\x00\x36\x36\x00\x00\x00\x56\x36\x00\x00"
+    if g == 7:
+        return "\x08\x14\x22\x41\x00\x14\x14\x14\x14\x14\x00\x41\x22\x14\x08\x02\x01\x51\x09\x06"
+    if g == 8:
+        return "\x32\x49\x79\x41\x3E\x7E\x11\x11\x11\x7E\x7F\x49\x49\x49\x36\x3E\x41\x41\x41\x22"
+    if g == 9:
+        return "\x7F\x41\x41\x22\x1C\x7F\x49\x49\x49\x41\x7F\x09\x09\x01\x01\x3E\x41\x41\x51\x32"
+    if g == 10:
+        return "\x7F\x08\x08\x08\x7F\x00\x41\x7F\x41\x00\x20\x40\x41\x3F\x01\x7F\x08\x14\x22\x41"
+    if g == 11:
+        return "\x7F\x40\x40\x40\x40\x7F\x02\x04\x02\x7F\x7F\x04\x08\x10\x7F\x3E\x41\x41\x41\x3E"
+    if g == 12:
+        return "\x7F\x09\x09\x09\x06\x3E\x41\x51\x21\x5E\x7F\x09\x19\x29\x46\x46\x49\x49\x49\x31"
+    if g == 13:
+        return "\x01\x01\x7F\x01\x01\x3F\x40\x40\x40\x3F\x1F\x20\x40\x20\x1F\x7F\x20\x18\x20\x7F"
+    if g == 14:
+        return "\x63\x14\x08\x14\x63\x03\x04\x78\x04\x03\x61\x51\x49\x45\x43\x00\x7F\x41\x41\x00"
+    if g == 15:
+        return "\x02\x04\x08\x10\x20\x00\x41\x41\x7F\x00\x04\x02\x01\x02\x04\x40\x40\x40\x40\x40"
+    if g == 16:
+        return "\x00\x01\x02\x04\x00\x20\x54\x54\x54\x78\x7F\x48\x44\x44\x38\x38\x44\x44\x44\x20"
+    if g == 17:
+        return "\x38\x44\x44\x48\x7F\x38\x54\x54\x54\x18\x08\x7E\x09\x01\x02\x08\x54\x54\x54\x3C"
+    if g == 18:
+        return "\x7F\x08\x04\x04\x78\x00\x44\x7D\x40\x00\x20\x40\x44\x3D\x00\x7F\x10\x28\x44\x00"
+    if g == 19:
+        return "\x00\x41\x7F\x40\x00\x7C\x04\x18\x04\x78\x7C\x08\x04\x04\x78\x38\x44\x44\x44\x38"
+    if g == 20:
+        return "\x7C\x14\x14\x14\x08\x08\x14\x14\x18\x7C\x7C\x08\x04\x04\x08\x48\x54\x54\x54\x20"
+    if g == 21:
+        return "\x04\x3F\x44\x40\x20\x3C\x40\x40\x20\x7C\x1C\x20\x40\x20\x1C\x3C\x40\x30\x40\x3C"
+    if g == 22:
+        return "\x44\x28\x10\x28\x44\x0C\x50\x50\x50\x3C\x44\x64\x54\x4C\x44\x00\x08\x36\x41\x00"
+    if g == 23:
+        return "\x00\x00\x7F\x00\x00\x00\x41\x36\x08\x00\x08\x04\x08\x10\x08\x00\x06\x09\x09\x06"
+    return "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+
+# the character c at x, y, size times bigger (its cell: 6 x 8 pixels times size), in the colour fg on bg
+def draw_char(x, y, c, size, fg, bg):
+    if c < 32 or c > 127:
+        c = '?'
+    g = glyphs((c - 32) / 4)
+    first = ((c - 32) % 4) * 5
+    window(x, y, x + 6 * size - 1, y + 8 * size - 1)
+    for r in 0..8:
+        for sy in 0..size:
+            for k in 0..6:
+                colour = bg
+                if k < 5 and r < 7:
+                    if (g[first + k] >> r) & 1:
+                        colour = fg
+                for sx in 0..size:
+                    while (spi[SSPSR] & SPI_TNF) == 0:
+                        pass
+                    spi[SSPDR] = u32(colour)
+    spi_wait()
+
+# a text at x, y; the x behind it
+def draw_text(x, y, s: pchar, size, fg, bg) i32:
+    i = 0
+    while s[i] != 0:
+        draw_char(x, y, s[i], size, fg, bg)
+        x += 6 * size
+        i += 1
+    return x
+
+# ---------- the touch ----------
+
+# TP_IRQ an input with a pull-up (the XPT2046 pulls it low while the panel is touched)
+def touch_init():
+    con_pads[1 + TP_IRQ] = 0x4A                     # the input on, pull-up, Schmitt trigger
+    con_io[1 + 2 * TP_IRQ] = 5                      # FUNCSEL 5: the SIO
+    con_sio[0x28 / 4] = u32(1 << TP_IRQ)            # GPIO_OE_CLR: no output
+
+# 1 while the panel is touched
+def touched() i32:
+    return (con_sio[1] & u32(1 << TP_IRQ)) == 0     # GPIO_IN
+
+# one value (12 bits) of the XPT2046 for the command c: 3 bytes at 2 MHz, the value in bits 14..3 of the last two
+def touch_read(c) i32:
+    spi_wait()
+    spi[SSPCR0] = u32((11 << 8) | 7)                # 8 bits, SCR 11: 48 MHz / (2 * 12) = 2 MHz
+    gpio_write(LCD_CS, 1)
+    gpio_write(TP_CS, 0)
+    spi[SSPDR] = u32(c)
+    spi[SSPDR] = 0
+    spi[SSPDR] = 0
+    r = 0
+    for i in 0..3:
+        while (spi[SSPSR] & SPI_RNE) == 0:
+            pass
+        r = (r << 8) | i32(spi[SSPDR])
+    gpio_write(TP_CS, 1)
+    return (r >> 3) & 0xFFF
+
+# both plates, 8 times each and the mean, into raw. 0 (no reading) if the pressure is too low or the 8 values of a
+# plate lie too far apart: that happens while the finger lands or leaves, and the mean would be a point somewhere
+# else on the screen
+def touch_raw() i32:
+    if touch_read(0xB0) < PRESSURE:                 # Z1: about 0 without a touch, grows with the pressure
+        return 0
+    touch_read(0xD0)                                # the first value after the switch is often off: thrown away
+    sx = 0
+    sy = 0
+    xmin = 4095
+    xmax = 0
+    ymin = 4095
+    ymax = 0
+    for i in 0..8:
+        x = touch_read(0xD0)
+        y = touch_read(0x90)
+        sx += x
+        sy += y
+        if x < xmin:
+            xmin = x
+        if x > xmax:
+            xmax = x
+        if y < ymin:
+            ymin = y
+        if y > ymax:
+            ymax = y
+    if xmax - xmin > SPREAD or ymax - ymin > SPREAD:
+        return 0
+    if touch_read(0xB0) < PRESSURE or not touched():
+        return 0
+    raw[0] = sx >> 3
+    raw[1] = sy >> 3
+    return 1
+
+# a touch held still, after the finger has left the panel again: its raw values in raw
+def wait_tap():
+    while True:
+        while not touched():
+            pass
+        wait_ms(30)                                 # the finger settles
+        if touch_raw():
+            break
+    while touched():
+        pass
+    wait_ms(100)                                    # the panel bounces when the finger leaves
+
+def abs_value(v) i32:
+    if v < 0:
+        return 0 - v
+    return v
+
+# a cross at x, y in colour
+def cross(x, y, colour):
+    fill_rect(x - 10, y, 21, 1, colour)
+    fill_rect(x, y - 10, 1, 21, colour)
+
+# three taps: at 20, 20, at 300, 20 and at 20, 220. The plate that changes most between the first two runs along
+# the x of the screen. 0 if the taps make no sense (twice the same place)
+def calibrate() i32:
+    fill_rect(0, 0, WIDTH, HEIGHT, BLACK)
+    draw_text(60, 110, "Tap the crosses.", 2, WHITE, BLACK)
+    cross(20, 20, YELLOW)
+    wait_tap()
+    a0 = raw[0]
+    b0 = raw[1]
+    cross(20, 20, BLACK)
+    cross(300, 20, YELLOW)
+    wait_tap()
+    a1 = raw[0]
+    b1 = raw[1]
+    cross(300, 20, BLACK)
+    cross(20, 220, YELLOW)
+    wait_tap()
+    a2 = raw[0]
+    b2 = raw[1]
+    cross(20, 220, BLACK)
+    if abs_value(b1 - b0) > abs_value(a1 - a0):
+        cal[0] = 1                                  # screen x from the Y plate, y from the X plate
+        cal[1] = b0
+        cal[2] = b1
+        cal[3] = a0
+        cal[4] = a2
+    else:
+        cal[0] = 0
+        cal[1] = a0
+        cal[2] = a1
+        cal[3] = b0
+        cal[4] = b2
+    print("Calibration: x from the ")
+    if cal[0]:
+        print("Y")
+    else:
+        print("X")
+    print(" plate, ")
+    print_int(cal[1])
+    print(" .. ")
+    print_int(cal[2])
+    print(", y ")
+    print_int(cal[3])
+    print(" .. ")
+    print_int(cal[4])
+    println(".")
+    if abs_value(cal[2] - cal[1]) < 500 or abs_value(cal[4] - cal[3]) < 500:
+        println("The taps were too close together: once more.")
+        return 0
+    return 1
+
+# v kept between lo and hi
+def clamp(v, lo, hi) i32:
+    if v < lo:
+        return lo
+    if v > hi:
+        return hi
+    return v
+
+# the touched point on the screen into point; 0 if the panel is not touched
+def touch_point() i32:
+    if not touched():
+        return 0
+    if not touch_raw():
+        return 0
+    rx = raw[0]
+    ry = raw[1]
+    if cal[0]:
+        rx = raw[1]
+        ry = raw[0]
+    point[0] = clamp(20 + (rx - cal[1]) * 280 / (cal[2] - cal[1]), 0, WIDTH - 1)
+    point[1] = clamp(20 + (ry - cal[3]) * 200 / (cal[4] - cal[3]), 0, HEIGHT - 1)
+    return 1
+
+# ---------- the paint program ----------
+
+# the colour of field i of the bar (0..6); field 7 is "clear"
+def bar_colour(i) i32:
+    if i == 0:
+        return WHITE
+    if i == 1:
+        return RED
+    if i == 2:
+        return GREEN
+    if i == 3:
+        return BLUE
+    if i == 4:
+        return YELLOW
+    if i == 5:
+        return CYAN
+    return MAGENTA
+
+# the bar at the top, the field of the chosen colour marked by a frame
+def draw_bar(chosen):
+    for i in 0..7:
+        fill_rect(40 * i, 0, 40, BAR, bar_colour(i))
+    fill_rect(280, 0, 40, BAR, GREY)
+    draw_text(286, 11, "clear", 1, WHITE, GREY)
+    x = 40 * chosen
+    fill_rect(x, 0, 40, 3, BLACK)
+    fill_rect(x, BAR - 3, 40, 3, BLACK)
+    fill_rect(x, 0, 3, BAR, BLACK)
+    fill_rect(x + 37, 0, 3, BAR, BLACK)
+
+def main():
+    println("touch28: paint on the Pico-ResTouch-LCD-2.8 (Ctrl+C ends it)")
+    display_init()
+    touch_init()
+    while not calibrate():
+        pass
+    chosen = 0
+    fill_rect(0, 0, WIDTH, HEIGHT, BLACK)
+    draw_bar(chosen)
+    # a point counts only when the reading before it lies close by: a single stray reading has no such neighbour
+    have = 0
+    px = 0
+    py = 0
+    while True:
+        if not touch_point():
+            have = 0
+            continue
+        x = point[0]
+        y = point[1]
+        near = have and abs_value(x - px) < 12 and abs_value(y - py) < 12
+        have = 1
+        px = x
+        py = y
+        if near:
+            if y < BAR:
+                field = x / 40
+                if field == 7:
+                    fill_rect(0, BAR, WIDTH, HEIGHT - BAR, BLACK)
+                else:
+                    chosen = field
+                    draw_bar(chosen)
+                while touched():
+                    pass
+                wait_ms(100)
+                have = 0
+            elif y >= BAR + 3:
+                fill_rect(clamp(x - 2, 0, WIDTH - 5), clamp(y - 2, BAR + 1, HEIGHT - 5), 5, 5, bar_colour(chosen))
