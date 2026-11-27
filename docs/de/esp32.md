@@ -189,6 +189,8 @@ Ports, das setzt den Chip zurück, und ein Programm im RAM ist weg.
 
 ## Die Konsole und ihre Dateien
 
+Was die Konsole ist und kann, auf jedem Board: [konsole.md](konsole.md). Hier, was beim ESP32 dazukommt.
+
 `boards/esp32/console.asm` macht aus dem Board einen kleinen Rechner mit einem Dateisystem im Flash: Es reicht von
 2 MB bis zum Ende des Flash (bei 4 MB also 2 MB, bei 8 MB wie auf einem WROVER 6 MB; die Konsole liest die Größe beim
 Start aus dem Flash-Chip). Jedes Terminalprogramm arbeitet mit ihr (`ls`, `cat`, `rm`, `df`, `format`, `run`,

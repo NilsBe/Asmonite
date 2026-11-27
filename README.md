@@ -36,6 +36,8 @@ Current version: **0.17.0** | Website: [asmonite.com](https://asmonite.com) and
 - **The Board Manager** (menu Board) is the place for the boards: plug in a new board, click **Prepare Board**,
   done. After that the files and programs on the board, the WiFi, the clock, and for each board only the buttons that
   fit it: [docs/en/board-manager.md](docs/en/board-manager.md).
+- **The console** on the board is a small shell, not an interpreter: files in the flash, programs as commands with
+  arguments, autostart, WiFi, ping and `name.local`; about 16 KB on the ESP32: [docs/en/console.md](docs/en/console.md).
 - **Which board is debugged how** (all but the Blue Pill with the USB cable alone) and how its serial output
   reaches the PC (the tab Serial): [docs/en/boards.md](docs/en/boards.md).
 - **ESP32 and ESP32-S3:** Xtensa (`.arch xtensa`, `.target esp32` / `.target esp32s3`), also in aBelle. A small

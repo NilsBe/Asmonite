@@ -186,6 +186,8 @@ is gone.
 
 ## The console and its files
 
+What the console is and does, on every board: [console.md](console.md). Here, what the ESP32 adds.
+
 `boards/esp32/console.asm` makes the board a small computer with a file system in the flash: it reaches from 2 MB to
 the end of the flash (2 MB on a flash of 4 MB, 6 MB on one of 8 MB such as a WROVER; the console reads the size from
 the flash chip when it starts). Any terminal program works with it (`ls`, `cat`, `rm`, `df`, `format`, `run`,

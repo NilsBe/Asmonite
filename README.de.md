@@ -36,6 +36,8 @@ Aktuelle Version: **0.17.0** | Website: [asmonite.com](https://asmonite.com) und
 - **Der Board Manager** (Menü Board) ist die Zentrale für die Boards: Ein neues Board einstecken, **Prepare Board**
   klicken, fertig. Danach die Dateien und Programme auf dem Board, das WLAN, der Takt, und bei jedem Board nur die
   Knöpfe, die zu ihm passen: [docs/de/board-manager.md](docs/de/board-manager.md).
+- **Die Konsole** auf dem Board ist eine kleine Shell, kein Interpreter: Dateien im Flash, Programme als Befehle mit
+  Argumenten, Autostart, WLAN, Ping und `name.local`; beim ESP32 etwa 16 KB: [docs/de/konsole.md](docs/de/konsole.md).
 - **Welches Board wie debuggt wird** (alle außer der Blue Pill mit dem USB-Kabel allein) und wie seine serielle
   Ausgabe zum PC kommt (der Reiter Serial): [docs/de/boards.md](docs/de/boards.md).
 - **ESP32 und ESP32-S3:** Xtensa (`.arch xtensa`, `.target esp32` / `.target esp32s3`), auch in aBelle. Eine kleine
