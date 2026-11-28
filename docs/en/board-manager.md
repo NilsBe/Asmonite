@@ -70,7 +70,7 @@ Right-click a file to see what you can do with it:
 
 Files dragged from the Explorer onto the window are uploaded to the board. **Examples...** opens an example for the
 board chosen: from `examples\common` (for every board), from the folder of the board, or the overview of the
-examples. Asmonite opens it in the editor and, for aBelle, sets **Project > aBelle for** to the board of the tab
+examples. Asmonite opens it in the editor and, for aBelle, sets **Project > Target** to the board of the tab
 Serial: F9 then runs it there.
 
 From the editor, programs get onto the board like this:

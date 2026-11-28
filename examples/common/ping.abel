@@ -2,7 +2,7 @@
 # ICMP echo requests, one a second, to the router and to a server in the internet (found by DNS) and shows each reply
 # with the time it took, at the end the count and the times as the ping of a PC does. The same source for the ESP32,
 # the ESP32-S3, the ESP32-C3, the ESP32-S31, the Pico W and the Pico 2 W: it has no line target "...", so Asmonite
-# translates it for the board of Project > aBelle for (the board in the tab Serial), and include "net.abel" takes the
+# translates it for the board of Project > Target (the board in the tab Serial), and include "net.abel" takes the
 # small IP stack of aBelle and the WiFi of that board from abelle\lib. Start it with F9, or upload it and type "ping"
 # in the console (an argument can only be given there).
 #

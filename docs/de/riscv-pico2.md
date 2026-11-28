@@ -137,7 +137,7 @@ mit `blx` dorthin; `r0` bis `r3` sind die Argumente, `r0` das Ergebnis, `r0` bis
 
 **Programme in aBelle:** `target "pico2"` (der Pico: `target "pico"`) und `include "console.abel"`; F9 startet sie
 über die Konsole, mit einem Breakpoint debuggen F9, F7 und F8 sie, mit den Variablen. Ein Programm ohne Zeile
-`target` übersetzt Asmonite für das Board unter **Project > aBelle for**; so laufen auch die Beispiele in
+`target` übersetzt Asmonite für das Board unter **Project > Target**; so laufen auch die Beispiele in
 `examples/common/` hier, zum Beispiel `hello.abel` und `blink.abel`. Pico W und Pico 2 W haben ihre LED am WLAN-Chip:
 `led()` schaltet sie dort (der erste Aufruf startet den Chip, wie `wlan on`).
 
@@ -240,7 +240,7 @@ Code; die Hazard3-Kerne haben C).
 - *No Pico 2 with the Asmonite console is connected over USB* (oder Pico): Das Board steckt nicht, oder es hat noch
   keine Konsole: BOOTSEL beim Einstecken gedrückt halten, dann **Prepare Board...** im Board Manager.
 - *This program is for the Pico, but the board ... is a Pico 2* (oder umgekehrt): `.target` ändern (aBelle: die
-  Zeile `target`, oder sie entfernen und das Board unter Project > aBelle for wählen).
+  Zeile `target`, oder sie entfernen und das Board unter Project > Target wählen).
 - *This program is for the flash*: Über USB debuggt Asmonite Programme im RAM; gib ihm `.imagebase 0x20000000` oder
   starte es als UF2-Datei (siehe oben).
 - Windows zeigt keinen neuen COM-Port und kein Laufwerk: Das Kabel ist vielleicht nur ein Ladekabel; versuche ein

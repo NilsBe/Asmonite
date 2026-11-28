@@ -312,7 +312,7 @@ def main():
 What a program includes is the library of aBelle in `abelle/lib`: `lib/esp32/` has `console.abel` (the functions of
 the console) and `wifi.abel` (the WiFi), `lib/common/` the parts for every board, `net.abel` and `tcp.abel` (the
 network) and `tls.abel` (TLS 1.3). A program without a line `target` is translated for the board of **Project >
-aBelle for**: so the examples in `examples/common/` run on the ESP32 as on the other boards, those in
+Target**: so the examples in `examples/common/` run on the ESP32 as on the other boards, those in
 `examples/esp32/` (the sensor BME280, the display of the T-Display) on the ESP32 only. The programs take the network
 of the board (`wlan set`).
 

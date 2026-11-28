@@ -1,7 +1,7 @@
 # The WiFi networks near the board: the program lets the WiFi of the board scan all channels and lists each network
 # with its signal (dBm), its channel, how it is protected (open, WPA2, WPA3, ...), its BSSID (the MAC of the access
 # point) and its name. The same source for the ESP32, the ESP32-S3, the ESP32-C3, the ESP32-S31, the Pico W and the
-# Pico 2 W: it has no line target "...", so Asmonite translates it for the board of Project > aBelle for (the board in
+# Pico 2 W: it has no line target "...", so Asmonite translates it for the board of Project > Target (the board in
 # the tab Serial), and include "wifi.abel" takes the WiFi of that board from abelle\lib. Start it with F9.
 #
 # The board needs its WiFi: the WiFi package on an ESP32 board, the files of the WiFi chip on a Pico W (Prepare Board

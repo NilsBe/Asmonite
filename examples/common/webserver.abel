@@ -3,7 +3,7 @@
 # Manager shows): http://<address>/hello.txt gives the file hello.txt, http://<address>/ gives index.html. A browser in
 # the same network shows them; the board can be found by its name too (mDNS: http://<name>.local/, the name of "name"
 # in the console). The same source for the ESP32, the ESP32-S3, the ESP32-C3, the ESP32-S31, the Pico W and the Pico
-# 2 W: Asmonite translates it for the board of Project > aBelle for, include "tcp.abel" takes the small IP stack of
+# 2 W: Asmonite translates it for the board of Project > Target, include "tcp.abel" takes the small IP stack of
 # aBelle with TCP and the WiFi of that board from abelle\lib. Start it with F9, or upload it and type "webserver" in
 # the console; it runs until Ctrl+C (Stop in the tab Serial of Asmonite).
 #

@@ -2,7 +2,7 @@
 # DHCP, then asks by ARP for every address of its network (x.x.x.1 .. x.x.x.254 of a /24 network), one request every
 # 15 ms, and lists each device that answers with its MAC. The same source for the ESP32, the ESP32-S3, the ESP32-C3,
 # the ESP32-S31, the Pico W and the Pico 2 W: it has no line target "...", so Asmonite translates it for the board of
-# Project > aBelle for (the board in the tab Serial), and include "net.abel" takes the small IP stack of aBelle and the
+# Project > Target (the board in the tab Serial), and include "net.abel" takes the small IP stack of aBelle and the
 # WiFi of that board from abelle\lib. Start it with F9.
 #
 # ARP (address resolution protocol) asks all of the network "who has 192.168.1.20? tell 192.168.1.73"; the device

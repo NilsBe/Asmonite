@@ -1,7 +1,7 @@
 # UDP echo: the board connects to the network it keeps (wlan set in the console), gets an address by DHCP and sends
 # every UDP packet that comes to port 7777 back to its sender, as it came; it shows each one (its length, the sender,
 # its first bytes as text). The same source for the ESP32, the ESP32-S3, the ESP32-C3, the ESP32-S31, the Pico W and
-# the Pico 2 W: Asmonite translates it for the board of Project > aBelle for, include "net.abel" takes the small IP
+# the Pico 2 W: Asmonite translates it for the board of Project > Target, include "net.abel" takes the small IP
 # stack of aBelle and the WiFi of that board from abelle\lib. Start it with F9, or upload it and type "udpecho" in the
 # console; it runs until Ctrl+C (Stop in the tab Serial of Asmonite).
 #

@@ -132,7 +132,7 @@ functions are also code to call at `0x20079E00` (16 bytes each, in the same orde
 
 **Programs in aBelle:** `target "pico2"` (the Pico: `target "pico"`) and `include "console.abel"`; F9 runs them over
 the console, with a breakpoint F9, F7 and F8 debug them, with the variables. A program without a line `target` is
-translated by Asmonite for the board of **Project > aBelle for**; so the examples in `examples/common/` run here too,
+translated by Asmonite for the board of **Project > Target**; so the examples in `examples/common/` run here too,
 for example `hello.abel` and `blink.abel`. The Pico W and the Pico 2 W have their LED at the WiFi chip: `led()`
 switches it there (its first call starts the chip, as `wlan on`).
 
@@ -233,7 +233,7 @@ C).
 - *No Pico 2 with the Asmonite console is connected over USB* (or Pico): the board is not plugged in, or it has no
   console yet: hold BOOTSEL while you plug it in, then **Prepare Board...** in the Board Manager.
 - *This program is for the Pico, but the board ... is a Pico 2* (or the other way round): change `.target` (aBelle:
-  the line `target`, or remove it and choose the board under Project > aBelle for).
+  the line `target`, or remove it and choose the board under Project > Target).
 - *This program is for the flash*: over USB Asmonite debugs programs in the RAM; give it `.imagebase 0x20000000`, or
   run it as a UF2 file (see above).
 - Windows shows no new COM port and no drive: the cable may be a charging cable only; try another one.

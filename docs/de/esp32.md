@@ -322,7 +322,7 @@ def main():
 Was ein Programm einbindet, ist die Bibliothek von aBelle in `abelle/lib`: `lib/esp32/` hat `console.abel` (die
 Funktionen der Konsole) und `wifi.abel` (das WLAN), `lib/common/` die Teile für jedes Board, `net.abel` und `tcp.abel`
 (das Netz) und `tls.abel` (TLS 1.3). Ein Programm ohne Zeile `target` übersetzt Asmonite für das Board von **Project >
-aBelle for**: So laufen die Beispiele in `examples/common/` auf dem ESP32 wie auf den anderen Boards, die in
+Target**: So laufen die Beispiele in `examples/common/` auf dem ESP32 wie auf den anderen Boards, die in
 `examples/esp32/` (der Sensor BME280, das Display des T-Display) nur auf dem ESP32. Die Programme nehmen das Netz des
 Boards (`wlan set`).
 

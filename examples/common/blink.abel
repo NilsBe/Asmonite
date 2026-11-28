@@ -1,7 +1,7 @@
 # Blink: the LED of the board on and off, every half second, until you stop the program (Ctrl+C in the console, or
 # Stop in Asmonite). The same source for every board: only the lines below say where the LED of YOUR board is. Set
 # LED_PIN (and LED_LOW) for your board, then start it with F9 (it has no line target "...": Asmonite translates it
-# for the board of Project > aBelle for, and gpio_output and gpio_write of console.abel switch the pin of that chip).
+# for the board of Project > Target, and gpio_output and gpio_write of console.abel switch the pin of that chip).
 
 include "console.abel"
 

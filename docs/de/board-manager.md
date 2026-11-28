@@ -72,7 +72,7 @@ Ein Rechtsklick auf eine Datei zeigt, was mit ihr geht:
 
 Dateien aus dem Explorer, auf das Fenster gezogen, lädt der Board Manager auf das Board. **Examples...** öffnet ein
 Beispiel für das gewählte Board: aus `examples\common` (für jedes Board), aus dem Ordner des Boards oder die Übersicht
-der Beispiele. Asmonite öffnet es im Editor und stellt bei aBelle **Project > aBelle for** auf das Board des Reiters Serial: F9
+der Beispiele. Asmonite öffnet es im Editor und stellt bei aBelle **Project > Target** auf das Board des Reiters Serial: F9
 startet es dann dort.
 
 Aus dem Editor kommen Programme so auf das Board:
